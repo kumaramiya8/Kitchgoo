@@ -41,8 +41,8 @@ const GuestProfileModal = ({ guest, onClose, onSave }) => {
   const [tab, setTab] = useState('profile');
   const orders = (getAll('orders') || []).filter(o => o.guestId === guest.id).reverse();
 
-  const handleSave = () => {
-    onSave(form);
+  const handleSave = async () => {
+    await onSave(form);
     onClose();
   };
 
@@ -165,9 +165,9 @@ const GuestProfileModal = ({ guest, onClose, onSave }) => {
 const NewGuestModal = ({ onSave, onClose }) => {
   const [form, setForm] = useState({ name: '', phone: '', email: '', notes: '' });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name.trim()) return;
-    const g = insert('guests', { ...form, visitCount: 0, totalSpend: 0 });
+    const g = await insert('guests', { ...form, visitCount: 0, totalSpend: 0 });
     onSave(g);
     onClose();
   };
@@ -207,7 +207,7 @@ const NewGuestModal = ({ onSave, onClose }) => {
 // ── Main Guests Page ─────────────────────────────────────────
 const Guests = () => {
   const [query, setQuery] = useState('');
-  const [guests, setGuests] = useState(() => getAll('guests') || []);
+  const [guests, setGuests] = useState(getAll('guests') || []);
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -221,13 +221,13 @@ const Guests = () => {
     (g.email || '').toLowerCase().includes(query.toLowerCase())
   );
 
-  const handleSaveProfile = (form) => {
-    update('guests', form.id, form);
+  const handleSaveProfile = async (form) => {
+    await update('guests', form.id, form);
     refreshGuests();
   };
 
-  const handleDelete = (id) => {
-    remove('guests', id);
+  const handleDelete = async (id) => {
+    await remove('guests', id);
     setConfirmDelete(null);
     refreshGuests();
   };

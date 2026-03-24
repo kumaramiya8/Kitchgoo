@@ -4,7 +4,6 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
-  initDB,
   getAll,
   getSettings,
   insert,
@@ -33,9 +32,8 @@ export function AppProvider({ children }) {
   const [settings, setSettings] = useState(null);
   const [todayStats, setTodayStats] = useState({ gross: 0, orderCount: 0, avg: 0, orders: [] });
 
-  // Bootstrap
+  // Bootstrap — initDB() already ran in main.jsx, so reads are sync from cache
   useEffect(() => {
-    initDB();
     reload();
     setReady(true);
   }, []);
@@ -51,33 +49,33 @@ export function AppProvider({ children }) {
   };
 
   // ── Staff ────────────────────────────────────────────────
-  const addStaff = useCallback((data) => {
-    const item = insert('staff', data);
+  const addStaff = useCallback(async (data) => {
+    const item = await insert('staff', data);
     setStaff(getAll('staff'));
     return item;
   }, []);
 
-  const editStaff = useCallback((id, data) => {
-    const item = update('staff', id, data);
+  const editStaff = useCallback(async (id, data) => {
+    const item = await update('staff', id, data);
     setStaff(getAll('staff'));
     return item;
   }, []);
 
-  const deleteStaff = useCallback((id) => {
-    remove('staff', id);
+  const deleteStaff = useCallback(async (id) => {
+    await remove('staff', id);
     setStaff(getAll('staff'));
   }, []);
 
-  const toggleStaffStatus = useCallback((id) => {
+  const toggleStaffStatus = useCallback(async (id) => {
     const member = getAll('staff').find(s => s.id === id);
     if (!member) return;
     const newStatus = member.status === 'active' ? 'off-duty' : 'active';
-    update('staff', id, { status: newStatus });
+    await update('staff', id, { status: newStatus });
     setStaff(getAll('staff'));
   }, []);
 
-  const checkInOut = useCallback((staffId, type) => {
-    logAttendance(staffId, type);
+  const checkInOut = useCallback(async (staffId, type) => {
+    await logAttendance(staffId, type);
   }, []);
 
   const getStaffAttendance = useCallback((staffId) => {
@@ -85,12 +83,11 @@ export function AppProvider({ children }) {
   }, []);
 
   // ── Inventory ────────────────────────────────────────────
-  const addInventoryItem = useCallback((data) => {
-    // Check if item with same name exists → top up
+  const addInventoryItem = useCallback(async (data) => {
     const existing = getAll('inventory').find(i => i.name.toLowerCase() === data.name.toLowerCase());
     if (existing) {
       const newStock = existing.stock + parseFloat(data.stock);
-      update('inventory', existing.id, {
+      await update('inventory', existing.id, {
         stock: newStock,
         status: computeStockStatus(newStock, existing.min),
         lastUpdated: new Date().toISOString(),
@@ -98,89 +95,89 @@ export function AppProvider({ children }) {
     } else {
       const stock = parseFloat(data.stock);
       const min = parseFloat(data.min) || 5;
-      insert('inventory', { ...data, stock, min, status: computeStockStatus(stock, min), lastUpdated: new Date().toISOString() });
+      await insert('inventory', { ...data, stock, min, status: computeStockStatus(stock, min), lastUpdated: new Date().toISOString() });
     }
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
   }, []);
 
-  const editInventoryItem = useCallback((id, data) => {
+  const editInventoryItem = useCallback(async (id, data) => {
     const stock = parseFloat(data.stock);
     const min = parseFloat(data.min);
-    update('inventory', id, { ...data, stock, min, status: computeStockStatus(stock, min), lastUpdated: new Date().toISOString() });
+    await update('inventory', id, { ...data, stock, min, status: computeStockStatus(stock, min), lastUpdated: new Date().toISOString() });
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
   }, []);
 
-  const orderMoreInventory = useCallback((id) => {
+  const orderMoreInventory = useCallback(async (id) => {
     const item = getAll('inventory').find(i => i.id === id);
     if (!item) return;
     const newStock = item.stock + item.min * 2;
-    update('inventory', id, { stock: newStock, status: 'good', lastUpdated: new Date().toISOString() });
+    await update('inventory', id, { stock: newStock, status: 'good', lastUpdated: new Date().toISOString() });
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
   }, []);
 
-  const deleteInventoryItem = useCallback((id) => {
-    remove('inventory', id);
+  const deleteInventoryItem = useCallback(async (id) => {
+    await remove('inventory', id);
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
   }, []);
 
   // ── Menu ─────────────────────────────────────────────────
-  const addMenuItem = useCallback((data) => {
-    const item = insert('menu', { ...data, price: parseFloat(data.price) });
+  const addMenuItem = useCallback(async (data) => {
+    const item = await insert('menu', { ...data, price: parseFloat(data.price) });
     setMenu(getAll('menu'));
     return item;
   }, []);
 
-  const editMenuItem = useCallback((id, data) => {
-    const item = update('menu', id, { ...data, price: parseFloat(data.price) });
+  const editMenuItem = useCallback(async (id, data) => {
+    const item = await update('menu', id, { ...data, price: parseFloat(data.price) });
     setMenu(getAll('menu'));
     return item;
   }, []);
 
-  const deleteMenuItem = useCallback((id) => {
-    remove('menu', id);
+  const deleteMenuItem = useCallback(async (id) => {
+    await remove('menu', id);
     setMenu(getAll('menu'));
   }, []);
 
-  const toggleMenuItemAvailability = useCallback((id) => {
+  const toggleMenuItemAvailability = useCallback(async (id) => {
     const item = getAll('menu').find(i => i.id === id);
     if (!item) return;
-    update('menu', id, { active: !item.active });
+    await update('menu', id, { active: !item.active });
     setMenu(getAll('menu'));
   }, []);
 
   // ── Orders ────────────────────────────────────────────────
-  const placeOrder = useCallback((tableId, items, paymentMethod) => {
-    const order = createOrder(tableId, items, paymentMethod);
+  const placeOrder = useCallback(async (tableId, items, paymentMethod) => {
+    const order = await createOrder(tableId, items, paymentMethod);
     setOrders(getAll('orders'));
     setTodayStats(getTodayStats());
     return order;
   }, []);
 
   // ── Delivery ──────────────────────────────────────────────
-  const addDelivery = useCallback((order) => {
-    const item = addDeliveryOrder(order);
+  const addDelivery = useCallback(async (order) => {
+    const item = await addDeliveryOrder(order);
     setDeliveryOrders(getAll('delivery_orders'));
     return item;
   }, []);
 
-  const advanceDeliveryStatus = useCallback((id) => {
+  const advanceDeliveryStatus = useCallback(async (id) => {
     const FLOW = { new: 'preparing', preparing: 'ready', ready: 'delivered' };
     const order = getAll('delivery_orders').find(o => o.id === id);
     if (!order || !FLOW[order.status]) return;
-    updateDeliveryStatus(id, FLOW[order.status]);
+    await updateDeliveryStatus(id, FLOW[order.status]);
     setDeliveryOrders(getAll('delivery_orders'));
   }, []);
 
-  const rejectDelivery = useCallback((id) => {
-    remove('delivery_orders', id);
+  const rejectDelivery = useCallback(async (id) => {
+    await remove('delivery_orders', id);
     setDeliveryOrders(getAll('delivery_orders'));
   }, []);
 
-  const simulateNewDelivery = useCallback(() => {
+  const simulateNewDelivery = useCallback(async () => {
     const platforms = ['Zomato', 'Swiggy'];
     const platform = platforms[Math.floor(Math.random() * platforms.length)];
     const pfx = platform === 'Zomato' ? 'ZOM' : 'SWG';
-    addDelivery({
+    await addDeliveryOrder({
       externalId: `${pfx}-${Math.floor(Math.random() * 9000) + 1000}`,
       platform,
       status: 'new',
@@ -188,11 +185,12 @@ export function AppProvider({ children }) {
       total: Math.floor(Math.random() * 800) + 200,
       customer: ['Amit B.', 'Rahul K.', 'Sneha M.', 'Priya S.', 'Vikram D.'][Math.floor(Math.random() * 5)],
     });
+    setDeliveryOrders(getAll('delivery_orders'));
   }, []);
 
   // ── Settings ──────────────────────────────────────────────
-  const updateSettingsSection = useCallback((section, data) => {
-    const updated = dbUpdateSettings(section, data);
+  const updateSettingsSection = useCallback(async (section, data) => {
+    const updated = await dbUpdateSettings(section, data);
     setSettings(updated);
     return updated;
   }, []);

@@ -1,29 +1,45 @@
 /**
- * Kitchgoo - Database Layer
- * Uses localStorage for client-side persistence.
- * Each collection is stored under a namespaced key.
+ * Kitchgoo — Database Layer (Supabase backend)
+ *
+ * Architecture:
+ *  • All collections are stored in a single Supabase table: kitchgoo_store (key, value jsonb).
+ *  • initDB() fetches every row into an in-memory cache so reads stay synchronous.
+ *  • Writes update the cache immediately (sync) then persist to Supabase (async).
+ *  • Call initDB() once before rendering the app (see main.jsx).
  */
+
+import { supabase } from '../lib/supabase';
 
 const NS = 'kitchgoo_';
 
-// ─── Helpers ──────────────────────────────────────────────
-const read = (key) => {
-  try {
-    const raw = localStorage.getItem(NS + key);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-};
+// In-memory cache — populated by initDB()
+const _cache = {};
 
-const write = (key, value) => {
-  try {
-    localStorage.setItem(NS + key, JSON.stringify(value));
-    return true;
-  } catch { return false; }
-};
+// ─── Low-level Supabase helpers ────────────────────────────
 
-const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+async function dbFetchAll() {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('kitchgoo_store')
+    .select('key, value');
+  if (error) {
+    console.error('[DB] fetch error:', error.message);
+    return [];
+  }
+  return data || [];
+}
 
-// ─── Seed Data ────────────────────────────────────────────
+async function dbUpsert(key, value) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('kitchgoo_store')
+    .upsert({ key: NS + key, value, updated_at: new Date().toISOString() });
+  if (error) console.error('[DB] write error:', error.message);
+}
+
+export const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+// ─── Seed Data ─────────────────────────────────────────────
 const SEEDS = {
   settings: {
     restaurant: {
@@ -41,7 +57,7 @@ const SEEDS = {
       gstRate: 5,
       serviceCharge: 0,
       enableServiceCharge: false,
-      roundingMode: 'nearest', // 'none' | 'nearest' | 'up'
+      roundingMode: 'nearest',
       billPrefix: 'INV',
       billStartNumber: 1001,
       receiptHeader: 'Thank you for visiting Kitchgoo!',
@@ -98,124 +114,144 @@ const SEEDS = {
       language: 'en',
     },
     roles: [
-      { id: 'owner', name: 'Owner', permissions: ['all'] },
+      { id: 'owner',   name: 'Owner',   permissions: ['all'] },
       { id: 'manager', name: 'Manager', permissions: ['pos', 'inventory', 'staff', 'reports', 'menu', 'delivery'] },
       { id: 'cashier', name: 'Cashier', permissions: ['pos', 'delivery'] },
-      { id: 'chef', name: 'Chef', permissions: ['inventory', 'menu'] },
-      { id: 'waiter', name: 'Waiter', permissions: ['pos'] },
+      { id: 'chef',    name: 'Chef',    permissions: ['inventory', 'menu'] },
+      { id: 'waiter',  name: 'Waiter',  permissions: ['pos'] },
     ],
   },
 
   staff: [
-    { id: genId(), name: 'Anil Kumar', role: 'Manager', phone: '+91 98765 43210', status: 'active', shift: 'Morning', salary: 25000, joinDate: '2023-01-15' },
-    { id: genId(), name: 'Priya Sharma', role: 'Cashier', phone: '+91 98765 43211', status: 'active', shift: 'Evening', salary: 18000, joinDate: '2023-03-01' },
-    { id: genId(), name: 'Rahul Verma', role: 'Chef', phone: '+91 98765 43212', status: 'off-duty', shift: 'Morning', salary: 22000, joinDate: '2022-11-10' },
-    { id: genId(), name: 'Sneha Gupta', role: 'Waiter', phone: '+91 98765 43213', status: 'active', shift: 'Evening', salary: 14000, joinDate: '2023-06-20' },
+    { id: genId(), name: 'Anil Kumar',   role: 'Manager', phone: '+91 98765 43210', status: 'active',   shift: 'Morning', salary: 25000, joinDate: '2023-01-15' },
+    { id: genId(), name: 'Priya Sharma', role: 'Cashier', phone: '+91 98765 43211', status: 'active',   shift: 'Evening', salary: 18000, joinDate: '2023-03-01' },
+    { id: genId(), name: 'Rahul Verma',  role: 'Chef',    phone: '+91 98765 43212', status: 'off-duty', shift: 'Morning', salary: 22000, joinDate: '2022-11-10' },
+    { id: genId(), name: 'Sneha Gupta',  role: 'Waiter',  phone: '+91 98765 43213', status: 'active',   shift: 'Evening', salary: 14000, joinDate: '2023-06-20' },
   ],
 
   inventory: [
-    { id: genId(), name: 'Tomatoes', category: 'Vegetables', stock: 15, unit: 'kg', min: 10, cost: 30, supplier: 'Raj Suppliers', lastUpdated: new Date().toISOString() },
-    { id: genId(), name: 'Onions', category: 'Vegetables', stock: 8, unit: 'kg', min: 15, cost: 25, supplier: 'Raj Suppliers', lastUpdated: new Date().toISOString() },
-    { id: genId(), name: 'Basmati Rice', category: 'Grains', stock: 50, unit: 'kg', min: 20, cost: 80, supplier: 'Grain House', lastUpdated: new Date().toISOString() },
-    { id: genId(), name: 'Chicken Breast', category: 'Meat', stock: 5, unit: 'kg', min: 10, cost: 250, supplier: 'Fresh Meats Co.', lastUpdated: new Date().toISOString() },
-    { id: genId(), name: 'Paneer', category: 'Dairy', stock: 2, unit: 'kg', min: 5, cost: 180, supplier: 'Dairy Fresh', lastUpdated: new Date().toISOString() },
-    { id: genId(), name: 'Milk', category: 'Dairy', stock: 12, unit: 'L', min: 10, cost: 55, supplier: 'Dairy Fresh', lastUpdated: new Date().toISOString() },
-    { id: genId(), name: 'Cooking Oil', category: 'Pantry', stock: 25, unit: 'L', min: 15, cost: 120, supplier: 'Pantry Plus', lastUpdated: new Date().toISOString() },
-    { id: genId(), name: 'Salt', category: 'Pantry', stock: 10, unit: 'kg', min: 5, cost: 20, supplier: 'Pantry Plus', lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Tomatoes',      category: 'Vegetables', stock: 15, unit: 'kg', min: 10, cost: 30,  supplier: 'Raj Suppliers',  lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Onions',        category: 'Vegetables', stock: 8,  unit: 'kg', min: 15, cost: 25,  supplier: 'Raj Suppliers',  lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Basmati Rice',  category: 'Grains',     stock: 50, unit: 'kg', min: 20, cost: 80,  supplier: 'Grain House',    lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Chicken Breast',category: 'Meat',       stock: 5,  unit: 'kg', min: 10, cost: 250, supplier: 'Fresh Meats Co.',lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Paneer',        category: 'Dairy',      stock: 2,  unit: 'kg', min: 5,  cost: 180, supplier: 'Dairy Fresh',    lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Milk',          category: 'Dairy',      stock: 12, unit: 'L',  min: 10, cost: 55,  supplier: 'Dairy Fresh',    lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Cooking Oil',   category: 'Pantry',     stock: 25, unit: 'L',  min: 15, cost: 120, supplier: 'Pantry Plus',    lastUpdated: new Date().toISOString() },
+    { id: genId(), name: 'Salt',          category: 'Pantry',     stock: 10, unit: 'kg', min: 5,  cost: 20,  supplier: 'Pantry Plus',    lastUpdated: new Date().toISOString() },
   ],
 
   menu: [
-    { id: genId(), name: 'Paneer Tikka', price: 250, category: 'Starters', type: 'Veg', active: true, description: 'Grilled paneer with spices', preparationTime: 15 },
-    { id: genId(), name: 'Chicken Wings', price: 300, category: 'Starters', type: 'Non-Veg', active: true, description: 'Crispy spiced wings', preparationTime: 20 },
-    { id: genId(), name: 'Butter Chicken', price: 450, category: 'Main Course', type: 'Non-Veg', active: true, description: 'Classic creamy tomato gravy', preparationTime: 25 },
-    { id: genId(), name: 'Garlic Naan', price: 60, category: 'Main Course', type: 'Veg', active: true, description: 'Tandoor-baked naan with garlic', preparationTime: 10 },
-    { id: genId(), name: 'Dal Makhani', price: 350, category: 'Main Course', type: 'Veg', active: false, description: 'Slow-cooked black lentils', preparationTime: 30 },
-    { id: genId(), name: 'Gulab Jamun', price: 120, category: 'Desserts', type: 'Veg', active: true, description: '2 pcs with rabdi', preparationTime: 5 },
-    { id: genId(), name: 'Cold Coffee', price: 150, category: 'Beverages', type: 'Veg', active: true, description: 'Blended iced coffee', preparationTime: 7 },
-    { id: genId(), name: 'Veg Biryani', price: 280, category: 'Main Course', type: 'Veg', active: true, description: 'Fragrant basmati with vegetables', preparationTime: 30 },
+    { id: genId(), name: 'Paneer Tikka',  price: 250, category: 'Starters',    type: 'Veg',     active: true,  description: 'Grilled paneer with spices',       preparationTime: 15 },
+    { id: genId(), name: 'Chicken Wings', price: 300, category: 'Starters',    type: 'Non-Veg', active: true,  description: 'Crispy spiced wings',               preparationTime: 20 },
+    { id: genId(), name: 'Butter Chicken',price: 450, category: 'Main Course', type: 'Non-Veg', active: true,  description: 'Classic creamy tomato gravy',       preparationTime: 25 },
+    { id: genId(), name: 'Garlic Naan',   price: 60,  category: 'Main Course', type: 'Veg',     active: true,  description: 'Tandoor-baked naan with garlic',    preparationTime: 10 },
+    { id: genId(), name: 'Dal Makhani',   price: 350, category: 'Main Course', type: 'Veg',     active: false, description: 'Slow-cooked black lentils',          preparationTime: 30 },
+    { id: genId(), name: 'Gulab Jamun',   price: 120, category: 'Desserts',    type: 'Veg',     active: true,  description: '2 pcs with rabdi',                  preparationTime: 5  },
+    { id: genId(), name: 'Cold Coffee',   price: 150, category: 'Beverages',   type: 'Veg',     active: true,  description: 'Blended iced coffee',               preparationTime: 7  },
+    { id: genId(), name: 'Veg Biryani',   price: 280, category: 'Main Course', type: 'Veg',     active: true,  description: 'Fragrant basmati with vegetables',  preparationTime: 30 },
   ],
 
-  orders: [],
+  orders:          [],
   delivery_orders: [],
-  attendance: [],
-  users: [],
+  attendance:      [],
+  users:           [],
   guests: [
-    { id: genId(), name: 'Arjun Mehta', phone: '+91 98101 23456', email: 'arjun@email.com', notes: 'Prefers window seat', visitCount: 8, totalSpend: 6200 },
-    { id: genId(), name: 'Sunita Rao', phone: '+91 97200 34567', email: 'sunita@email.com', notes: 'Vegetarian only', visitCount: 5, totalSpend: 3800 },
-    { id: genId(), name: 'Karan Malhotra', phone: '+91 99300 45678', email: '', notes: '', visitCount: 2, totalSpend: 1400 },
-    { id: genId(), name: 'Priya Kapoor', phone: '+91 96400 56789', email: 'priya.k@email.com', notes: 'Birthday on Feb 14', visitCount: 12, totalSpend: 10500 },
+    { id: genId(), name: 'Arjun Mehta',    phone: '+91 98101 23456', email: 'arjun@email.com',   notes: 'Prefers window seat',  visitCount: 8,  totalSpend: 6200  },
+    { id: genId(), name: 'Sunita Rao',     phone: '+91 97200 34567', email: 'sunita@email.com',  notes: 'Vegetarian only',      visitCount: 5,  totalSpend: 3800  },
+    { id: genId(), name: 'Karan Malhotra', phone: '+91 99300 45678', email: '',                  notes: '',                     visitCount: 2,  totalSpend: 1400  },
+    { id: genId(), name: 'Priya Kapoor',   phone: '+91 96400 56789', email: 'priya.k@email.com', notes: 'Birthday on Feb 14',   visitCount: 12, totalSpend: 10500 },
   ],
 };
 
-// ─── Init ─────────────────────────────────────────────────
-export function initDB() {
-  const collections = ['settings', 'staff', 'inventory', 'menu', 'orders', 'delivery_orders', 'attendance', 'users', 'guests'];
-  collections.forEach(col => {
-    if (read(col) === null) {
-      write(col, SEEDS[col]);
-    }
+// ─── Init — load all data from Supabase into cache ─────────
+export async function initDB() {
+  const rows = await dbFetchAll();
+
+  // Populate cache from Supabase
+  rows.forEach(row => {
+    const shortKey = row.key.startsWith(NS) ? row.key.slice(NS.length) : row.key;
+    _cache[shortKey] = row.value;
   });
-  // Increment bill counter
-  if (read('bill_counter') === null) write('bill_counter', 1001);
+
+  // Seed collections that don't exist in Supabase yet
+  const collections = ['settings', 'staff', 'inventory', 'menu', 'orders', 'delivery_orders', 'attendance', 'users', 'guests'];
+  for (const col of collections) {
+    if (_cache[col] === undefined) {
+      _cache[col] = SEEDS[col];
+      await dbUpsert(col, SEEDS[col]);
+    }
+  }
+
+  if (_cache['bill_counter'] === undefined) {
+    _cache['bill_counter'] = 1001;
+    await dbUpsert('bill_counter', 1001);
+  }
+
+  // Self-heal: if roles got corrupted to a non-array, reset to seed
+  const settings = _cache['settings'];
+  if (settings && !Array.isArray(settings.roles)) {
+    const fixed = { ...settings, roles: SEEDS.settings.roles };
+    _cache['settings'] = fixed;
+    await dbUpsert('settings', fixed);
+  }
 }
 
-// ─── Generic Collection CRUD ───────────────────────────────
+// ─── Generic Collection CRUD ────────────────────────────────
+// Reads are synchronous (from in-memory cache).
+// Writes update the cache immediately, then persist to Supabase.
+
 export function getAll(collection) {
-  return read(collection) || [];
+  return _cache[collection] || [];
 }
 
 export function getById(collection, id) {
-  const items = getAll(collection);
-  return items.find(i => i.id === id) || null;
+  return getAll(collection).find(i => i.id === id) || null;
 }
 
-export function insert(collection, data) {
+export async function insert(collection, data) {
   const items = getAll(collection);
   const newItem = { id: genId(), createdAt: new Date().toISOString(), ...data };
-  write(collection, [...items, newItem]);
+  const updated = [...items, newItem];
+  _cache[collection] = updated;
+  await dbUpsert(collection, updated);
   return newItem;
 }
 
-export function update(collection, id, data) {
+export async function update(collection, id, data) {
   const items = getAll(collection);
-  const updated = items.map(i => i.id === id ? { ...i, ...data, updatedAt: new Date().toISOString() } : i);
-  write(collection, updated);
+  const updated = items.map(i =>
+    i.id === id ? { ...i, ...data, updatedAt: new Date().toISOString() } : i
+  );
+  _cache[collection] = updated;
+  await dbUpsert(collection, updated);
   return updated.find(i => i.id === id);
 }
 
-export function remove(collection, id) {
+export async function remove(collection, id) {
   const items = getAll(collection).filter(i => i.id !== id);
-  write(collection, items);
+  _cache[collection] = items;
+  await dbUpsert(collection, items);
 }
 
-// ─── Settings ─────────────────────────────────────────────
+// ─── Settings ───────────────────────────────────────────────
 export function getSettings() {
-  const s = read('settings') || SEEDS.settings;
-  // Self-healing: if roles got corrupted to a non-array (object spread bug), reset to seed
-  if (!Array.isArray(s.roles)) {
-    const fixed = { ...s, roles: SEEDS.settings.roles };
-    write('settings', fixed);
-    return fixed;
-  }
-  return s;
+  return _cache['settings'] || SEEDS.settings;
 }
 
-
-export function updateSettings(section, data) {
+export async function updateSettings(section, data) {
   const settings = getSettings();
-  // For array values (like 'roles'), store directly — don't spread
   const newSectionValue = Array.isArray(data)
     ? data
     : { ...settings[section], ...data };
   const updated = { ...settings, [section]: newSectionValue };
-  write('settings', updated);
+  _cache['settings'] = updated;
+  await dbUpsert('settings', updated);
   return updated;
 }
 
-
-// ─── Orders ───────────────────────────────────────────────
-export function createOrder(tableId, items, paymentMethod) {
-  const counter = read('bill_counter') || 1001;
+// ─── Orders ─────────────────────────────────────────────────
+export async function createOrder(tableId, items, paymentMethod) {
+  const counter = _cache['bill_counter'] || 1001;
   const settings = getSettings();
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * (settings.billing.gstRate / 100);
@@ -238,15 +274,20 @@ export function createOrder(tableId, items, paymentMethod) {
     createdAt: new Date().toISOString(),
   };
 
-  const orders = getAll('orders');
-  write('orders', [...orders, order]);
-  write('bill_counter', counter + 1);
+  const newOrders = [...getAll('orders'), order];
+  _cache['orders'] = newOrders;
+  _cache['bill_counter'] = counter + 1;
+
+  await Promise.all([
+    dbUpsert('orders', newOrders),
+    dbUpsert('bill_counter', counter + 1),
+  ]);
+
   return order;
 }
 
 export function getOrdersByDate(dateStr) {
-  const orders = getAll('orders');
-  return orders.filter(o => o.createdAt.startsWith(dateStr));
+  return getAll('orders').filter(o => o.createdAt.startsWith(dateStr));
 }
 
 export function getTodayStats() {
@@ -258,7 +299,7 @@ export function getTodayStats() {
   return { gross, orderCount, avg, orders: todayOrders };
 }
 
-// ─── Inventory Helpers ────────────────────────────────────
+// ─── Inventory Helpers ───────────────────────────────────────
 export function computeStockStatus(stock, min) {
   if (stock <= 0) return 'critical';
   if (stock < min * 0.5) return 'critical';
@@ -266,7 +307,7 @@ export function computeStockStatus(stock, min) {
   return 'good';
 }
 
-export function receiveStock(id, quantity) {
+export async function receiveStock(id, quantity) {
   const item = getById('inventory', id);
   if (!item) return null;
   const newStock = item.stock + quantity;
@@ -277,11 +318,11 @@ export function receiveStock(id, quantity) {
   });
 }
 
-// ─── Attendance ───────────────────────────────────────────
-export function logAttendance(staffId, type) {
+// ─── Attendance ──────────────────────────────────────────────
+export async function logAttendance(staffId, type) {
   return insert('attendance', {
     staffId,
-    type, // 'IN' | 'OUT'
+    type,
     timestamp: new Date().toISOString(),
     date: new Date().toISOString().split('T')[0],
   });
@@ -291,13 +332,11 @@ export function getAttendanceForStaff(staffId) {
   return getAll('attendance').filter(a => a.staffId === staffId);
 }
 
-// ─── Delivery Orders ──────────────────────────────────────
-export function addDeliveryOrder(order) {
+// ─── Delivery Orders ─────────────────────────────────────────
+export async function addDeliveryOrder(order) {
   return insert('delivery_orders', { ...order, status: order.status || 'new' });
 }
 
-export function updateDeliveryStatus(id, status) {
+export async function updateDeliveryStatus(id, status) {
   return update('delivery_orders', id, { status });
 }
-
-export { genId };

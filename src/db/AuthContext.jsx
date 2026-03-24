@@ -1,6 +1,6 @@
 /**
  * AuthContext — Handles login, logout, register, and session persistence.
- * Users are stored in localStorage (database layer).
+ * Users are stored in Supabase (via the database layer).
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getAll, insert, update as dbUpdate } from './database';
@@ -16,11 +16,11 @@ const simpleHash = (str) => {
   return hash.toString(16);
 };
 
-// Seed default super-admin account
-const seedDefaultAdmin = () => {
+// Seed default super-admin account if no users exist
+const seedDefaultAdmin = async () => {
   const existing = getAll('users');
   if (existing.length === 0) {
-    insert('users', {
+    await insert('users', {
       name: 'Admin',
       email: 'admin@kitchgoo.in',
       password: simpleHash('admin123'),
@@ -37,19 +37,22 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    seedDefaultAdmin();
-    // Restore session from localStorage
-    try {
-      const saved = localStorage.getItem('kitchgoo_session');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Validate session still matches user in DB
-        const users = getAll('users');
-        const match = users.find(u => u.id === parsed.id);
-        if (match) setUser({ ...match, password: undefined });
-      }
-    } catch { /* ignore */ }
-    setLoading(false);
+    const init = async () => {
+      await seedDefaultAdmin();
+      // Restore session from localStorage
+      try {
+        const saved = localStorage.getItem('kitchgoo_session');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Validate session still matches a user in the DB
+          const users = getAll('users');
+          const match = users.find(u => u.id === parsed.id);
+          if (match) setUser({ ...match, password: undefined });
+        }
+      } catch { /* ignore */ }
+      setLoading(false);
+    };
+    init();
   }, []);
 
   const login = (email, password) => {
@@ -75,12 +78,12 @@ export function AuthProvider({ children }) {
    * If called while already logged in (admin creating users), the current
    * session is NOT replaced — the new user is just saved to the DB.
    */
-  const register = (data) => {
+  const register = async (data) => {
     const users = getAll('users');
     if (users.find(u => u.email.toLowerCase() === data.email.toLowerCase())) {
       return { success: false, error: 'An account with this email already exists.' };
     }
-    const newUser = insert('users', {
+    const newUser = await insert('users', {
       name: data.name,
       email: data.email,
       password: simpleHash(data.password),
@@ -100,9 +103,9 @@ export function AuthProvider({ children }) {
     return { success: true };
   };
 
-  const updateProfile = (data) => {
+  const updateProfile = async (data) => {
     if (!user) return { success: false, error: 'Not logged in.' };
-    const updated = dbUpdate('users', user.id, {
+    const updated = await dbUpdate('users', user.id, {
       ...data,
       ...(data.password ? { password: simpleHash(data.password) } : {}),
     });

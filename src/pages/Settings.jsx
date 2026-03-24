@@ -439,13 +439,13 @@ const TeamSection = () => {
   const refresh = () => setUsers(getAll('users') || []);
   useEffect(() => { refresh(); }, []);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     setError('');
     if (!form.name.trim() || !form.email.trim() || !form.password.trim()) {
       setError('Name, email and password are required.'); return;
     }
     if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return; }
-    const result = register(form);
+    const result = await register(form);
     if (!result.success) { setError(result.error); return; }
     setSuccess('User created successfully!');
     setTimeout(() => setSuccess(''), 2500);
@@ -454,15 +454,15 @@ const TeamSection = () => {
     refresh();
   };
 
-  const handleRoleChange = (id, role) => {
-    dbUpdate('users', id, { role, avatar: undefined });
+  const handleRoleChange = async (id, role) => {
+    await dbUpdate('users', id, { role, avatar: undefined });
     refresh();
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const u = users.find(u => u.id === id);
     if (u?.role === 'Owner') return; // protect owner
-    dbRemove('users', id);
+    await dbRemove('users', id);
     refresh();
   };
 

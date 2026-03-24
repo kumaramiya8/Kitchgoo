@@ -64,9 +64,9 @@ const GuestModal = ({ tableId, onConfirm, onClose }) => {
     }
   };
 
-  const handleCreateNew = () => {
+  const handleCreateNew = async () => {
     if (!form.name.trim()) return;
-    const newGuest = insert('guests', {
+    const newGuest = await insert('guests', {
       name: form.name,
       phone: form.phone,
       email: form.email,
@@ -304,22 +304,20 @@ const POS = () => {
     showSuccess('KOT saved! Kitchen notified.');
   };
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     if (cart.length === 0) return;
 
     // 1. Create order in database
-    const order = placeOrder(activeTable.id, cart, paymentMethod);
+    const order = await placeOrder(activeTable.id, cart, paymentMethod);
 
-    // 2. Update guest history if linked to a profile
+    // 2. Update guest visit count and spend if linked to a profile
     if (activeTable.guestId) {
-      const guests = getAll('guests');
-      const guest = guests.find(g => g.id === activeTable.guestId);
+      const guest = getAll('guests').find(g => g.id === activeTable.guestId);
       if (guest) {
-        const updatedGuests = guests.map(g => g.id === activeTable.guestId
-          ? { ...g, visitCount: (g.visitCount || 0) + 1, totalSpend: (g.totalSpend || 0) + order.total }
-          : g
-        );
-        localStorage.setItem('kitchgoo_guests', JSON.stringify(updatedGuests));
+        update('guests', activeTable.guestId, {
+          visitCount: (guest.visitCount || 0) + 1,
+          totalSpend: (guest.totalSpend || 0) + order.total,
+        }); // fire-and-forget — UI doesn't depend on this result
       }
     }
 
