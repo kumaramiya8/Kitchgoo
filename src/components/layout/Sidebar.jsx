@@ -10,23 +10,49 @@ import {
   BarChart3,
   Settings,
   ChefHat,
-  UserCheck
+  UserCheck,
+  CalendarDays,
+  Globe,
+  Monitor,
+  Shield,
 } from 'lucide-react';
 
 const Sidebar = () => {
-  const mainNav = [
+  const operationsNav = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
     { name: 'POS & Billing', path: '/pos', icon: ShoppingCart },
-    { name: 'Inventory', path: '/inventory', icon: Package },
+    { name: 'Kitchen Display', path: '/kds', icon: Monitor },
     { name: 'Menu', path: '/menu', icon: MenuSquare },
-    { name: 'Delivery', path: '/delivery', icon: Truck },
+    { name: 'Inventory', path: '/inventory', icon: Package },
+    { name: 'Delivery & Online', path: '/delivery', icon: Truck },
   ];
 
-  const teamNav = [
-    { name: 'Staff', path: '/staff', icon: Users },
-    { name: 'Guests', path: '/guests', icon: UserCheck },
+  const managementNav = [
+    { name: 'Staff & Workforce', path: '/staff', icon: Users },
+    { name: 'Guests & CRM', path: '/guests', icon: UserCheck },
+    { name: 'Reservations', path: '/reservations', icon: CalendarDays },
     { name: 'Reports', path: '/reports', icon: BarChart3 },
   ];
+
+  const enterpriseNav = [
+    { name: 'Multi-Location', path: '/multi-location', icon: Globe },
+    { name: 'Platform Admin', path: '/platform-admin', icon: Shield },
+  ];
+
+  const renderNavItems = (items) =>
+    items.map((item) => (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        end={item.path === '/'}
+        className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+      >
+        <span className="nav-item-icon">
+          <item.icon size={18} />
+        </span>
+        <span className="nav-item-label">{item.name}</span>
+      </NavLink>
+    ));
 
   return (
     <aside className="sidebar">
@@ -38,39 +64,22 @@ const Sidebar = () => {
         <span className="sidebar-logo-text">Kitchgoo</span>
       </div>
 
-      {/* Main Navigation */}
+      {/* Operations */}
       <div className="sidebar-section">
         <div className="sidebar-section-label">Operations</div>
-        {mainNav.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            end={item.path === '/'}
-            className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-          >
-            <span className="nav-item-icon">
-              <item.icon size={18} />
-            </span>
-            <span className="nav-item-label">{item.name}</span>
-          </NavLink>
-        ))}
+        {renderNavItems(operationsNav)}
       </div>
 
-      {/* Team Navigation */}
+      {/* Management */}
       <div className="sidebar-section">
         <div className="sidebar-section-label">Management</div>
-        {teamNav.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-          >
-            <span className="nav-item-icon">
-              <item.icon size={18} />
-            </span>
-            <span className="nav-item-label">{item.name}</span>
-          </NavLink>
-        ))}
+        {renderNavItems(managementNav)}
+      </div>
+
+      {/* Enterprise */}
+      <div className="sidebar-section">
+        <div className="sidebar-section-label">Enterprise</div>
+        {renderNavItems(enterpriseNav)}
       </div>
 
       <div className="sidebar-footer">

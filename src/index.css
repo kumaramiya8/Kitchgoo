@@ -917,3 +917,144 @@ tbody tr:hover {
   letter-spacing: 0.02em;
 }
 
+/* ========== KDS STYLES ========== */
+@keyframes kds-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes kds-flash {
+  0%, 100% { background: rgba(239, 68, 68, 0.15); }
+  50% { background: rgba(239, 68, 68, 0.4); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+  20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+.kds-pulse { animation: kds-pulse 1.5s ease-in-out infinite; }
+.kds-flash { animation: kds-flash 0.8s ease-in-out infinite; }
+.kds-shake { animation: shake 0.5s ease-in-out; }
+
+/* ========== KANBAN STYLES ========== */
+.kanban-column {
+  flex: 1;
+  min-width: 200px;
+  background: rgba(255,255,255,0.4);
+  backdrop-filter: blur(12px);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-subtle);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+.kanban-card {
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: 12px;
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.kanban-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ========== FLOOR PLAN ========== */
+.floor-table {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  cursor: pointer;
+  transition: all var(--t-fast);
+  border: 2px solid transparent;
+  position: relative;
+}
+
+.floor-table:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
+}
+
+.floor-table.square { border-radius: var(--r-md); }
+.floor-table.round { border-radius: 50%; }
+.floor-table.bar { border-radius: var(--r-sm); }
+
+/* ========== TIMELINE / SCHEDULE ========== */
+.timeline-slot {
+  min-height: 48px;
+  border-left: 2px solid var(--border-subtle);
+  padding-left: 12px;
+  position: relative;
+}
+
+.timeline-slot::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-subtle);
+}
+
+.schedule-block {
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--t-fast);
+}
+
+.schedule-block:hover { opacity: 0.8; }
+
+/* ========== RECEIPT PREVIEW ========== */
+.receipt-preview {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--r-md);
+  padding: 24px 20px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  max-width: 300px;
+  margin: 0 auto;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+}
+
+/* ========== ADDITIONAL UTILITY ========== */
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Responsive for tablets / handheld POS */
+@media (max-width: 768px) {
+  .app-container { padding: 6px; gap: 6px; }
+  .sidebar { width: 60px; }
+  .sidebar-logo-text, .nav-item-label, .sidebar-section-label { display: none; }
+  .sidebar-logo { padding: 14px 8px; justify-content: center; }
+  .nav-item { justify-content: center; padding: 10px; }
+  .nav-item-icon { margin: 0; }
+  .main-content { padding: 10px; }
+  .dashboard-grid { grid-template-columns: 1fr 1fr; }
+  .dashboard-charts { grid-template-columns: 1fr; }
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+}
+

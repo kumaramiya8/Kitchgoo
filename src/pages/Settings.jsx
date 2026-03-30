@@ -7,7 +7,11 @@ import {
   Clock, Save, ToggleLeft, ToggleRight, X,
   MapPin, Phone, Mail, FileText, Percent, DollarSign,
   Wifi, WifiOff, Users, Plus, Trash2, AlertTriangle, Check,
-  Eye, EyeOff, User, KeyRound
+  Eye, EyeOff, User, KeyRound, Layers, Type, Workflow,
+  Receipt, Sparkles, Monitor, QrCode, Upload, Image,
+  Apple, Smartphone, Globe, Package, Bike, Settings2,
+  LayoutGrid, CalendarCheck, ChefHat, ShoppingBag,
+  Heart, Megaphone, Building2, ShieldCheck, Lock
 } from 'lucide-react';
 
 // ─── Section IDs ─────────────────────────────────────────
@@ -19,6 +23,10 @@ const SECTIONS = [
   { id: 'delivery', label: 'Delivery Platforms', icon: Truck },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'printer', label: 'Printer & Receipt', icon: Printer },
+  { id: 'modules', label: 'Module Toggles', icon: Layers },
+  { id: 'naming', label: 'Custom Naming', icon: Type },
+  { id: 'workflow', label: 'Workflow Rules', icon: Workflow },
+  { id: 'receipt', label: 'Receipt Builder', icon: Receipt },
   { id: 'roles', label: 'Roles & Permissions', icon: Shield },
   { id: 'team', label: 'Team Members', icon: Users },
   { id: 'appearance', label: 'Appearance', icon: Palette },
@@ -26,7 +34,7 @@ const SECTIONS = [
 
 const Toggle = ({ value, onChange, label, description }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-    <div>
+    <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</div>
       {description && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{description}</div>}
     </div>
@@ -100,7 +108,7 @@ const RestaurantSection = ({ data, onChange }) => (
         <Select value={data.currency} onChange={v => onChange('currency', v)} options={['₹', '$', '€', '£', '¥']} />
       </Field>
       <Field label="Timezone">
-        <Select value={data.timezone} onChange={v => onChange('timezone', v)} options={['Asia/Kolkata', 'Asia/Dubai', 'America/New_York', 'Europe/London', 'Asia/Singapore']} />
+        <Select value={data.timezone} onChange={v => onChange('timezone', v)} options={['Asia/Kolkata', 'Asia/Dubai', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London', 'Asia/Singapore', 'Australia/Sydney']} />
       </Field>
     </div>
   </div>
@@ -145,6 +153,25 @@ const BillingSection = ({ data, onChange }) => (
     <Field label="Receipt Footer Message">
       <Input value={data.receiptFooter} onChange={v => onChange('receiptFooter', v)} placeholder="Feedback, WIFI password, etc." />
     </Field>
+
+    {/* Auto-gratuity settings */}
+    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px', marginTop: '10px' }}>
+      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>Auto-Gratuity</div>
+      <Toggle label="Enable Auto-Gratuity" description="Automatically add gratuity for large parties" value={data.autoGratuityEnabled} onChange={v => onChange('autoGratuityEnabled', v)} />
+      {data.autoGratuityEnabled && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', paddingTop: '10px' }}>
+          <Field label="Party Size Threshold" hint="Minimum guests to trigger auto-gratuity">
+            <Input value={data.autoGratuityThreshold} onChange={v => onChange('autoGratuityThreshold', parseInt(v) || 6)} type="number" min="1" />
+          </Field>
+          <Field label="Gratuity Percent (%)">
+            <Input value={data.autoGratuityPercent} onChange={v => onChange('autoGratuityPercent', parseFloat(v) || 18)} type="number" min="0" max="50" step="0.5" />
+          </Field>
+          <div style={{ gridColumn: '1/-1' }}>
+            <Toggle label="Calculate on Pre-Tax Amount" description="Apply gratuity before taxes rather than on the total" value={data.autoGratuityPreTax} onChange={v => onChange('autoGratuityPreTax', v)} />
+          </div>
+        </div>
+      )}
+    </div>
   </div>
 );
 
@@ -154,7 +181,10 @@ const PaymentsSection = ({ data, onChange }) => {
     { key: 'upi', label: 'UPI / QR Code', desc: 'PhonePe, GPay, Paytm, etc.' },
     { key: 'card', label: 'Debit / Credit Card', desc: 'Swipe or tap card payments' },
     { key: 'wallet', label: 'Digital Wallet', desc: 'Amazon Pay, Mobikwik, etc.' },
-    { key: 'onlineGateway', label: 'Online Payment Gateway', desc: 'Razorpay, PayU, etc.' },
+    { key: 'applePay', label: 'Apple Pay', desc: 'Contactless Apple device payments' },
+    { key: 'googlePay', label: 'Google Pay', desc: 'Google contactless payments' },
+    { key: 'qrPayAtTable', label: 'QR Pay-at-Table', desc: 'Guests scan QR code at their table to pay' },
+    { key: 'onlineGateway', label: 'Online Payment Gateway', desc: 'Razorpay, PayU, Stripe, etc.' },
   ];
   return (
     <div>
@@ -195,6 +225,9 @@ const OperationsSection = ({ data, onChange }) => {
         <Field label="Closing Time">
           <Input value={data.closingTime} onChange={v => onChange('closingTime', v)} type="time" />
         </Field>
+        <Field label="Void Approval Threshold ($)" hint="Require manager approval for voids above this amount">
+          <Input value={data.voidApprovalThreshold} onChange={v => onChange('voidApprovalThreshold', parseFloat(v) || 0)} type="number" min="0" step="1" />
+        </Field>
       </div>
 
       <Field label="Working Days">
@@ -214,6 +247,8 @@ const OperationsSection = ({ data, onChange }) => {
       <div style={{ marginTop: '14px' }}>
         <Toggle label="Auto-print KOT" description="Automatically send KOT to kitchen printer on order" value={data.autoKOT} onChange={v => onChange('autoKOT', v)} />
         <Toggle label="Offline Mode Support" description="Allow POS to operate without internet" value={data.offlineMode} onChange={v => onChange('offlineMode', v)} />
+        <Toggle label="Auto-Open Cash Drawer" description="Open cash drawer automatically on cash transactions" value={data.autoOpenCashDrawer} onChange={v => onChange('autoOpenCashDrawer', v)} />
+        <Toggle label="Auto-Print Receipt" description="Print receipt automatically after payment completes" value={data.autoPrintReceipt} onChange={v => onChange('autoPrintReceipt', v)} />
       </div>
     </div>
   );
@@ -223,18 +258,25 @@ const DeliverySection = ({ data, onChange }) => {
   const platforms = [
     { key: 'zomato', label: 'Zomato', color: '#E23744', keyField: 'zomatoApiKey', idField: 'zomatoResId' },
     { key: 'swiggy', label: 'Swiggy', color: '#FC8019', keyField: 'swiggyApiKey', idField: 'swiggyResId' },
-    { key: 'dunzo', label: 'Dunzo', color: '#00D09C', keyField: null, idField: null },
+    { key: 'uberEats', label: 'Uber Eats', color: '#06C167', keyField: 'uberEatsApiKey', idField: 'uberEatsResId' },
+    { key: 'doorDash', label: 'DoorDash', color: '#FF3008', keyField: 'doorDashApiKey', idField: 'doorDashResId' },
+    { key: 'grubhub', label: 'Grubhub', color: '#F63440', keyField: 'grubhubApiKey', idField: 'grubhubResId' },
+    { key: 'dunzo', label: 'Dunzo', color: '#00D09C', keyField: 'dunzoApiKey', idField: 'dunzoResId' },
   ];
 
   return (
     <div>
-      <Field label="Packaging Charge (₹)" hint="Added per delivery order">
-        <Input value={data.packagingCharge} onChange={v => onChange('packagingCharge', parseFloat(v) || 0)} type="number" min="0" />
-      </Field>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+        <Field label="Packaging Charge" hint="Added per delivery order">
+          <Input value={data.packagingCharge} onChange={v => onChange('packagingCharge', parseFloat(v) || 0)} type="number" min="0" />
+        </Field>
+      </div>
 
-      <div style={{ marginTop: '8px' }}>
+      <Toggle label="In-House Delivery" description="Enable your own delivery fleet management" value={data.inHouseDelivery} onChange={v => onChange('inHouseDelivery', v)} />
+
+      <div style={{ marginTop: '14px' }}>
         {platforms.map(p => (
-          <div key={p.key} style={{ padding: '16px', borderRadius: '14px', background: 'rgba(255,255,255,0.5)', border: '1px solid var(--border)', marginBottom: '12px' }}>
+          <div key={p.key} style={{ padding: '16px', borderRadius: '14px', background: 'rgba(255,255,255,0.5)', border: '1px solid var(--border-subtle)', marginBottom: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: data[`${p.key}Enabled`] ? '12px' : 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: 32, height: 32, borderRadius: '8px', background: p.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -274,6 +316,7 @@ const NotificationsSection = ({ data, onChange }) => {
     { key: 'orderReady', label: 'Order Ready', desc: 'Notify when KOT is marked as ready' },
     { key: 'dailySummary', label: 'Daily Summary', desc: 'End-of-day revenue and operations summary' },
     { key: 'emailAlerts', label: 'Email Alerts', desc: 'Send alerts to email (requires address below)' },
+    { key: 'overtimeAlert', label: 'Overtime Alert', desc: 'Notify when staff exceed scheduled hours' },
   ];
   return (
     <div>
@@ -312,6 +355,238 @@ const PrinterSection = ({ data, onChange }) => (
   </div>
 );
 
+// ─── Module Toggles ───────────────────────────────────────
+const MODULE_DEFS = [
+  { key: 'tableManagement', label: 'Table Management', desc: 'Visual floor plan editor, table assignments, and real-time occupancy tracking.', icon: LayoutGrid },
+  { key: 'reservations', label: 'Reservations', desc: 'Online and phone-in reservation system with waitlist management.', icon: CalendarCheck },
+  { key: 'kds', label: 'Kitchen Display System', desc: 'Digital ticket display for kitchen staff with bump-bar workflow and priority routing.', icon: ChefHat },
+  { key: 'delivery', label: 'Delivery', desc: 'Third-party delivery platform integrations and in-house delivery fleet management.', icon: Truck },
+  { key: 'onlineOrdering', label: 'Online Ordering', desc: 'Branded online ordering portal with direct pickup and delivery options.', icon: ShoppingBag },
+  { key: 'loyalty', label: 'Loyalty Program', desc: 'Points-based loyalty system with tier rewards, birthday offers, and referral tracking.', icon: Heart },
+  { key: 'campaigns', label: 'Campaigns & Marketing', desc: 'Email and SMS marketing campaigns, promo codes, and customer engagement tools.', icon: Megaphone },
+  { key: 'multiLocation', label: 'Multi-Location', desc: 'Manage multiple restaurant locations from a single dashboard with consolidated reporting.', icon: Building2 },
+  { key: 'platformAdmin', label: 'Platform Admin', desc: 'Advanced administrative controls, audit logs, and system-wide configuration.', icon: ShieldCheck },
+];
+
+const ModulesSection = ({ data, onChange }) => (
+  <div>
+    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
+      Enable or disable entire feature modules. Disabled modules will be hidden from all users across the platform.
+    </div>
+    {MODULE_DEFS.map(m => {
+      const Icon = m.icon;
+      const enabled = data[m.key] !== false;
+      return (
+        <div key={m.key} style={{
+          display: 'flex', alignItems: 'center', gap: '14px',
+          padding: '14px 16px', borderRadius: '14px', marginBottom: '8px',
+          background: enabled ? 'rgba(124,58,237,0.04)' : 'rgba(148,163,184,0.06)',
+          border: `1px solid ${enabled ? 'rgba(124,58,237,0.15)' : 'var(--border-subtle)'}`,
+          transition: 'all 0.2s',
+        }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: '10px',
+            background: enabled ? 'rgba(124,58,237,0.12)' : 'rgba(148,163,184,0.12)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: enabled ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0,
+          }}>
+            <Icon size={18} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>{m.label}</div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4 }}>{m.desc}</div>
+          </div>
+          <button onClick={() => onChange(m.key, !enabled)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: enabled ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0 }}>
+            {enabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+          </button>
+        </div>
+      );
+    })}
+  </div>
+);
+
+// ─── Custom Naming ────────────────────────────────────────
+const NAMING_DEFS = [
+  { key: 'checks', defaultLabel: 'Checks', placeholder: 'e.g. Tabs, Bills, Orders' },
+  { key: 'servers', defaultLabel: 'Servers', placeholder: 'e.g. Budtenders, Waitstaff, Associates' },
+  { key: 'tables', defaultLabel: 'Tables', placeholder: 'e.g. Stations, Seats, Zones' },
+  { key: 'guests', defaultLabel: 'Guests', placeholder: 'e.g. Clients, Customers, Patients' },
+];
+
+const NamingSection = ({ data, onChange }) => (
+  <div>
+    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
+      Rename core concepts to match your business terminology. Changes apply throughout the entire platform.
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+      {NAMING_DEFS.map(n => (
+        <div key={n.key} style={{
+          padding: '16px', borderRadius: '14px',
+          background: 'rgba(255,255,255,0.5)', border: '1px solid var(--border-subtle)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <div style={{
+              padding: '3px 8px', borderRadius: '6px',
+              background: 'rgba(124,58,237,0.08)', fontSize: '0.72rem',
+              fontWeight: 700, color: 'var(--primary)',
+            }}>
+              DEFAULT
+            </div>
+            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{n.defaultLabel}</span>
+          </div>
+          <Field label={`Rename "${n.defaultLabel}" to`}>
+            <Input value={data[n.key]} onChange={v => onChange(n.key, v)} placeholder={n.placeholder} />
+          </Field>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+// ─── Workflow Rules ───────────────────────────────────────
+const WorkflowSection = ({ data, onChange }) => (
+  <div>
+    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
+      Configure automated behaviors and approval requirements for your operation.
+    </div>
+
+    <Toggle label="Auto-Print Receipts on Payment" description="Automatically send receipt to printer when a payment is completed" value={data.autoPrintOnPayment} onChange={v => onChange('autoPrintOnPayment', v)} />
+    <Toggle label="Cash Drawer Opens on Credit Split" description="Pop the cash drawer when a check is split with a credit card" value={data.cashDrawerOnCreditSplit} onChange={v => onChange('cashDrawerOnCreditSplit', v)} />
+    <Toggle label="Require Reason Code for All Voids" description="Staff must select a reason code when voiding any item" value={data.requireVoidReason} onChange={v => onChange('requireVoidReason', v)} />
+    <Toggle label="Require Reason Code for All Discounts" description="Staff must select a reason code when applying discounts" value={data.requireDiscountReason} onChange={v => onChange('requireDiscountReason', v)} />
+
+    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px', marginTop: '8px' }}>
+      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Manager Approval Thresholds</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        <Field label="Void Approval Over ($)" hint="Voids above this amount require a manager override">
+          <Input value={data.voidApprovalAmount} onChange={v => onChange('voidApprovalAmount', parseFloat(v) || 0)} type="number" min="0" step="1" placeholder="e.g. 25" />
+        </Field>
+        <Field label="Comp Approval Over ($)" hint="Comps above this amount require a manager override">
+          <Input value={data.compApprovalAmount} onChange={v => onChange('compApprovalAmount', parseFloat(v) || 0)} type="number" min="0" step="1" placeholder="e.g. 50" />
+        </Field>
+      </div>
+    </div>
+  </div>
+);
+
+// ─── Receipt Builder ─────────────────────────────────────
+const ReceiptBuilderSection = ({ data, onChange }) => {
+  const tipPcts = data.tipSuggestions || [15, 18, 20];
+
+  const updateTip = (idx, val) => {
+    const next = [...tipPcts];
+    next[idx] = parseFloat(val) || 0;
+    onChange('tipSuggestions', next);
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '24px' }}>
+      {/* Controls */}
+      <div>
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
+          Customize your printed and digital receipts. Changes are reflected in the live preview.
+        </div>
+
+        <div style={{
+          padding: '20px', borderRadius: '14px', border: '2px dashed var(--border-subtle)',
+          background: 'rgba(124,58,237,0.02)', textAlign: 'center', marginBottom: '16px', cursor: 'pointer',
+        }}>
+          <Upload size={28} style={{ color: 'var(--text-muted)', marginBottom: '6px' }} />
+          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Upload Logo</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>PNG, JPG up to 500KB. Recommended 200x80px.</div>
+        </div>
+
+        <Field label="Header Text">
+          <Input value={data.headerText} onChange={v => onChange('headerText', v)} placeholder="Welcome to Kitchgoo!" />
+        </Field>
+        <Field label="Footer Text">
+          <textarea className="input-field" rows={2} value={data.footerText || ''} onChange={e => onChange('footerText', e.target.value)} placeholder="Thank you for dining with us! WiFi: kitchgoo-guest / Pass: welcome123" style={{ resize: 'vertical', fontFamily: 'inherit' }} />
+        </Field>
+
+        <Toggle label="Show QR Code on Receipt" description="Display a QR code linking to your feedback form or website" value={data.showQrCode} onChange={v => onChange('showQrCode', v)} />
+
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px', marginTop: '8px' }}>
+          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Tip Suggestions (%)</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+            <Field label="Option 1">
+              <Input value={tipPcts[0]} onChange={v => updateTip(0, v)} type="number" min="0" max="100" />
+            </Field>
+            <Field label="Option 2">
+              <Input value={tipPcts[1]} onChange={v => updateTip(1, v)} type="number" min="0" max="100" />
+            </Field>
+            <Field label="Option 3">
+              <Input value={tipPcts[2]} onChange={v => updateTip(2, v)} type="number" min="0" max="100" />
+            </Field>
+          </div>
+        </div>
+      </div>
+
+      {/* Live Preview */}
+      <div>
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Live Preview</div>
+        <div style={{
+          background: '#fff', borderRadius: '12px', border: '1px solid var(--border-subtle)',
+          padding: '20px 16px', fontFamily: "'Courier New', monospace", fontSize: '0.7rem',
+          color: '#333', boxShadow: '0 4px 16px rgba(0,0,0,0.06)', lineHeight: 1.6,
+        }}>
+          {/* Logo placeholder */}
+          <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+            <div style={{
+              width: 60, height: 24, borderRadius: '4px', margin: '0 auto',
+              background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, fontFamily: 'inherit',
+            }}>LOGO</div>
+          </div>
+          {/* Header */}
+          <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.75rem', marginBottom: '4px' }}>
+            {data.headerText || 'Welcome to Kitchgoo!'}
+          </div>
+          <div style={{ borderBottom: '1px dashed #ccc', margin: '8px 0' }} />
+          {/* Sample items */}
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>1x Margherita Pizza</span><span>$14.99</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>2x Craft Beer</span><span>$16.00</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>1x Tiramisu</span><span>$9.50</span></div>
+          <div style={{ borderBottom: '1px dashed #ccc', margin: '8px 0' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Subtotal</span><span>$40.49</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Tax (8%)</span><span>$3.24</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '0.78rem', marginTop: '4px' }}>
+            <span>TOTAL</span><span>$43.73</span>
+          </div>
+          <div style={{ borderBottom: '1px dashed #ccc', margin: '8px 0' }} />
+          {/* Tip suggestions */}
+          <div style={{ textAlign: 'center', fontSize: '0.65rem', marginBottom: '6px', fontWeight: 600 }}>Suggested Tip</div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '8px' }}>
+            {tipPcts.map((t, i) => (
+              <div key={i} style={{
+                padding: '3px 10px', borderRadius: '6px', border: '1px solid #ccc',
+                fontSize: '0.62rem', fontWeight: 700, textAlign: 'center',
+              }}>
+                {t}% = ${(43.73 * t / 100).toFixed(2)}
+              </div>
+            ))}
+          </div>
+          {/* QR */}
+          {data.showQrCode && (
+            <div style={{ textAlign: 'center', margin: '8px 0' }}>
+              <div style={{
+                width: 48, height: 48, margin: '0 auto', borderRadius: '4px',
+                background: 'repeating-conic-gradient(#333 0% 25%, #fff 0% 50%) 50% / 8px 8px',
+              }} />
+              <div style={{ fontSize: '0.55rem', color: '#999', marginTop: '4px' }}>Scan for feedback</div>
+            </div>
+          )}
+          {/* Footer */}
+          <div style={{ borderBottom: '1px dashed #ccc', margin: '8px 0' }} />
+          <div style={{ textAlign: 'center', fontSize: '0.6rem', color: '#888', whiteSpace: 'pre-wrap' }}>
+            {data.footerText || 'Thank you for dining with us!'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Roles & Permissions ──────────────────────────────────
 const RolesSection = ({ data, onChange }) => {
   const [newRole, setNewRole] = useState('');
   const allPerms = ['pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'settings'];
@@ -319,7 +594,7 @@ const RolesSection = ({ data, onChange }) => {
   const togglePerm = (roleId, perm) => {
     const updated = (data || []).map(r => {
       if (r.id !== roleId) return r;
-      if (r.permissions.includes('all')) return r; // owner
+      if (r.permissions.includes('all')) return r;
       const has = r.permissions.includes(perm);
       return { ...r, permissions: has ? r.permissions.filter(p => p !== perm) : [...r.permissions, perm] };
     });
@@ -347,7 +622,7 @@ const RolesSection = ({ data, onChange }) => {
             <tr>
               <th style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem' }}>Role</th>
               {allPerms.map(p => (
-                <th key={p} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', textAlign: 'center', textTransform: 'capitalize' }}>{p}</th>
+                <th key={p} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'capitalize', fontSize: '0.7rem', textAlign: 'center' }}>{p}</th>
               ))}
               <th style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }} />
             </tr>
@@ -392,6 +667,7 @@ const RolesSection = ({ data, onChange }) => {
   );
 };
 
+// ─── Appearance ───────────────────────────────────────────
 const AppearanceSection = ({ data, onChange }) => (
   <div>
     <Field label="Theme">
@@ -408,23 +684,28 @@ const AppearanceSection = ({ data, onChange }) => (
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
         <input type="color" value={data.accentColor || '#7c3aed'} onChange={e => onChange('accentColor', e.target.value)}
           style={{ width: 44, height: 36, border: 'none', borderRadius: '8px', cursor: 'pointer', padding: 0 }} />
-        <input className="input-field" style={{ flex: 1 }} value={data.accentColor} onChange={e => onChange('accentColor', e.target.value)} placeholder="#7c3aed" />
+        <input className="input-field" style={{ flex: 1 }} value={data.accentColor || '#7c3aed'} onChange={e => onChange('accentColor', e.target.value)} placeholder="#7c3aed" />
       </div>
     </Field>
     <Field label="Language">
       <Select value={data.language} onChange={v => onChange('language', v)} options={[
         { value: 'en', label: 'English' },
-        { value: 'hi', label: 'हिन्दी (Hindi)' },
-        { value: 'mr', label: 'मराठी (Marathi)' },
-        { value: 'ta', label: 'தமிழ் (Tamil)' },
-        { value: 'te', label: 'తెలుగు (Telugu)' },
+        { value: 'hi', label: 'Hindi' },
+        { value: 'mr', label: 'Marathi' },
+        { value: 'ta', label: 'Tamil' },
+        { value: 'te', label: 'Telugu' },
+        { value: 'es', label: 'Spanish' },
+        { value: 'fr', label: 'French' },
+        { value: 'de', label: 'German' },
+        { value: 'zh', label: 'Chinese (Simplified)' },
+        { value: 'ja', label: 'Japanese' },
       ]} />
     </Field>
     <Toggle label="Compact Mode" description="Reduce padding and font sizes for more content density" value={data.compactMode} onChange={v => onChange('compactMode', v)} />
   </div>
 );
 
-// ─── Team Members Section ────────────────────────────────────────
+// ─── Team Members ─────────────────────────────────────────
 const ROLE_OPTIONS = ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'];
 
 const TeamSection = () => {
@@ -461,7 +742,7 @@ const TeamSection = () => {
 
   const handleDelete = async (id) => {
     const u = users.find(u => u.id === id);
-    if (u?.role === 'Owner') return; // protect owner
+    if (u?.role === 'Owner') return;
     await dbRemove('users', id);
     refresh();
   };
@@ -516,7 +797,7 @@ const TeamSection = () => {
           </div>
           {error && (
             <div style={{ marginTop: '10px', padding: '8px 12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', fontSize: '0.78rem', color: '#dc2626' }}>
-              ⚠ {error}
+              {error}
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
@@ -583,7 +864,6 @@ const Settings = () => {
   };
 
   const handleSave = () => {
-    // Save all modified sections
     Object.keys(localSettings).forEach(section => {
       updateSettingsSection(section, localSettings[section]);
     });
@@ -603,6 +883,10 @@ const Settings = () => {
       case 'delivery': return <DeliverySection data={s} onChange={sectionChange} />;
       case 'notifications': return <NotificationsSection data={s} onChange={sectionChange} />;
       case 'printer': return <PrinterSection data={s} onChange={sectionChange} />;
+      case 'modules': return <ModulesSection data={localSettings.modules || {}} onChange={(field, value) => handleChange('modules', field, value)} />;
+      case 'naming': return <NamingSection data={localSettings.naming || {}} onChange={(field, value) => handleChange('naming', field, value)} />;
+      case 'workflow': return <WorkflowSection data={localSettings.workflow || {}} onChange={(field, value) => handleChange('workflow', field, value)} />;
+      case 'receipt': return <ReceiptBuilderSection data={localSettings.receipt || {}} onChange={(field, value) => handleChange('receipt', field, value)} />;
       case 'roles': return <RolesSection data={localSettings.roles || []} onChange={handleRolesChange} />;
       case 'team': return <TeamSection />;
       case 'appearance': return <AppearanceSection data={s} onChange={sectionChange} />;
@@ -613,33 +897,40 @@ const Settings = () => {
   const activeInfo = SECTIONS.find(s => s.id === activeSection);
 
   return (
-    <div className="animate-fade-up" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '16px', height: '100%' }}>
+    <div className="animate-fade-up" style={{ display: 'grid', gridTemplateColumns: '230px 1fr', gap: '16px', height: '100%' }}>
       {/* Left Nav */}
-      <div className="card" style={{ padding: '10px', height: 'fit-content' }}>
+      <div className="card" style={{ padding: '10px', height: 'fit-content', position: 'sticky', top: 16 }}>
         <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 10px 10px' }}>
           Configuration
         </div>
-        {SECTIONS.map(s => {
+        {SECTIONS.map((s, idx) => {
           const Icon = s.icon;
           const active = activeSection === s.id;
+          // Group separators
+          const showSep = idx === 7 || idx === 11;
           return (
-            <button key={s.id} onClick={() => setActiveSection(s.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
-                padding: '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                background: active ? 'white' : 'transparent',
-                boxShadow: active ? 'var(--shadow-md)' : 'none',
-                color: active ? 'var(--primary)' : 'var(--text-secondary)',
-                fontWeight: active ? 700 : 500, fontSize: '0.82rem',
-                marginBottom: '2px', textAlign: 'left',
-                transition: 'all 0.15s',
-              }}
-              onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
-              onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-            >
-              <Icon size={16} style={{ flexShrink: 0 }} />
-              {s.label}
-            </button>
+            <React.Fragment key={s.id}>
+              {showSep && (
+                <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '6px 10px' }} />
+              )}
+              <button onClick={() => setActiveSection(s.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
+                  padding: '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                  background: active ? 'white' : 'transparent',
+                  boxShadow: active ? 'var(--shadow-md)' : 'none',
+                  color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: active ? 700 : 500, fontSize: '0.82rem',
+                  marginBottom: '2px', textAlign: 'left',
+                  transition: 'all 0.15s',
+                }}
+                onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
+                onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <Icon size={16} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+              </button>
+            </React.Fragment>
           );
         })}
       </div>
