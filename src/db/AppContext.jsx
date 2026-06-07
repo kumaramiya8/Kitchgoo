@@ -29,6 +29,7 @@ import {
   depleteInventoryForOrder,
   updateCashDrawer,
   genId,
+  getCurrentTenant,
 } from './database';
 
 const AppContext = createContext(null);
@@ -61,32 +62,19 @@ export function AppProvider({ children }) {
   const [guests, setGuests] = useState([]);
   const [cashDrawer, setCashDrawer] = useState({});
 
-  const [posTables, setPosTables] = useState(() => {
-    try {
-      const saved = localStorage.getItem('kitchgoo_pos_tables');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-
-  const [posSavedOrders, setPosSavedOrders] = useState(() => {
-    try {
-      const saved = localStorage.getItem('kitchgoo_pos_saved_orders');
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
-  });
+  const [posTables, setPosTables] = useState([]);
+  const [posSavedOrders, setPosSavedOrders] = useState({});
 
   useEffect(() => {
     if (posTables.length > 0) {
-      localStorage.setItem('kitchgoo_pos_tables', JSON.stringify(posTables));
+      const tenant = getCurrentTenant();
+      localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
     }
   }, [posTables]);
 
   useEffect(() => {
-    localStorage.setItem('kitchgoo_pos_saved_orders', JSON.stringify(posSavedOrders));
+    const tenant = getCurrentTenant();
+    localStorage.setItem(`${tenant}_pos_saved_orders`, JSON.stringify(posSavedOrders));
   }, [posSavedOrders]);
 
   // Build posTables from floorPlans
@@ -106,8 +94,15 @@ export function AppProvider({ children }) {
     }));
     if (floorTables.length > 0) {
       setPosTables(prev => {
+        const tenant = getCurrentTenant();
+        let currentSaved = [];
+        try {
+          const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
+          if (savedStr) currentSaved = JSON.parse(savedStr);
+        } catch {}
+
         return floorTables.map(t => {
-          const existing = prev.find(p => p.id === t.id);
+          const existing = currentSaved.find(p => p.id === t.id);
           return existing ? { ...t, ...existing } : t;
         });
       });
@@ -120,8 +115,15 @@ export function AppProvider({ children }) {
         serverId: null,
       }));
       setPosTables(prev => {
+        const tenant = getCurrentTenant();
+        let currentSaved = [];
+        try {
+          const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
+          if (savedStr) currentSaved = JSON.parse(savedStr);
+        } catch {}
+
         return generated.map(t => {
-          const existing = prev.find(p => p.id === t.id);
+          const existing = currentSaved.find(p => p.id === t.id);
           return existing ? { ...t, ...existing } : t;
         });
       });
@@ -134,6 +136,8 @@ export function AppProvider({ children }) {
   }, []);
 
   const reload = () => {
+    const tenant = getCurrentTenant();
+
     setStaff(getAll('staff'));
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
     setMenu(getAll('menu'));
@@ -160,6 +164,21 @@ export function AppProvider({ children }) {
     setCampaigns(getAll('campaigns'));
     setGuests(getAll('guests'));
     setCashDrawer(getAll('cash_drawer') || {});
+
+    // Load tenant-prefixed POS tables and saved orders
+    try {
+      const savedTables = localStorage.getItem(`${tenant}_pos_tables`);
+      setPosTables(savedTables ? JSON.parse(savedTables) : []);
+    } catch {
+      setPosTables([]);
+    }
+
+    try {
+      const savedOrders = localStorage.getItem(`${tenant}_pos_saved_orders`);
+      setPosSavedOrders(savedOrders ? JSON.parse(savedOrders) : {});
+    } catch {
+      setPosSavedOrders({});
+    }
   };
 
   // ── Staff ────────────────────────────────────────────────
