@@ -1094,6 +1094,17 @@ const POS = () => {
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [mobileTab, setMobileTab] = useState('menu');
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [orderType, setOrderType] = useState('dine-in');
   const [view, setView] = useState('floor'); // 'floor' | 'order'
   const [viewMode, setViewMode] = useState('map'); // 'grid' | 'map'
@@ -1497,7 +1508,7 @@ const POS = () => {
         <div className="page-title-row" style={{ marginBottom: 16 }}>
           <h1 className="page-title">POS & Billing</h1>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {orderType === 'dine-in' && (
+            {orderType === 'dine-in' && !isMobile && (
               <div style={{ display: 'flex', gap: '2px', background: 'rgba(255,255,255,0.5)', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
                 <button
                   type="button"
@@ -1587,7 +1598,7 @@ const POS = () => {
             )}
 
             {/* Table Grid or Floor Plan Map */}
-            {viewMode === 'map' ? (
+            {(isMobile ? 'grid' : viewMode) === 'map' ? (
               <div style={{
                 position: 'relative',
                 width: '100%',
@@ -1860,12 +1871,35 @@ const POS = () => {
   const unfiredCourses = [...new Set(cart.filter(i => !firedCourses.has(i.course)).map(i => i.course))].sort();
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 80px)', gap: 12, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Toast message={successMsg} />
       <OfflineBanner />
 
-      {/* ── Left: Menu Panel ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {isMobile && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid var(--border-subtle)', padding: 4, borderRadius: 12 }}>
+          <button 
+            type="button"
+            className={mobileTab === 'menu' ? 'btn btn-primary' : 'btn btn-secondary'}
+            style={{ flex: 1, padding: '8px', fontSize: '0.8rem', borderRadius: '8px', border: 'none', fontWeight: 600 }}
+            onClick={() => setMobileTab('menu')}
+          >
+            Menu Catalog
+          </button>
+          <button 
+            type="button"
+            className={mobileTab === 'cart' ? 'btn btn-primary' : 'btn btn-secondary'}
+            style={{ flex: 1, padding: '8px', fontSize: '0.8rem', borderRadius: '8px', border: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            onClick={() => setMobileTab('cart')}
+          >
+            Cart ({cart.reduce((s, i) => s + i.qty, 0)})
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flex: 1, gap: 12, overflow: 'hidden' }}>
+        {/* ── Left: Menu Panel ── */}
+        {(!isMobile || mobileTab === 'menu') && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1985,13 +2019,15 @@ const POS = () => {
           )}
         </div>
       </div>
+      )}
 
       {/* ── Right: Cart Sidebar ── */}
-      <div style={{
-        width: 330, flexShrink: 0, display: 'flex', flexDirection: 'column',
-        background: 'var(--card-bg)', backdropFilter: 'blur(20px)',
-        border: '1px solid var(--border-subtle)', borderRadius: 'var(--r-2xl)', overflow: 'hidden',
-      }}>
+      {(!isMobile || mobileTab === 'cart') && (
+        <div style={{
+          width: isMobile ? '100%' : 330, flexShrink: 0, display: 'flex', flexDirection: 'column',
+          background: 'var(--card-bg)', backdropFilter: 'blur(20px)',
+          border: '1px solid var(--border-subtle)', borderRadius: 'var(--r-2xl)', overflow: 'hidden',
+        }}>
         {/* Cart Header */}
         <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.5)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2203,6 +2239,8 @@ const POS = () => {
             <ReceiptText size={15} /> Settle Bill
           </button>
         </div>
+      </div>
+      )}
       </div>
 
       {/* ── Modals ── */}

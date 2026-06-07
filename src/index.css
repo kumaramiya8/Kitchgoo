@@ -1051,17 +1051,100 @@ tbody tr:hover {
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Responsive for tablets / handheld POS */
+/* Header and Sidebar mobile buttons hidden on desktop */
+.header-menu-btn, .sidebar-close-btn {
+  display: none !important;
+}
+
+/* Responsive for tablets and mobile devices */
 @media (max-width: 768px) {
-  .app-container { padding: 6px; gap: 6px; }
-  .sidebar { width: 60px; }
-  .sidebar-logo-text, .nav-item-label, .sidebar-section-label { display: none; }
-  .sidebar-logo { padding: 14px 8px; justify-content: center; }
-  .nav-item { justify-content: center; padding: 10px; }
-  .nav-item-icon { margin: 0; }
-  .main-content { padding: 10px; }
-  .dashboard-grid { grid-template-columns: 1fr 1fr; }
+  .app-container {
+    padding: 0;
+    gap: 0;
+    height: 100vh;
+    width: 100vw;
+  }
+  
+  .header-menu-btn {
+    display: inline-flex !important;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    color: var(--text-primary);
+    padding: 6px;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: center;
+    margin-right: 6px;
+  }
+
+  .header-back-btn {
+    margin-right: 4px;
+  }
+  
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100vh;
+    width: 260px;
+    z-index: 1001;
+    transform: translateX(-280px);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-lg);
+    border-radius: 0;
+  }
+  
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  
+  .sidebar-close-btn {
+    display: inline-flex !important;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 4px;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .sidebar-logo-text, .nav-item-label, .sidebar-section-label {
+    display: inline-block !important;
+  }
+  
+  .main-content {
+    padding: 10px;
+    width: 100%;
+    height: 100vh;
+  }
+  
+  .page-body {
+    padding-bottom: 24px;
+  }
+  
+  .dashboard-grid { grid-template-columns: 1fr; }
   .dashboard-charts { grid-template-columns: 1fr; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 576px) {
+  .header-search-wrapper {
+    display: none !important;
+  }
+  .header-user-name, .header-user-role {
+    display: none !important;
+  }
+  .header-user {
+    padding: 4px !important;
+    border: none !important;
+    background: none !important;
+  }
+  .header-user:hover {
+    background: none !important;
+    box-shadow: none !important;
+  }
 }
 

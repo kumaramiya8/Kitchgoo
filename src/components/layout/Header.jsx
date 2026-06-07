@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { Bell, Search, ChevronLeft, LogOut, Settings, Users } from 'lucide-react';
+import { Bell, Search, ChevronLeft, LogOut, Settings, Users, Menu } from 'lucide-react';
 import { useAuth } from '../../db/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-const Header = ({ title = 'Dashboard' }) => {
+const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -87,6 +87,10 @@ const Header = ({ title = 'Dashboard' }) => {
 
   return (
     <header className="page-header">
+      <button className="header-menu-btn" onClick={onMenuClick}>
+        <Menu size={18} />
+      </button>
+
       <button className="header-back-btn" onClick={() => navigate(-1)}>
         <ChevronLeft size={16} />
       </button>
