@@ -61,6 +61,73 @@ export function AppProvider({ children }) {
   const [guests, setGuests] = useState([]);
   const [cashDrawer, setCashDrawer] = useState({});
 
+  const [posTables, setPosTables] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kitchgoo_pos_tables');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [posSavedOrders, setPosSavedOrders] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kitchgoo_pos_saved_orders');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    if (posTables.length > 0) {
+      localStorage.setItem('kitchgoo_pos_tables', JSON.stringify(posTables));
+    }
+  }, [posTables]);
+
+  useEffect(() => {
+    localStorage.setItem('kitchgoo_pos_saved_orders', JSON.stringify(posSavedOrders));
+  }, [posSavedOrders]);
+
+  // Build posTables from floorPlans
+  useEffect(() => {
+    const fp = floorPlans || { tables: [], sections: [] };
+    const floorTables = (fp.tables || []).map(t => ({
+      id: t.id || t.number,
+      number: t.number || t.id,
+      seats: t.seats || t.capacity || 4,
+      shape: t.shape || 'square',
+      section: t.section || t.sectionId || null,
+      status: 'available',
+      guestName: null,
+      guestId: null,
+      seatedAt: null,
+      serverId: t.serverId || null,
+    }));
+    if (floorTables.length > 0) {
+      setPosTables(prev => {
+        return floorTables.map(t => {
+          const existing = prev.find(p => p.id === t.id);
+          return existing ? { ...t, ...existing } : t;
+        });
+      });
+    } else {
+      const generated = Array.from({ length: 16 }, (_, i) => ({
+        id: i + 1, number: i + 1, seats: [2, 4, 4, 6, 4, 2, 4, 8, 4, 2, 4, 4, 6, 4, 2, 4][i],
+        shape: i % 5 === 0 ? 'round' : i % 7 === 0 ? 'bar' : 'square',
+        section: i < 4 ? 'Patio' : i < 8 ? 'Main Hall' : i < 12 ? 'Bar' : 'Private',
+        status: 'available', guestName: null, guestId: null, seatedAt: null,
+        serverId: null,
+      }));
+      setPosTables(prev => {
+        return generated.map(t => {
+          const existing = prev.find(p => p.id === t.id);
+          return existing ? { ...t, ...existing } : t;
+        });
+      });
+    }
+  }, [floorPlans]);
+
   useEffect(() => {
     reload();
     setReady(true);
@@ -532,6 +599,7 @@ export function AppProvider({ children }) {
     kdsTickets, reservations, waitlist, onlineOrders, suppliers, purchaseOrders,
     recipes, wasteLog, locations, auditLog, floorPlans, modifiers, schedules,
     tipPools, loyalty, campaigns, guests, cashDrawer,
+    posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     // Staff
     addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,
     // Inventory

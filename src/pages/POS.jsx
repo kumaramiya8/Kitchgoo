@@ -1090,16 +1090,19 @@ const POS = () => {
   const {
     menu, settings, floorPlans, staff, guests, modifiers, cashDrawer,
     placeOrder, fireToKDS, updateCashDrawer, addAuditEntry,
+    posTables, setPosTables, posSavedOrders, setPosSavedOrders,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
   const [orderType, setOrderType] = useState('dine-in');
   const [view, setView] = useState('floor'); // 'floor' | 'order'
   const [viewMode, setViewMode] = useState('map'); // 'grid' | 'map'
-  const [tables, setTables] = useState([]);
+  const tables = posTables;
+  const setTables = setPosTables;
   const [activeTable, setActiveTable] = useState(null);
   const [cart, setCart] = useState([]);
-  const [savedOrders, setSavedOrders] = useState({});
+  const savedOrders = posSavedOrders;
+  const setSavedOrders = setPosSavedOrders;
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -1162,34 +1165,7 @@ const POS = () => {
     if (!activeCategory && categories.length > 0) setActiveCategory(categories[0]);
   }, [categories, activeCategory]);
 
-  // Build tables from floorPlans
-  useEffect(() => {
-    const fp = floorPlans || { tables: [], sections: [] };
-    const floorTables = (fp.tables || []).map(t => ({
-      id: t.id || t.number,
-      number: t.number || t.id,
-      seats: t.seats || t.capacity || 4,
-      shape: t.shape || 'square',
-      section: t.section || t.sectionId || null,
-      status: 'available',
-      guestName: null,
-      guestId: null,
-      seatedAt: null,
-      serverId: t.serverId || null,
-    }));
-    if (floorTables.length > 0) {
-      setTables(floorTables);
-    } else {
-      // Fallback: generate 16 tables
-      setTables(Array.from({ length: 16 }, (_, i) => ({
-        id: i + 1, number: i + 1, seats: [2, 4, 4, 6, 4, 2, 4, 8, 4, 2, 4, 4, 6, 4, 2, 4][i],
-        shape: i % 5 === 0 ? 'round' : i % 7 === 0 ? 'bar' : 'square',
-        section: i < 4 ? 'Patio' : i < 8 ? 'Main Hall' : i < 12 ? 'Bar' : 'Private',
-        status: 'available', guestName: null, guestId: null, seatedAt: null,
-        serverId: null,
-      })));
-    }
-  }, [floorPlans]);
+
 
   const sections = useMemo(() => {
     const fp = floorPlans || {};
