@@ -1,6 +1,6 @@
 /**
- * Kitchgoo — Database Migration Script
- * Resets all collections to the latest seed data with all new fields.
+ * Kitchgoo — Relational Database Seeding Script
+ * Seeds the platform admin "Kitchgoo" account and default datasets.
  * Run: node migrate-db.mjs
  */
 
@@ -10,16 +10,54 @@ const url = process.env.VITE_SUPABASE_URL || 'https://vokfkqzyocguxiaqnjhw.supab
 const key = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZva2ZrcXp5b2NndXhpYXFuamh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMjM5OTMsImV4cCI6MjA4OTg5OTk5M30.7AAAafUY__yZGTa7xAntqsTbJBsUNxEIQ4axSVt1ecs';
 
 const supabase = createClient(url, key);
-const NS = 'kitchgoo_';
 
 const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-async function upsert(k, v) {
-  const { error } = await supabase
-    .from('kitchgoo_store')
-    .upsert({ key: NS + k, value: v, updated_at: new Date().toISOString() });
-  if (error) { console.error(`  ERROR upserting ${k}:`, error.message); return false; }
-  return true;
+const simpleHash = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+  }
+  return hash.toString(16);
+};
+
+// Generic Mapper helpers: CamelCase <--> snake_case
+function toSnakeCase(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(toSnakeCase);
+  if (typeof obj !== 'object') return obj;
+  
+  const snake = {};
+  for (const [key, value] of Object.entries(obj)) {
+    let sKey = key.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/_([0-9])/, "_$1");
+    if (key === 'sold86') sKey = 'sold_86';
+    if (key !== 'items' && key !== 'modifierGroups' && key !== 'allergens' && key !== 'dietaryLabels' && key !== 'priceTiers' && key !== 'timestamps' && key !== 'courseFiring') {
+      snake[sKey] = (typeof value === 'object' && value !== null) ? toSnakeCase(value) : value;
+    } else {
+      snake[sKey] = value;
+    }
+  }
+  return snake;
+}
+
+function sanitizeInsertPayload(table, data) {
+  const tableColumns = {
+    users: ['id', 'accountId', 'name', 'email', 'password', 'role', 'avatar', 'phone', 'createdAt'],
+    menu: ['id', 'accountId', 'name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'createdAt'],
+    inventory: ['id', 'accountId', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'lastUpdated'],
+    orders: ['id', 'accountId', 'billNo', 'tableId', 'items', 'subtotal', 'tax', 'taxRate', 'serviceCharge', 'autoGratuity', 'discount', 'comp', 'tip', 'total', 'paymentMethod', 'orderType', 'guestId', 'guestName', 'serverId', 'serverName', 'partySize', 'status', 'voidReason', 'compReason', 'discountReason', 'courseFiring', 'timestamps', 'createdAt']
+  };
+
+  const allowed = tableColumns[table];
+  if (!allowed) return toSnakeCase(data);
+
+  const filtered = {};
+  for (const key of allowed) {
+    if (data[key] !== undefined) {
+      filtered[key] = data[key];
+    }
+  }
+  return toSnakeCase(filtered);
 }
 
 // ─── Full Seed Data (matches database.js SEEDS) ──────────────
@@ -198,13 +236,10 @@ const SEEDS = {
     drops: [], discrepancies: [], shiftStart: new Date().toISOString(),
   },
 
-  // Keep existing data for these (just ensure they exist)
-  orders: null,           // Will preserve existing
-  delivery_orders: null,  // Will preserve existing
-  attendance: null,       // Will preserve existing
-  users: null,            // Will preserve existing
-
   // Reset empty collections
+  orders: [],
+  delivery_orders: [],
+  attendance: [],
   kds_tickets: [],
   reservations: [],
   waitlist: [],
@@ -216,37 +251,134 @@ const SEEDS = {
 };
 
 async function migrate() {
-  console.log('🔄 Starting Kitchgoo database migration...\n');
+  console.log('🔄 Starting Kitchgoo relational database seeding...\n');
 
-  for (const [key, value] of Object.entries(SEEDS)) {
-    if (value === null) {
-      console.log(`  ⏭️  Skipping ${key} (preserving existing data)`);
-      continue;
-    }
-
-    const ok = await upsert(key, value);
-    if (ok) {
-      const count = Array.isArray(value) ? value.length : (typeof value === 'object' ? Object.keys(value).length : 1);
-      console.log(`  ✅ ${key} — updated (${count} ${Array.isArray(value) ? 'items' : 'keys'})`);
-    }
+  // 1. Check if the accounts table exists (sanity check)
+  const { error: testError } = await supabase.from('accounts').select('id').limit(1);
+  if (testError) {
+    console.error('❌ Error connecting to "accounts" table. Have you run the SQL schema in the Supabase editor?');
+    console.error('Error details:', testError.message);
+    process.exit(1);
   }
 
-  // Ensure bill_counter exists
-  const { data: counterRow } = await supabase
-    .from('kitchgoo_store')
-    .select('value')
-    .eq('key', NS + 'bill_counter')
-    .single();
-
-  if (!counterRow?.value) {
-    await upsert('bill_counter', 1001);
-    console.log('  ✅ bill_counter — set to 1001');
+  console.log('🧹 Cleaning existing data for tenant "Kitchgoo"...');
+  
+  // Delete "Kitchgoo" user/records so we can seed fresh
+  const { error: deleteError } = await supabase.from('accounts').delete().eq('id', 'Kitchgoo');
+  if (deleteError) {
+    console.warn('⚠️  Could not clean up tenant "Kitchgoo" (it might not exist yet):', deleteError.message);
   } else {
-    console.log(`  ⏭️  bill_counter — already ${counterRow.value}`);
+    console.log('  ✅ Cleaned up existing "Kitchgoo" tenant rows.');
   }
 
-  console.log('\n✅ Migration complete! All collections updated with new schema.');
-  console.log('   Restart your dev server to load the fresh data.');
+  // 2. Insert Kitchgoo account
+  console.log('🌱 Seeding "Kitchgoo" tenant...');
+  const { error: accError } = await supabase.from('accounts').insert({
+    id: 'Kitchgoo',
+    name: 'Kitchgoo',
+    status: 'active',
+    plan: 'pro'
+  });
+  if (accError) {
+    console.error('❌ Failed to create Kitchgoo account:', accError.message);
+    process.exit(1);
+  }
+  console.log('  ✅ Created Kitchgoo tenant account.');
+
+  // 3. Insert Admin user
+  const adminUser = {
+    id: 'admin_seed_user',
+    accountId: 'Kitchgoo',
+    name: 'Admin',
+    email: 'admin@kitchgoo.in',
+    password: simpleHash('admin123'),
+    role: 'Owner',
+    avatar: 'A',
+    phone: '',
+    createdAt: new Date().toISOString()
+  };
+  const { error: userError } = await supabase.from('users').insert(sanitizeInsertPayload('users', adminUser));
+  if (userError) {
+    console.error('❌ Failed to create admin user:', userError.message);
+    process.exit(1);
+  }
+  console.log('  ✅ Created admin user (admin@kitchgoo.in / admin123).');
+
+  // 4. Seed Settings section by section
+  console.log('⚙️  Seeding Kitchgoo Settings...');
+  const settingsPromises = Object.entries(SEEDS.settings).map(([section, val]) =>
+    supabase.from('settings').insert({
+      account_id: 'Kitchgoo',
+      section_name: section,
+      value: val
+    })
+  );
+  const settingsResults = await Promise.all(settingsPromises);
+  const settingsFail = settingsResults.find(r => r.error);
+  if (settingsFail) {
+    console.error('❌ Failed to seed settings:', settingsFail.error.message);
+    process.exit(1);
+  }
+  console.log('  ✅ Settings seeded successfully.');
+
+  // 5. Seed Menu items
+  console.log('🍔 Seeding Kitchgoo Menu...');
+  const menuPromises = SEEDS.menu.map(item =>
+    supabase.from('menu').insert(sanitizeInsertPayload('menu', { ...item, accountId: 'Kitchgoo' }))
+  );
+  const menuResults = await Promise.all(menuPromises);
+  const menuFail = menuResults.find(r => r.error);
+  if (menuFail) {
+    console.error('❌ Failed to seed menu:', menuFail.error.message);
+    process.exit(1);
+  }
+  console.log(`  ✅ Menu seeded successfully (${SEEDS.menu.length} items).`);
+
+  // 6. Seed Inventory items
+  console.log('📦 Seeding Kitchgoo Inventory...');
+  const invPromises = SEEDS.inventory.map(item =>
+    supabase.from('inventory').insert(sanitizeInsertPayload('inventory', { ...item, accountId: 'Kitchgoo' }))
+  );
+  const invResults = await Promise.all(invPromises);
+  const invFail = invResults.find(r => r.error);
+  if (invFail) {
+    console.error('❌ Failed to seed inventory:', invFail.error.message);
+    process.exit(1);
+  }
+  console.log(`  ✅ Inventory seeded successfully (${SEEDS.inventory.length} items).`);
+
+  // 7. Seed tenant_data flex collections
+  console.log('📂 Seeding Kitchgoo supporting collections in tenant_data...');
+  const flexCollections = [
+    'staff', 'guests', 'suppliers', 'recipes', 'floor_plans',
+    'modifiers', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
+    'kds_tickets', 'reservations', 'waitlist', 'online_orders', 'purchase_orders',
+    'waste_log', 'audit_log', 'schedules', 'orders', 'delivery_orders', 'attendance'
+  ];
+  const flexPromises = flexCollections.map(col =>
+    supabase.from('tenant_data').insert({
+      account_id: 'Kitchgoo',
+      collection_name: col,
+      value: SEEDS[col] || []
+    })
+  );
+  
+  // also seed bill_counter as 1001
+  flexPromises.push(supabase.from('tenant_data').insert({
+    account_id: 'Kitchgoo',
+    collection_name: 'bill_counter',
+    value: { counter: 1001 }
+  }));
+
+  const flexResults = await Promise.all(flexPromises);
+  const flexFail = flexResults.find(r => r.error);
+  if (flexFail) {
+    console.error('❌ Failed to seed tenant_data:', flexFail.error.message);
+    process.exit(1);
+  }
+  console.log(`  ✅ Supporting collections seeded successfully (${flexCollections.length} tables).`);
+
+  console.log('\n🎉 Relational database seeding complete! "Kitchgoo" tenant is fully set up.');
 }
 
 migrate().catch(err => {

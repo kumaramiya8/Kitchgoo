@@ -19,11 +19,15 @@ import {
 } from 'lucide-react';
 
 import { useApp } from '../../db/AppContext';
+import { useAuth } from '../../db/AuthContext';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { settings } = useApp();
+  const { user } = useAuth();
   const restName = settings?.restaurant?.name || 'Kitchgoo';
   const restLogo = settings?.restaurant?.logo;
+
+  const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
 
   const operationsNav = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -86,23 +90,34 @@ const Sidebar = ({ isOpen, onClose }) => {
         </span>
       </div>
 
-      {/* Operations */}
-      <div className="sidebar-section">
-        <div className="sidebar-section-label">Operations</div>
-        {renderNavItems(operationsNav)}
-      </div>
+      {isPlatformAdmin ? (
+        <div className="sidebar-section">
+          <div className="sidebar-section-label">Admin Platform</div>
+          {renderNavItems([
+            { name: 'Platform Admin', path: '/', icon: Shield },
+          ])}
+        </div>
+      ) : (
+        <>
+          {/* Operations */}
+          <div className="sidebar-section">
+            <div className="sidebar-section-label">Operations</div>
+            {renderNavItems(operationsNav)}
+          </div>
 
-      {/* Management */}
-      <div className="sidebar-section">
-        <div className="sidebar-section-label">Management</div>
-        {renderNavItems(managementNav)}
-      </div>
+          {/* Management */}
+          <div className="sidebar-section">
+            <div className="sidebar-section-label">Management</div>
+            {renderNavItems(managementNav)}
+          </div>
 
-      {/* Enterprise */}
-      <div className="sidebar-section">
-        <div className="sidebar-section-label">Enterprise</div>
-        {renderNavItems(enterpriseNav)}
-      </div>
+          {/* Enterprise */}
+          <div className="sidebar-section">
+            <div className="sidebar-section-label">Enterprise</div>
+            {renderNavItems(enterpriseNav.filter(n => n.name !== 'Platform Admin'))}
+          </div>
+        </>
+      )}
 
       <div className="sidebar-footer">
         <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={onClose}>

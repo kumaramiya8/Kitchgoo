@@ -1,11 +1,13 @@
 /**
- * Kitchgoo — Database Layer (Supabase backend)
+ * Kitchgoo — Relational Database Client & Adapter (Supabase & local Demo Mode)
  *
  * Architecture:
- *  • All collections are stored in a single Supabase table: kitchgoo_store (key, value jsonb).
- *  • initDB() fetches every row into an in-memory cache so reads stay synchronous.
- *  • Writes update the cache immediately (sync) then persist to Supabase (async).
- *  • Call initDB() once before rendering the app (see main.jsx).
+ *  • Core transactional tables (accounts, users, settings, menu, inventory, orders)
+ *    are stored as standard database rows in Supabase.
+ *  • Other supporting collections are stored in the flexible tenant_data table.
+ *  • Front-end read operations remain synchronous by loading the active tenant's datasets
+ *    into an in-memory cache (_cache) at login/switch.
+ *  • Writes update the cache immediately and launch targeted SQL queries to Supabase.
  */
 
 import { supabase } from '../lib/supabase';
@@ -35,53 +37,75 @@ function localRestore(key) {
   return undefined;
 }
 
-// In-memory cache — populated by initDB()
+// Hashing helper for admin seed
+const simpleHash = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+  }
+  return hash.toString(16);
+};
+
+// Check if we are running in local demo mode
+function isDemoMode() {
+  if (typeof window !== 'undefined') {
+    return window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+  }
+  return true;
+}
+
+// In-memory cache — populated from Supabase or LocalStorage
 const _cache = {};
 
-// Offline queue for syncing when connection restores
-const _offlineQueue = [];
-let _isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+let _currentTenant = 'Kitchgoo';
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => { _isOnline = true; flushOfflineQueue(); });
-  window.addEventListener('offline', () => { _isOnline = false; });
-}
-
-async function flushOfflineQueue() {
-  while (_offlineQueue.length > 0) {
-    const { key, value } = _offlineQueue.shift();
-    await dbUpsert(key, value);
+export function setCurrentTenant(tenant) {
+  if (tenant) {
+    _currentTenant = tenant;
   }
 }
 
-// ─── Low-level Supabase helpers ────────────────────────────
-
-async function dbFetchAll() {
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('kitchgoo_store')
-    .select('key, value');
-  if (error) {
-    console.error('[DB] fetch error:', error.message);
-    return [];
-  }
-  return data || [];
+export function getCurrentTenant() {
+  return _currentTenant;
 }
 
-async function dbUpsert(key, value) {
-  localBackup(key, value);
-  if (!supabase) return;
-  if (!_isOnline) {
-    _offlineQueue.push({ key, value });
-    return;
+// Generic Mapper helpers: CamelCase <--> snake_case
+function toSnakeCase(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(toSnakeCase);
+  if (typeof obj !== 'object') return obj;
+  
+  const snake = {};
+  for (const [key, value] of Object.entries(obj)) {
+    let sKey = key.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/_([0-9])/, "_$1");
+    if (key === 'sold86') sKey = 'sold_86';
+    // If value is an array of objects or an object, convert recursively (excluding jsonb columns we want to keep raw)
+    if (key !== 'items' && key !== 'modifierGroups' && key !== 'allergens' && key !== 'dietaryLabels' && key !== 'priceTiers' && key !== 'timestamps' && key !== 'courseFiring') {
+      snake[sKey] = (typeof value === 'object' && value !== null) ? toSnakeCase(value) : value;
+    } else {
+      snake[sKey] = value;
+    }
   }
-  const { error } = await supabase
-    .from('kitchgoo_store')
-    .upsert({ key: NS + key, value, updated_at: new Date().toISOString() });
-  if (error) console.error('[DB] write error:', error.message);
+  return snake;
 }
 
-export const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+function toCamelCase(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(toCamelCase);
+  if (typeof obj !== 'object') return obj;
+
+  const camel = {};
+  for (const [key, value] of Object.entries(obj)) {
+    let cKey = key.replace(/_([a-z0-9])/g, (_, char) => char.toUpperCase());
+    if (key === 'sold_86') cKey = 'sold86';
+    if (key !== 'items' && key !== 'modifier_groups' && key !== 'allergens' && key !== 'dietary_labels' && key !== 'price_tiers' && key !== 'timestamps' && key !== 'course_firing') {
+      camel[cKey] = (typeof value === 'object' && value !== null) ? toCamelCase(value) : value;
+    } else {
+      camel[cKey] = value;
+    }
+  }
+  return camel;
+}
 
 // ─── Seed Data ─────────────────────────────────────────────
 const SEEDS = {
@@ -335,52 +359,275 @@ const SEEDS = {
   },
 };
 
-// ─── Init — load all data from Supabase into cache ─────────
-export async function initDB() {
-  const rows = await dbFetchAll();
-
-  // Populate cache from Supabase
-  rows.forEach(row => {
-    const shortKey = row.key.startsWith(NS) ? row.key.slice(NS.length) : row.key;
-    _cache[shortKey] = row.value;
-  });
-
-  // Seed collections that don't exist in Supabase yet
+// ─── Asynchronous Helper to load tenant data from Supabase ────
+async function loadTenantDataFromSupabase(tenantName) {
   const collections = [
-    'settings', 'staff', 'inventory', 'menu', 'orders', 'delivery_orders',
-    'attendance', 'users', 'guests', 'kds_tickets', 'reservations', 'waitlist',
-    'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
-    'locations', 'audit_log', 'floor_plans', 'modifiers', 'schedules',
-    'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
+    'staff', 'delivery_orders', 'attendance', 'guests', 'kds_tickets',
+    'reservations', 'waitlist', 'online_orders', 'suppliers', 'purchase_orders',
+    'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
+    'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer'
   ];
-  for (const col of collections) {
-    if (_cache[col] === undefined) {
-      const localVal = localRestore(col);
+
+  // Core tables queries
+  const [menuRes, inventoryRes, ordersRes, settingsRes, flexRes] = await Promise.all([
+    supabase.from('menu').select('*').eq('account_id', tenantName),
+    supabase.from('inventory').select('*').eq('account_id', tenantName),
+    supabase.from('orders').select('*').eq('account_id', tenantName),
+    supabase.from('settings').select('*').eq('account_id', tenantName),
+    supabase.from('tenant_data').select('*').eq('account_id', tenantName)
+  ]);
+
+  // Load menu
+  _cache['menu'] = (menuRes.data || []).map(toCamelCase);
+
+  // Load inventory
+  _cache['inventory'] = (inventoryRes.data || []).map(toCamelCase);
+
+  // Load orders
+  _cache['orders'] = (ordersRes.data || []).map(toCamelCase);
+
+  // Load settings (reassemble from section rows)
+  const settingsObj = JSON.parse(JSON.stringify(SEEDS.settings));
+  if (settingsRes.data && settingsRes.data.length > 0) {
+    settingsRes.data.forEach(row => {
+      settingsObj[row.section_name] = row.value;
+    });
+  }
+  _cache['settings'] = settingsObj;
+
+  // Load flex data collections with fallback seeds
+  collections.forEach(col => {
+    _cache[col] = SEEDS[col] || [];
+  });
+  if (flexRes.data && flexRes.data.length > 0) {
+    flexRes.data.forEach(row => {
+      _cache[row.collection_name] = row.value;
+    });
+  }
+}
+
+// ─── Sanitization Helpers for Supabase Relational Tables ───────
+function sanitizeInsertPayload(table, data) {
+  const tableColumns = {
+    users: ['id', 'accountId', 'name', 'email', 'password', 'role', 'avatar', 'phone', 'createdAt'],
+    menu: ['id', 'accountId', 'name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'createdAt'],
+    inventory: ['id', 'accountId', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'lastUpdated'],
+    orders: ['id', 'accountId', 'billNo', 'tableId', 'items', 'subtotal', 'tax', 'taxRate', 'serviceCharge', 'autoGratuity', 'discount', 'comp', 'tip', 'total', 'paymentMethod', 'orderType', 'guestId', 'guestName', 'serverId', 'serverName', 'partySize', 'status', 'voidReason', 'compReason', 'discountReason', 'courseFiring', 'timestamps', 'createdAt']
+  };
+
+  const allowed = tableColumns[table];
+  if (!allowed) return toSnakeCase(data);
+
+  const filtered = {};
+  for (const key of allowed) {
+    if (data[key] !== undefined) {
+      filtered[key] = data[key];
+    }
+  }
+  return toSnakeCase(filtered);
+}
+
+function sanitizeUpdatePayload(table, data) {
+  const tableColumns = {
+    users: ['name', 'email', 'password', 'role', 'avatar', 'phone', 'accountId'],
+    menu: ['name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers'],
+    inventory: ['name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'lastUpdated'],
+    orders: ['billNo', 'tableId', 'items', 'subtotal', 'tax', 'taxRate', 'serviceCharge', 'autoGratuity', 'discount', 'comp', 'tip', 'total', 'paymentMethod', 'orderType', 'guestId', 'guestName', 'serverId', 'serverName', 'partySize', 'status', 'voidReason', 'compReason', 'discountReason', 'courseFiring', 'timestamps']
+  };
+
+  const allowed = tableColumns[table];
+  if (!allowed) return toSnakeCase(data);
+
+  const filtered = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (allowed.includes(key)) {
+      filtered[key] = value;
+    }
+  }
+  return toSnakeCase(filtered);
+}
+
+// ─── Init — load accounts and active user session ─────────
+export async function initDB() {
+  if (!supabase || isDemoMode()) {
+    // Demo mode initialization
+    const collections = [
+      'settings', 'staff', 'inventory', 'menu', 'orders', 'delivery_orders',
+      'attendance', 'users', 'guests', 'kds_tickets', 'reservations', 'waitlist',
+      'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
+      'locations', 'audit_log', 'floor_plans', 'modifiers', 'schedules',
+      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
+    ];
+    for (const col of collections) {
+      const key = `Kitchgoo_${col}`;
+      const localVal = localRestore(key);
       if (localVal !== undefined) {
         _cache[col] = localVal;
       } else {
         _cache[col] = SEEDS[col];
-        await dbUpsert(col, SEEDS[col]);
+        localBackup(key, SEEDS[col]);
       }
     }
-  }
-
-  if (_cache['bill_counter'] === undefined) {
-    const localBillCounter = localRestore('bill_counter');
-    if (localBillCounter !== undefined) {
-      _cache['bill_counter'] = localBillCounter;
-    } else {
-      _cache['bill_counter'] = 1001;
-      await dbUpsert('bill_counter', 1001);
+    _cache['users'] = localRestore('users') || [];
+    if (_cache['users'].length === 0) {
+      const defaultAdmin = {
+        id: genId(),
+        name: 'Admin',
+        email: 'admin@kitchgoo.in',
+        password: simpleHash('admin123'),
+        role: 'Owner',
+        avatar: 'A',
+        restaurantName: 'Kitchgoo',
+        createdAt: new Date().toISOString(),
+      };
+      _cache['users'] = [defaultAdmin];
+      localBackup('users', _cache['users']);
     }
+    _cache['bill_counter'] = localRestore('Kitchgoo_bill_counter') || 1001;
+    return;
   }
 
-  // Self-heal: if roles got corrupted to a non-array, reset to seed
-  const settings = _cache['settings'];
-  if (settings && !Array.isArray(settings.roles)) {
-    const fixed = { ...settings, roles: SEEDS.settings.roles };
-    _cache['settings'] = fixed;
-    await dbUpsert('settings', fixed);
+  try {
+    // 1. Load accounts and global users list
+    const { data: accounts } = await supabase.from('accounts').select('*');
+    const { data: users } = await supabase.from('users').select('*');
+    
+    _cache['accounts'] = accounts || [];
+    _cache['users'] = (users || []).map(row => {
+      const u = toCamelCase(row);
+      u.restaurantName = u.accountId; // Keep frontend compatibility
+      return u;
+    });
+
+    // 2. Ensure default Kitchgoo admin exists in the database
+    let adminAccount = _cache['accounts'].find(a => a.name.toLowerCase() === 'kitchgoo');
+    if (!adminAccount) {
+      const newAcc = { id: 'Kitchgoo', name: 'Kitchgoo', status: 'active', plan: 'pro' };
+      await supabase.from('accounts').insert(newAcc);
+      _cache['accounts'].push(newAcc);
+    }
+
+    let adminUser = _cache['users'].find(u => u.email.toLowerCase() === 'admin@kitchgoo.in');
+    if (!adminUser) {
+      const newAdmin = {
+        id: genId(),
+        account_id: 'Kitchgoo',
+        name: 'Admin',
+        email: 'admin@kitchgoo.in',
+        password: simpleHash('admin123'),
+        role: 'Owner',
+        avatar: 'A',
+        created_at: new Date().toISOString()
+      };
+      await supabase.from('users').insert(newAdmin);
+      const adminCamel = toCamelCase(newAdmin);
+      adminCamel.restaurantName = adminCamel.accountId;
+      _cache['users'].push(adminCamel);
+    }
+
+    // 3. Load active Kitchgoo tenant data into cache
+    _currentTenant = 'Kitchgoo';
+    await loadTenantDataFromSupabase('Kitchgoo');
+
+  } catch (err) {
+    console.error('[DB] initDB error:', err);
+  }
+}
+
+// ─── Tenant DB Initializer ─────────────────────────────────
+export async function initTenantDB(tenantName) {
+  if (!tenantName) return;
+  
+  _currentTenant = tenantName;
+
+  if (!supabase || isDemoMode()) {
+    // Restore from localStorage under prefix, fallback to SEEDS
+    const collections = [
+      'settings', 'staff', 'inventory', 'menu', 'orders', 'delivery_orders',
+      'attendance', 'guests', 'kds_tickets', 'reservations', 'waitlist',
+      'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
+      'locations', 'floor_plans', 'modifiers', 'schedules',
+      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer'
+    ];
+    for (const col of collections) {
+      const key = `${tenantName}_${col}`;
+      const localVal = localRestore(key);
+      if (localVal !== undefined) {
+        _cache[col] = localVal;
+      } else {
+        let val = JSON.parse(JSON.stringify(SEEDS[col] || []));
+        if (col === 'settings') {
+          val = {
+            ...SEEDS.settings,
+            restaurant: {
+              ...SEEDS.settings.restaurant,
+              name: tenantName,
+              email: `contact@${tenantName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+            }
+          };
+        }
+        _cache[col] = val;
+        localBackup(key, val);
+      }
+    }
+    _cache['bill_counter'] = localRestore(`${tenantName}_bill_counter`) || 1001;
+    return;
+  }
+
+  try {
+    // 1. Ensure account exists in the accounts table
+    const { data: existingAccounts } = await supabase.from('accounts').select('*').eq('id', tenantName);
+    if (!existingAccounts || existingAccounts.length === 0) {
+      await supabase.from('accounts').insert({ id: tenantName, name: tenantName, status: 'active', plan: 'pro' });
+    }
+
+    // 2. Fetch all rows for this tenant
+    await loadTenantDataFromSupabase(tenantName);
+
+    // 3. If no settings sections exist, it's a new tenant! Seed standard templates
+    const { data: existingSettings } = await supabase.from('settings').select('section_name').eq('account_id', tenantName);
+    if (!existingSettings || existingSettings.length === 0) {
+      console.log(`[DB] Seeding new tenant: ${tenantName}`);
+      
+      // Seed Settings
+      const settingsObj = {
+        ...SEEDS.settings,
+        restaurant: {
+          ...SEEDS.settings.restaurant,
+          name: tenantName,
+          email: `contact@${tenantName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+        }
+      };
+      
+      const settingsPromises = Object.entries(settingsObj).map(([section, val]) =>
+        supabase.from('settings').insert({ account_id: tenantName, section_name: section, value: val })
+      );
+      await Promise.all(settingsPromises);
+
+      // Seed Menu
+      const menuPromises = SEEDS.menu.map(item =>
+        supabase.from('menu').insert(sanitizeInsertPayload('menu', { ...item, accountId: tenantName }))
+      );
+      await Promise.all(menuPromises);
+
+      // Seed Inventory
+      const invPromises = SEEDS.inventory.map(item =>
+        supabase.from('inventory').insert(sanitizeInsertPayload('inventory', { ...item, accountId: tenantName }))
+      );
+      await Promise.all(invPromises);
+
+      // Seed flex data
+      const flexCollections = ['staff', 'suppliers', 'recipes', 'floor_plans', 'modifiers', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer'];
+      const flexPromises = flexCollections.map(col =>
+        supabase.from('tenant_data').insert({ account_id: tenantName, collection_name: col, value: SEEDS[col] })
+      );
+      await Promise.all(flexPromises);
+
+      // Reload tenant data to make sure cache holds seeded values
+      await loadTenantDataFromSupabase(tenantName);
+    }
+  } catch (err) {
+    console.error('[DB] initTenantDB error:', err);
   }
 }
 
@@ -396,40 +643,152 @@ export function getById(collection, id) {
 }
 
 export async function insert(collection, data) {
-  const items = getAll(collection);
-  if (!Array.isArray(items)) return data;
   const newItem = { id: genId(), createdAt: new Date().toISOString(), ...data };
-  const updated = [...items, newItem];
-  _cache[collection] = updated;
-  await dbUpsert(collection, updated);
+  
+  if (collection === 'users') {
+    newItem.accountId = newItem.restaurantName || 'Kitchgoo';
+    newItem.restaurantName = newItem.accountId; // Keep compatibility
+  }
+  
+  const items = getAll(collection);
+  _cache[collection] = [...items, newItem];
+  
+  localBackup(`${_currentTenant}_${collection}`, _cache[collection]);
+  
+  if (supabase && !isDemoMode()) {
+    try {
+      if (collection === 'users') {
+        const tenantName = newItem.restaurantName || 'Kitchgoo';
+        const { data: existing } = await supabase.from('accounts').select('id').eq('id', tenantName);
+        if (!existing || existing.length === 0) {
+          await supabase.from('accounts').insert({ id: tenantName, name: tenantName, status: 'active', plan: 'pro' });
+        }
+        await supabase.from('users').insert(sanitizeInsertPayload('users', { ...newItem, accountId: tenantName }));
+      } else if (collection === 'menu') {
+        await supabase.from('menu').insert(sanitizeInsertPayload('menu', { ...newItem, accountId: _currentTenant }));
+      } else if (collection === 'inventory') {
+        await supabase.from('inventory').insert(sanitizeInsertPayload('inventory', { ...newItem, accountId: _currentTenant }));
+      } else if (collection === 'orders') {
+        await supabase.from('orders').insert(sanitizeInsertPayload('orders', { ...newItem, accountId: _currentTenant }));
+      } else {
+        await supabase.from('tenant_data').upsert({
+          account_id: _currentTenant,
+          collection_name: collection,
+          value: _cache[collection]
+        });
+      }
+    } catch (err) {
+      console.error(`[DB] Error inserting to ${collection}:`, err);
+    }
+  }
   return newItem;
 }
 
 export async function update(collection, id, data) {
   const items = getAll(collection);
+  let updatedItem = null;
+
   if (!Array.isArray(items)) {
     const updated = { ...items, ...data };
     _cache[collection] = updated;
-    await dbUpsert(collection, updated);
+    localBackup(`${_currentTenant}_${collection}`, updated);
+    
+    if (supabase && !isDemoMode()) {
+      try {
+        await supabase.from('tenant_data').upsert({
+          account_id: _currentTenant,
+          collection_name: collection,
+          value: updated
+        });
+      } catch (err) {
+        console.error(`[DB] Error updating non-array ${collection}:`, err);
+      }
+    }
     return updated;
   }
-  const updated = items.map(i =>
-    i.id === id ? { ...i, ...data, updatedAt: new Date().toISOString() } : i
-  );
+
+  const updated = items.map(i => {
+    if (i.id === id) {
+      updatedItem = { ...i, ...data, updatedAt: new Date().toISOString() };
+      if (collection === 'users') {
+        updatedItem.accountId = updatedItem.restaurantName || updatedItem.accountId || 'Kitchgoo';
+        updatedItem.restaurantName = updatedItem.accountId;
+      }
+      return updatedItem;
+    }
+    return i;
+  });
+
   _cache[collection] = updated;
-  await dbUpsert(collection, updated);
-  return updated.find(i => i.id === id);
+  localBackup(`${_currentTenant}_${collection}`, updated);
+
+  if (supabase && !isDemoMode() && updatedItem) {
+    try {
+      if (collection === 'users') {
+        await supabase.from('users').update(sanitizeUpdatePayload('users', data)).eq('id', id);
+      } else if (collection === 'menu') {
+        await supabase.from('menu').update(sanitizeUpdatePayload('menu', data)).eq('id', id);
+      } else if (collection === 'inventory') {
+        await supabase.from('inventory').update(sanitizeUpdatePayload('inventory', data)).eq('id', id);
+      } else if (collection === 'orders') {
+        await supabase.from('orders').update(sanitizeUpdatePayload('orders', data)).eq('id', id);
+      } else {
+        await supabase.from('tenant_data').upsert({
+          account_id: _currentTenant,
+          collection_name: collection,
+          value: updated
+        });
+      }
+    } catch (err) {
+      console.error(`[DB] Error updating ${collection}:`, err);
+    }
+  }
+  return updatedItem;
 }
 
 export async function remove(collection, id) {
   const items = getAll(collection).filter(i => i.id !== id);
   _cache[collection] = items;
-  await dbUpsert(collection, items);
+  localBackup(`${_currentTenant}_${collection}`, items);
+
+  if (supabase && !isDemoMode()) {
+    try {
+      if (collection === 'users') {
+        await supabase.from('users').delete().eq('id', id);
+      } else if (collection === 'menu') {
+        await supabase.from('menu').delete().eq('id', id);
+      } else if (collection === 'inventory') {
+        await supabase.from('inventory').delete().eq('id', id);
+      } else if (collection === 'orders') {
+        await supabase.from('orders').delete().eq('id', id);
+      } else {
+        await supabase.from('tenant_data').upsert({
+          account_id: _currentTenant,
+          collection_name: collection,
+          value: items
+        });
+      }
+    } catch (err) {
+      console.error(`[DB] Error deleting from ${collection}:`, err);
+    }
+  }
 }
 
 export async function setCollection(collection, data) {
   _cache[collection] = data;
-  await dbUpsert(collection, data);
+  localBackup(`${_currentTenant}_${collection}`, data);
+
+  if (supabase && !isDemoMode()) {
+    try {
+      await supabase.from('tenant_data').upsert({
+        account_id: _currentTenant,
+        collection_name: collection,
+        value: data
+      });
+    } catch (err) {
+      console.error(`[DB] Error setCollection ${collection}:`, err);
+    }
+  }
 }
 
 // ─── Settings ───────────────────────────────────────────────
@@ -450,13 +809,28 @@ export async function updateSettings(section, data) {
       : data;
   const updated = { ...settings, [section]: newSectionValue };
   _cache['settings'] = updated;
-  await dbUpsert('settings', updated);
+  
+  localBackup(`${_currentTenant}_settings`, updated);
+
+  if (supabase && !isDemoMode()) {
+    try {
+      await supabase.from('settings').upsert({
+        account_id: _currentTenant,
+        section_name: section,
+        value: newSectionValue
+      });
+    } catch (err) {
+      console.error('[DB] Error updating settings row:', err);
+    }
+  }
   return updated;
 }
 
-// ─── Orders ─────────────────────────────────────────────────
+// ─── Orders / Transactions ──────────────────────────────────
 export async function createOrder(tableId, items, paymentMethod, extra = {}) {
-  const counter = _cache['bill_counter'] || 1001;
+  const bcKey = `${_currentTenant}_bill_counter`;
+  const counter = (_cache['bill_counter'] = (localRestore(bcKey) || 1001));
+  
   const settings = getSettings();
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * (settings.billing.gstRate / 100);
@@ -513,10 +887,23 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
   _cache['orders'] = newOrders;
   _cache['bill_counter'] = counter + 1;
 
-  await Promise.all([
-    dbUpsert('orders', newOrders),
-    dbUpsert('bill_counter', counter + 1),
-  ]);
+  localBackup(`${_currentTenant}_orders`, newOrders);
+  localBackup(bcKey, counter + 1);
+
+  if (supabase && !isDemoMode()) {
+    try {
+      await Promise.all([
+        supabase.from('orders').insert(toSnakeCase({ ...order, accountId: _currentTenant })),
+        supabase.from('tenant_data').upsert({
+          account_id: _currentTenant,
+          collection_name: 'bill_counter',
+          value: { counter: counter + 1 }
+        })
+      ]);
+    } catch (err) {
+      console.error('[DB] createOrder Supabase error:', err);
+    }
+  }
 
   return order;
 }
@@ -680,6 +1067,21 @@ export async function updateCashDrawer(data) {
   const current = getAll('cash_drawer') || SEEDS.cash_drawer;
   const updated = { ...current, ...data };
   _cache['cash_drawer'] = updated;
-  await dbUpsert('cash_drawer', updated);
+  
+  localBackup(`${_currentTenant}_cash_drawer`, updated);
+
+  if (supabase && !isDemoMode()) {
+    try {
+      await supabase.from('tenant_data').upsert({
+        account_id: _currentTenant,
+        collection_name: 'cash_drawer',
+        value: updated
+      });
+    } catch (err) {
+      console.error('[DB] Error updating cash drawer:', err);
+    }
+  }
   return updated;
 }
+
+export const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;

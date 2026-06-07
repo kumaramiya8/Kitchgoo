@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import ReactDOM from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Shield, CreditCard, FileText, Webhook, Puzzle, Lock, Search,
   Download, Plus, Trash2, X, Check, AlertTriangle, Eye, EyeOff,
@@ -9,12 +10,14 @@ import {
   Database, Mail, MessageSquare, DollarSign, Building2, Hotel,
   BarChart3, CircleDot, ShieldCheck, ShieldAlert, LogOut, Clipboard
 } from 'lucide-react';
+import { useAuth } from '../db/AuthContext';
 import { useApp } from '../db/AppContext';
-import { genId } from '../db/database';
+import { genId, getAll, remove as dbRemove } from '../db/database';
 
 // ── Constants ──────────────────────────────────────────────────
 
 const TABS = [
+  { id: 'accounts', label: 'Tenant Accounts', icon: Users },
   { id: 'subscription', label: 'Subscription', icon: CreditCard },
   { id: 'audit', label: 'Audit Logs', icon: FileText },
   { id: 'api', label: 'API & Webhooks', icon: Webhook },
@@ -209,6 +212,273 @@ const Toggle = ({ value, onChange, label, description }) => (
     </button>
   </div>
 );
+
+// ═══════════════════════════════════════════════════════════════
+// ── TENANT ACCOUNTS TAB ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const AccountsTab = () => {
+  const { register, impersonateAccount } = useAuth();
+  const { reload } = useApp();
+  const navigate = useNavigate();
+  const [users, setUsers] = useState([]);
+  const [search, setSearch] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [form, setForm] = useState({
+    accountName: '',
+    ownerName: '',
+    email: '',
+    password: '',
+    phone: '',
+    plan: 'pro',
+    status: 'active'
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const loadUsers = () => {
+    setUsers(getAll('users') || []);
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const tenantAccounts = useMemo(() => {
+    return users.filter(u => 
+      u.restaurantName && 
+      u.restaurantName.toLowerCase() !== 'kitchgoo'
+    ).filter(u => {
+      if (!search) return true;
+      const s = search.toLowerCase();
+      return (
+        (u.restaurantName || '').toLowerCase().includes(s) ||
+        (u.name || '').toLowerCase().includes(s) ||
+        (u.email || '').toLowerCase().includes(s)
+      );
+    });
+  }, [users, search]);
+
+  const handleCreateAccount = async (e) => {
+    e.preventDefault();
+    if (!form.accountName || !form.ownerName || !form.email || !form.password) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+
+    const result = await register({
+      name: form.ownerName,
+      email: form.email,
+      password: form.password,
+      role: 'Owner',
+      restaurantName: form.accountName,
+      phone: form.phone
+    });
+
+    setLoading(false);
+    if (result.success) {
+      setShowCreateModal(false);
+      setForm({
+        accountName: '',
+        ownerName: '',
+        email: '',
+        password: '',
+        phone: '',
+        plan: 'pro',
+        status: 'active'
+      });
+      loadUsers();
+    } else {
+      setError(result.error);
+    }
+  };
+
+  const handleDeleteAccount = async (userId, userName) => {
+    if (window.confirm(`Are you sure you want to delete account for user "${userName}"?`)) {
+      await dbRemove('users', userId);
+      loadUsers();
+    }
+  };
+
+  const handleOpenAccount = async (tenantName) => {
+    const res = await impersonateAccount(tenantName);
+    if (res.success) {
+      reload();
+      navigate('/');
+    } else {
+      alert(res.error || 'Failed to open account.');
+    }
+  };
+
+  return (
+    <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ position: 'relative', flex: '0 1 300px', minWidth: '200px' }}>
+          <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input 
+            className="input-field" 
+            placeholder="Search accounts..." 
+            value={search} 
+            onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft: '32px', width: '100%' }} 
+          />
+        </div>
+        <button 
+          className="btn btn-primary" 
+          onClick={() => { setError(''); setShowCreateModal(true); }}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <Plus size={16} /> Create Account
+        </button>
+      </div>
+
+      <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
+        <div className="table-wrapper">
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+            <thead>
+              <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Account Name</th>
+                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Owner Name</th>
+                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Email Address</th>
+                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Created At</th>
+                <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tenantAccounts.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    No tenant accounts found. Click "Create Account" to add one.
+                  </td>
+                </tr>
+              ) : (
+                tenantAccounts.map(account => (
+                  <tr key={account.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {account.restaurantName}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      {account.name}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      {account.email}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>
+                      {account.createdAt ? new Date(account.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '--'}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                        <button 
+                          className="btn btn-sm btn-primary"
+                          onClick={() => handleOpenAccount(account.restaurantName)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
+                        >
+                          <ExternalLink size={12} /> Open Account
+                        </button>
+                        <button 
+                          className="btn btn-sm btn-danger"
+                          onClick={() => handleDeleteAccount(account.id, account.name)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showCreateModal && (
+        <Modal title="Create Tenant Account" onClose={() => setShowCreateModal(false)}>
+          <form onSubmit={handleCreateAccount}>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="input-group">
+                <label className="input-label">Account Name (Restaurant Name) <span style={{ color: 'red' }}>*</span></label>
+                <input 
+                  className="input-field" 
+                  placeholder="e.g. Kiko Cafe" 
+                  value={form.accountName} 
+                  onChange={e => setForm(prev => ({ ...prev, accountName: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Owner Name <span style={{ color: 'red' }}>*</span></label>
+                <input 
+                  className="input-field" 
+                  placeholder="e.g. Kiko Owner" 
+                  value={form.ownerName} 
+                  onChange={e => setForm(prev => ({ ...prev, ownerName: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Owner Email <span style={{ color: 'red' }}>*</span></label>
+                <input 
+                  className="input-field" 
+                  type="email" 
+                  placeholder="owner@kikocafe.com" 
+                  value={form.email} 
+                  onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Password <span style={{ color: 'red' }}>*</span></label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    className="input-field" 
+                    type={showPassword ? 'text' : 'password'} 
+                    placeholder="Enter owner password" 
+                    value={form.password} 
+                    onChange={e => setForm(prev => ({ ...prev, password: e.target.value }))}
+                    style={{ paddingRight: '44px', width: '100%' }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+              <div className="input-group">
+                <label className="input-label">Phone Number</label>
+                <input 
+                  className="input-field" 
+                  placeholder="+91 XXXXX XXXXX" 
+                  value={form.phone} 
+                  onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))}
+                />
+              </div>
+
+              {error && (
+                <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '10px', padding: '10px 14px', fontSize: '0.82rem', color: '#dc2626' }}>
+                  ⚠ {error}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? 'Creating...' : 'Create Account'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+};
 
 // ═══════════════════════════════════════════════════════════════
 // ── SUBSCRIPTION TAB ──────────────────────────────────────────
@@ -1011,7 +1281,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
 
 export default function PlatformAdmin() {
   const { settings, auditLog, orders, updateSettingsSection, addAuditEntry } = useApp();
-  const [activeTab, setActiveTab] = useState('subscription');
+  const [activeTab, setActiveTab] = useState('accounts');
 
   return (
     <div className="animate-fade-up" style={{ padding: '0 4px' }}>
@@ -1049,6 +1319,7 @@ export default function PlatformAdmin() {
       </div>
 
       {/* Tab Content */}
+      {activeTab === 'accounts' && <AccountsTab />}
       {activeTab === 'subscription' && <SubscriptionTab settings={settings} />}
       {activeTab === 'audit' && <AuditLogsTab auditLog={auditLog} />}
       {activeTab === 'api' && <ApiWebhooksTab addAuditEntry={addAuditEntry} />}

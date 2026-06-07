@@ -4,22 +4,22 @@ import { ChefHat, Eye, EyeOff, ArrowRight, Loader } from 'lucide-react';
 
 const Login = () => {
   const { login } = useAuth();
-  const [form, setForm] = useState({ email: 'admin@kitchgoo.in', password: 'admin123' });
+  const [form, setForm] = useState({ accountName: 'Kitchgoo', email: 'admin@kitchgoo.in', password: 'admin123' });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.email || !form.password) {
+    if (!form.accountName || !form.email || !form.password) {
       setError('Please fill in all fields.');
       return;
     }
     setLoading(true);
     setError('');
     // Small delay for UX
-    setTimeout(() => {
-      const result = login(form.email, form.password);
+    setTimeout(async () => {
+      const result = await login(form.accountName, form.email, form.password);
       setLoading(false);
       if (!result.success) setError(result.error);
     }, 600);
@@ -70,6 +70,21 @@ const Login = () => {
         </div>
 
         <form onSubmit={handleSubmit}>
+          {/* Account Name */}
+          <div style={{ marginBottom: '14px' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
+              Account Name
+            </label>
+            <input
+              type="text"
+              value={form.accountName}
+              onChange={e => setForm(f => ({ ...f, accountName: e.target.value }))}
+              style={inputStyle}
+              placeholder="e.g. Kitchgoo, Kiko Cafe"
+              autoFocus
+            />
+          </div>
+
           {/* Email */}
           <div style={{ marginBottom: '14px' }}>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
@@ -81,7 +96,6 @@ const Login = () => {
               onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
               style={inputStyle}
               placeholder="you@restaurant.com"
-              autoFocus
             />
           </div>
 

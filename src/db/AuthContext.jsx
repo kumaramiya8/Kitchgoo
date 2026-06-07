@@ -3,7 +3,7 @@
  * Users are stored in Supabase (via the database layer).
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getAll, insert, update as dbUpdate } from './database';
+import { getAll, insert, update as dbUpdate, setCurrentTenant, initTenantDB } from './database';
 
 const AuthContext = createContext(null);
 
@@ -47,7 +47,25 @@ export function AuthProvider({ children }) {
           // Validate session still matches a user in the DB
           const users = getAll('users');
           const match = users.find(u => u.id === parsed.id);
-          if (match) setUser({ ...match, password: undefined });
+          if (match) {
+            const impersonated = localStorage.getItem('kitchgoo_impersonated_tenant');
+            if (impersonated) {
+              setCurrentTenant(impersonated);
+              await initTenantDB(impersonated);
+              setUser({
+                id: `virtual_${impersonated}`,
+                name: `Admin (${impersonated})`,
+                email: 'admin@kitchgoo.in',
+                role: 'Owner',
+                restaurantName: impersonated,
+                isImpersonated: true,
+              });
+            } else {
+              setCurrentTenant(match.restaurantName);
+              await initTenantDB(match.restaurantName);
+              setUser({ ...match, password: undefined });
+            }
+          }
         }
       } catch { /* ignore */ }
       setLoading(false);
@@ -55,22 +73,70 @@ export function AuthProvider({ children }) {
     init();
   }, []);
 
-  const login = (email, password) => {
+  const login = async (accountName, email, password) => {
     const users = getAll('users');
     const found = users.find(u =>
+      (u.restaurantName || '').toLowerCase() === (accountName || '').trim().toLowerCase() &&
       u.email.toLowerCase() === email.toLowerCase() &&
       u.password === simpleHash(password)
     );
-    if (!found) return { success: false, error: 'Invalid email or password.' };
+    if (!found) return { success: false, error: 'Invalid Account Name, Email, or Password.' };
+    
+    // Set active tenant prefix and initialize its DB
+    setCurrentTenant(found.restaurantName);
+    await initTenantDB(found.restaurantName);
+
     const sessionUser = { ...found, password: undefined };
     setUser(sessionUser);
     localStorage.setItem('kitchgoo_session', JSON.stringify(sessionUser));
+    localStorage.removeItem('kitchgoo_impersonated_tenant');
+    localStorage.removeItem('kitchgoo_admin_session');
     return { success: true };
   };
 
   const logout = () => {
     setUser(null);
+    setCurrentTenant('Kitchgoo');
     localStorage.removeItem('kitchgoo_session');
+    localStorage.removeItem('kitchgoo_admin_session');
+    localStorage.removeItem('kitchgoo_impersonated_tenant');
+  };
+
+  const impersonateAccount = async (tenantName) => {
+    if (!user) return { success: false, error: 'Not logged in.' };
+    
+    // Save admin context
+    localStorage.setItem('kitchgoo_admin_session', JSON.stringify(user));
+    localStorage.setItem('kitchgoo_impersonated_tenant', tenantName);
+    
+    // Switch tenant
+    setCurrentTenant(tenantName);
+    await initTenantDB(tenantName);
+    
+    const virtualUser = {
+      id: `virtual_${tenantName}`,
+      name: `Admin (${tenantName})`,
+      email: 'admin@kitchgoo.in',
+      role: 'Owner',
+      restaurantName: tenantName,
+      isImpersonated: true
+    };
+    setUser(virtualUser);
+    return { success: true };
+  };
+
+  const stopImpersonating = () => {
+    const originalAdmin = localStorage.getItem('kitchgoo_admin_session');
+    if (!originalAdmin) return { success: false, error: 'No admin session found.' };
+    
+    const parsed = JSON.parse(originalAdmin);
+    
+    // Switch tenant back
+    setCurrentTenant('Kitchgoo');
+    localStorage.removeItem('kitchgoo_admin_session');
+    localStorage.removeItem('kitchgoo_impersonated_tenant');
+    setUser(parsed);
+    return { success: true };
   };
 
   /**
@@ -117,7 +183,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, register, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, register, updateProfile, impersonateAccount, stopImpersonating }}>
       {children}
     </AuthContext.Provider>
   );

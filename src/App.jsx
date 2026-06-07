@@ -18,11 +18,25 @@ import MultiLocation from './pages/MultiLocation';
 import PlatformAdmin from './pages/PlatformAdmin';
 
 // Route guard
-const Protected = ({ children }) => {
+const Protected = ({ children, allowAdmin = false }) => {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
+  
+  // If the user is Kitchgoo and not impersonating, only allow access to platform admin allowed routes
+  if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated && !allowAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  
   return children;
+};
+
+const RootElement = () => {
+  const { user } = useAuth();
+  if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated) {
+    return <Layout title="Platform Admin"><PlatformAdmin /></Layout>;
+  }
+  return <Layout title="Dashboard"><Dashboard /></Layout>;
 };
 
 function App() {
@@ -34,7 +48,7 @@ function App() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
 
       {/* Protected — Operations */}
-      <Route path="/" element={<Protected><Layout title="Dashboard"><Dashboard /></Layout></Protected>} />
+      <Route path="/" element={<Protected allowAdmin={true}><RootElement /></Protected>} />
       <Route path="/pos" element={<Protected><Layout title="POS & Billing"><POS /></Layout></Protected>} />
       <Route path="/kds" element={<Protected><Layout title="Kitchen Display System"><KDS /></Layout></Protected>} />
       <Route path="/menu" element={<Protected><Layout title="Menu Management"><MenuScreen /></Layout></Protected>} />
@@ -49,10 +63,10 @@ function App() {
 
       {/* Protected — Enterprise */}
       <Route path="/multi-location" element={<Protected><Layout title="Multi-Location & Franchise"><MultiLocation /></Layout></Protected>} />
-      <Route path="/platform-admin" element={<Protected><Layout title="Platform Admin"><PlatformAdmin /></Layout></Protected>} />
+      <Route path="/platform-admin" element={<Protected allowAdmin={true}><Layout title="Platform Admin"><PlatformAdmin /></Layout></Protected>} />
 
       {/* Protected — Settings */}
-      <Route path="/settings" element={<Protected><Layout title="Settings"><Settings /></Layout></Protected>} />
+      <Route path="/settings" element={<Protected allowAdmin={true}><Layout title="Settings"><Settings /></Layout></Protected>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
