@@ -1148,3 +1148,34 @@ tbody tr:hover {
   }
 }
 
+/* ========== SETTINGS RESPONSIVENESS ========== */
+.settings-container {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  gap: 16px;
+  height: 100%;
+}
+
+@media (max-width: 768px) {
+  .settings-container {
+    display: block !important;
+  }
+  
+  .settings-left-nav,
+  .settings-right-content {
+    display: none !important;
+  }
+  
+  .settings-container.show-menu .settings-left-nav {
+    display: block !important;
+    position: static !important;
+    margin-bottom: 16px;
+  }
+  
+  .settings-container.show-content .settings-right-content {
+    display: block !important;
+    padding: 16px !important;
+  }
+}
+
+

@@ -1361,90 +1361,81 @@ const Settings = () => {
   const activeInfo = SECTIONS.find(s => s.id === activeSection);
 
   return (
-    <div className="animate-fade-up" style={{ 
-      display: isMobile ? 'block' : 'grid', 
-      gridTemplateColumns: isMobile ? 'none' : '230px 1fr', 
-      gap: '16px', 
-      height: '100%' 
-    }}>
+    <div className={`animate-fade-up settings-container ${mobileView === 'menu' ? 'show-menu' : 'show-content'}`}>
       {/* Left Nav */}
-      {(!isMobile || mobileView === 'menu') && (
-        <div className="card" style={{ padding: '10px', height: 'fit-content', position: isMobile ? 'static' : 'sticky', top: 16 }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 10px 10px' }}>
-            Configuration
-          </div>
-          {SECTIONS.map((s, idx) => {
-            const Icon = s.icon;
-            const active = activeSection === s.id;
-            // Group separators
-            const showSep = idx === 8 || idx === 12;
-            return (
-              <React.Fragment key={s.id}>
-                {showSep && (
-                  <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '6px 10px' }} />
-                )}
-                <button onClick={() => {
-                  setActiveSection(s.id);
-                  if (isMobile) {
-                    setMobileView('content');
-                  }
-                }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
-                    padding: isMobile ? '12px 14px' : '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                    background: active ? (isMobile ? 'rgba(124, 58, 237, 0.08)' : 'white') : 'transparent',
-                    boxShadow: !isMobile && active ? 'var(--shadow-md)' : 'none',
-                    color: active ? 'var(--primary)' : 'var(--text-secondary)',
-                    fontWeight: active ? 700 : 500, fontSize: isMobile ? '0.88rem' : '0.82rem',
-                    marginBottom: '2px', textAlign: 'left',
-                    transition: 'all 0.15s',
-                    justifyContent: 'space-between'
-                  }}
-                  onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
-                  onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                    <Icon size={16} style={{ flexShrink: 0 }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-                  </div>
-                  {isMobile && <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />}
-                </button>
-              </React.Fragment>
-            );
-          })}
+      <div className="card settings-left-nav" style={{ padding: '10px', height: 'fit-content', position: 'sticky', top: 16 }}>
+        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 10px 10px' }}>
+          Configuration
         </div>
-      )}
+        {SECTIONS.map((s, idx) => {
+          const Icon = s.icon;
+          const active = activeSection === s.id;
+          // Group separators
+          const showSep = idx === 8 || idx === 12;
+          return (
+            <React.Fragment key={s.id}>
+              {showSep && (
+                <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '6px 10px' }} />
+              )}
+              <button onClick={() => {
+                setActiveSection(s.id);
+                if (isMobile) {
+                  setMobileView('content');
+                }
+              }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
+                  padding: isMobile ? '12px 14px' : '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                  background: active ? (isMobile ? 'rgba(124, 58, 237, 0.08)' : 'white') : 'transparent',
+                  boxShadow: !isMobile && active ? 'var(--shadow-md)' : 'none',
+                  color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: active ? 700 : 500, fontSize: isMobile ? '0.88rem' : '0.82rem',
+                  marginBottom: '2px', textAlign: 'left',
+                  transition: 'all 0.15s',
+                  justifyContent: 'space-between'
+                }}
+                onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
+                onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <Icon size={16} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+                </div>
+                {isMobile && <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />}
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </div>
 
       {/* Right Content */}
-      {(!isMobile || mobileView === 'content') && (
-        <div className="card" style={{ padding: isMobile ? '16px' : '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {isMobile && (
-                <button onClick={() => setMobileView('menu')} style={{ background: 'rgba(124,58,237,0.06)', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '8px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                  <ChevronLeft size={18} />
-                </button>
-              )}
-              {activeInfo && (
-                <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
-                  <activeInfo.icon size={20} />
-                </div>
-              )}
-              <div>
-                <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>{activeInfo?.label}</h2>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure {activeInfo?.label.toLowerCase()} for your restaurant</p>
+      <div className="card settings-right-content" style={{ padding: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {isMobile && (
+              <button onClick={() => setMobileView('menu')} style={{ background: 'rgba(124,58,237,0.06)', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '8px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            {activeInfo && (
+              <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                <activeInfo.icon size={20} />
               </div>
+            )}
+            <div>
+              <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>{activeInfo?.label}</h2>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure {activeInfo?.label.toLowerCase()} for your restaurant</p>
             </div>
-            <button className="btn btn-primary" onClick={handleSave} style={{ width: isMobile ? '100%' : 'auto' }}>
-              <Save size={15} /> Save Changes
-            </button>
           </div>
-
-          <div style={{ maxHeight: isMobile ? 'none' : 'calc(100vh - 260px)', overflowY: isMobile ? 'visible' : 'auto', paddingRight: '4px' }}>
-            {renderSection()}
-          </div>
+          <button className="btn btn-primary" onClick={handleSave} style={{ width: isMobile ? '100%' : 'auto' }}>
+            <Save size={15} /> Save Changes
+          </button>
         </div>
-      )}
+
+        <div style={{ maxHeight: isMobile ? 'none' : 'calc(100vh - 260px)', overflowY: isMobile ? 'visible' : 'auto', paddingRight: '4px' }}>
+          {renderSection()}
+        </div>
+      </div>
 
       <SaveBanner saved={saved} />
     </div>
