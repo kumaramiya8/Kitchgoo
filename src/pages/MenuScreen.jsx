@@ -784,8 +784,8 @@ const MenuScreen = () => {
       </div>
 
       {/* Table */}
-      <div className="table-wrapper" style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.8rem' }}>
+      <div className="table-wrapper" style={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
+        <table style={{ width: '100%', minWidth: '1300px', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.8rem' }}>
           <thead>
             <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
               {['Name', 'Category', 'Type', 'Price', 'Prep', 'Station', 'Cost', 'Margin', 'Cal', 'Allergens', 'Dietary', '86\'d', 'Active', 'Actions'].map(h => (
