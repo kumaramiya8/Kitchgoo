@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
 import { getAll, update as dbUpdate, remove as dbRemove } from '../db/database';
 import {
   Store, CreditCard, Truck, Bell, Printer, Palette, Shield,
-  Clock, Save, ToggleLeft, ToggleRight, X, Edit2, ChevronLeft,
+  Clock, Save, ToggleLeft, ToggleRight, X, Edit2, ChevronLeft, ChevronRight,
   MapPin, Phone, Mail, FileText, Percent, DollarSign,
   Wifi, WifiOff, Users, Plus, Trash2, AlertTriangle, Check,
   Eye, EyeOff, User, KeyRound, Layers, Type, Workflow,
@@ -1281,8 +1282,10 @@ const Settings = () => {
   const [activeSection, setActiveSection] = useState('restaurant');
   const [localSettings, setLocalSettings] = useState(null);
   const [saved, setSaved] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [mobileView, setMobileView] = useState('menu'); // 'menu' | 'content'
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
 
   useEffect(() => {
     if (settings) setLocalSettings(JSON.parse(JSON.stringify(settings)));
@@ -1300,6 +1303,15 @@ const Settings = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (tabParam) {
+      setActiveSection(tabParam);
+      if (window.innerWidth <= 768) {
+        setMobileView('content');
+      }
+    }
+  }, [tabParam]);
 
   if (!localSettings) return null;
 
@@ -1379,19 +1391,23 @@ const Settings = () => {
                 }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
-                    padding: '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                    background: active ? 'white' : 'transparent',
-                    boxShadow: active ? 'var(--shadow-md)' : 'none',
+                    padding: isMobile ? '12px 14px' : '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                    background: active ? (isMobile ? 'rgba(124, 58, 237, 0.08)' : 'white') : 'transparent',
+                    boxShadow: !isMobile && active ? 'var(--shadow-md)' : 'none',
                     color: active ? 'var(--primary)' : 'var(--text-secondary)',
-                    fontWeight: active ? 700 : 500, fontSize: '0.82rem',
+                    fontWeight: active ? 700 : 500, fontSize: isMobile ? '0.88rem' : '0.82rem',
                     marginBottom: '2px', textAlign: 'left',
                     transition: 'all 0.15s',
+                    justifyContent: 'space-between'
                   }}
                   onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
                   onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
                 >
-                  <Icon size={16} style={{ flexShrink: 0 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                    <Icon size={16} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+                  </div>
+                  {isMobile && <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />}
                 </button>
               </React.Fragment>
             );
