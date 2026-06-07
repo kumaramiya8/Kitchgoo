@@ -5,7 +5,7 @@ import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
 import { getAll, update as dbUpdate, remove as dbRemove } from '../db/database';
 import {
   Store, CreditCard, Truck, Bell, Printer, Palette, Shield,
-  Clock, Save, ToggleLeft, ToggleRight, X, Edit2,
+  Clock, Save, ToggleLeft, ToggleRight, X, Edit2, ChevronLeft,
   MapPin, Phone, Mail, FileText, Percent, DollarSign,
   Wifi, WifiOff, Users, Plus, Trash2, AlertTriangle, Check,
   Eye, EyeOff, User, KeyRound, Layers, Type, Workflow,
@@ -80,7 +80,7 @@ const SaveBanner = ({ saved }) => saved ? (
 
 // ═══ SECTION COMPONENTS ═══════════════════════════════════
 
-const RestaurantSection = ({ data, onChange }) => {
+const RestaurantSection = ({ data, onChange, isMobile }) => {
   const handleLogoChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -94,7 +94,7 @@ const RestaurantSection = ({ data, onChange }) => {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '20px', alignItems: 'center', marginBottom: '20px', background: 'rgba(255,255,255,0.4)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ display: 'flex', gap: '20px', alignItems: 'center', marginBottom: '20px', background: 'rgba(255,255,255,0.4)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border-subtle)', flexDirection: isMobile ? 'column' : 'row', textAlign: isMobile ? 'center' : 'left' }}>
         <div style={{ width: 80, height: 80, borderRadius: '14px', border: '1.5px dashed var(--border-subtle)', background: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
           {data.logo ? (
             <img src={data.logo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -106,13 +106,13 @@ const RestaurantSection = ({ data, onChange }) => {
           <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>Restaurant Logo</label>
           <input type="file" accept="image/*" onChange={handleLogoChange} style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }} />
           {data.logo && (
-            <button className="btn btn-secondary btn-sm" style={{ marginTop: '8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.08)', padding: '3px 10px', display: 'block' }} onClick={() => onChange('logo', '')}>
+            <button className="btn btn-secondary btn-sm" style={{ marginTop: '8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.08)', padding: '3px 10px', display: 'block', margin: isMobile ? '8px auto 0' : '8px 0 0' }} onClick={() => onChange('logo', '')}>
               Remove Logo
             </button>
           )}
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
         <Field label="Restaurant Name">
           <Input value={data.name} onChange={v => onChange('name', v)} placeholder="Kitchgoo" />
         </Field>
@@ -123,7 +123,7 @@ const RestaurantSection = ({ data, onChange }) => {
       <Field label="Full Address">
         <textarea className="input-field" rows={2} value={data.address || ''} onChange={e => onChange('address', e.target.value)} placeholder="Street, City, State, ZIP" style={{ resize: 'vertical', fontFamily: 'inherit' }} />
       </Field>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
         <Field label="Phone Number">
           <Input value={data.phone} onChange={v => onChange('phone', v)} placeholder="+91 XXXXX XXXXX" />
         </Field>
@@ -147,9 +147,9 @@ const RestaurantSection = ({ data, onChange }) => {
   );
 };
 
-const BillingSection = ({ data, onChange }) => (
+const BillingSection = ({ data, onChange, isMobile }) => (
   <div>
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
       <Field label="GST Rate (%)" hint="Applied on all dine-in orders">
         <Input value={data.gstRate} onChange={v => onChange('gstRate', parseFloat(v) || 0)} type="number" min="0" max="100" step="0.5" />
       </Field>
@@ -192,7 +192,7 @@ const BillingSection = ({ data, onChange }) => (
       <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>Auto-Gratuity</div>
       <Toggle label="Enable Auto-Gratuity" description="Automatically add gratuity for large parties" value={data.autoGratuityEnabled} onChange={v => onChange('autoGratuityEnabled', v)} />
       {data.autoGratuityEnabled && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', paddingTop: '10px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', paddingTop: '10px' }}>
           <Field label="Party Size Threshold" hint="Minimum guests to trigger auto-gratuity">
             <Input value={data.autoGratuityThreshold} onChange={v => onChange('autoGratuityThreshold', parseInt(v) || 6)} type="number" min="1" />
           </Field>
@@ -208,7 +208,7 @@ const BillingSection = ({ data, onChange }) => (
   </div>
 );
 
-const PaymentsSection = ({ data, onChange }) => {
+const PaymentsSection = ({ data, onChange, isMobile }) => {
   const methods = [
     { key: 'cash', label: 'Cash', desc: 'Accept cash payments at counter' },
     { key: 'upi', label: 'UPI / QR Code', desc: 'PhonePe, GPay, Paytm, etc.' },
@@ -235,7 +235,7 @@ const PaymentsSection = ({ data, onChange }) => {
   );
 };
 
-const OperationsSection = ({ data, onChange }) => {
+const OperationsSection = ({ data, onChange, isMobile }) => {
   const [activeSubTab, setActiveSubTab] = useState('general'); // 'general' | 'designer'
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   
@@ -248,7 +248,7 @@ const OperationsSection = ({ data, onChange }) => {
   return (
     <div>
       {/* Sub Tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px', flexWrap: 'wrap' }}>
         <button
           type="button"
           className={activeSubTab === 'general' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
@@ -269,7 +269,7 @@ const OperationsSection = ({ data, onChange }) => {
 
       {activeSubTab === 'general' ? (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
             <Field label="Total Tables / Seats">
               <Input value={data.tables} onChange={v => onChange('tables', parseInt(v) || 1)} type="number" min="1" />
             </Field>
@@ -315,7 +315,7 @@ const OperationsSection = ({ data, onChange }) => {
   );
 };
 
-const DeliverySection = ({ data, onChange }) => {
+const DeliverySection = ({ data, onChange, isMobile }) => {
   const platforms = [
     { key: 'zomato', label: 'Zomato', color: '#E23744', keyField: 'zomatoApiKey', idField: 'zomatoResId' },
     { key: 'swiggy', label: 'Swiggy', color: '#FC8019', keyField: 'swiggyApiKey', idField: 'swiggyResId' },
@@ -327,7 +327,7 @@ const DeliverySection = ({ data, onChange }) => {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <Field label="Packaging Charge" hint="Added per delivery order">
           <Input value={data.packagingCharge} onChange={v => onChange('packagingCharge', parseFloat(v) || 0)} type="number" min="0" />
         </Field>
@@ -354,7 +354,7 @@ const DeliverySection = ({ data, onChange }) => {
               </button>
             </div>
             {data[`${p.key}Enabled`] && p.keyField && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px' }}>
                 <Field label="API Key">
                   <Input value={data[p.keyField]} onChange={v => onChange(p.keyField, v)} placeholder="API Key" type="password" />
                 </Field>
@@ -370,7 +370,7 @@ const DeliverySection = ({ data, onChange }) => {
   );
 };
 
-const NotificationsSection = ({ data, onChange }) => {
+const NotificationsSection = ({ data, onChange, isMobile }) => {
   const notifs = [
     { key: 'lowStock', label: 'Low Stock Alerts', desc: 'Get notified when ingredients run low' },
     { key: 'newDeliveryOrder', label: 'New Delivery Order', desc: 'Alert for new Zomato / Swiggy orders' },
@@ -395,9 +395,9 @@ const NotificationsSection = ({ data, onChange }) => {
   );
 };
 
-const PrinterSection = ({ data, onChange }) => (
+const PrinterSection = ({ data, onChange, isMobile }) => (
   <div>
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
       <Field label="KOT Printer">
         <Select value={data.kotPrinter} onChange={v => onChange('kotPrinter', v)} options={['Default', 'Kitchen Printer', 'Bar Printer', 'None']} />
       </Field>
@@ -429,7 +429,7 @@ const MODULE_DEFS = [
   { key: 'platformAdmin', label: 'Platform Admin', desc: 'Advanced administrative controls, audit logs, and system-wide configuration.', icon: ShieldCheck },
 ];
 
-const ModulesSection = ({ data, onChange }) => (
+const ModulesSection = ({ data, onChange, isMobile }) => (
   <div>
     <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
       Enable or disable entire feature modules. Disabled modules will be hidden from all users across the platform.
@@ -474,12 +474,12 @@ const NAMING_DEFS = [
   { key: 'guests', defaultLabel: 'Guests', placeholder: 'e.g. Clients, Customers, Patients' },
 ];
 
-const NamingSection = ({ data, onChange }) => (
+const NamingSection = ({ data, onChange, isMobile }) => (
   <div>
     <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
       Rename core concepts to match your business terminology. Changes apply throughout the entire platform.
     </div>
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
       {NAMING_DEFS.map(n => (
         <div key={n.key} style={{
           padding: '16px', borderRadius: '14px',
@@ -505,7 +505,7 @@ const NamingSection = ({ data, onChange }) => (
 );
 
 // ─── Workflow Rules ───────────────────────────────────────
-const WorkflowSection = ({ data, onChange }) => (
+const WorkflowSection = ({ data, onChange, isMobile }) => (
   <div>
     <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
       Configure automated behaviors and approval requirements for your operation.
@@ -518,7 +518,7 @@ const WorkflowSection = ({ data, onChange }) => (
 
     <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px', marginTop: '8px' }}>
       <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Manager Approval Thresholds</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
         <Field label="Void Approval Over ($)" hint="Voids above this amount require a manager override">
           <Input value={data.voidApprovalAmount} onChange={v => onChange('voidApprovalAmount', parseFloat(v) || 0)} type="number" min="0" step="1" placeholder="e.g. 25" />
         </Field>
@@ -531,7 +531,7 @@ const WorkflowSection = ({ data, onChange }) => (
 );
 
 // ─── Receipt Builder ─────────────────────────────────────
-const ReceiptBuilderSection = ({ data, onChange }) => {
+const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
   const tipPcts = data.tipSuggestions || [15, 18, 20];
 
   const updateTip = (idx, val) => {
@@ -541,7 +541,7 @@ const ReceiptBuilderSection = ({ data, onChange }) => {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '24px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', gap: '24px' }}>
       {/* Controls */}
       <div>
         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
@@ -568,7 +568,7 @@ const ReceiptBuilderSection = ({ data, onChange }) => {
 
         <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px', marginTop: '8px' }}>
           <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Tip Suggestions (%)</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '10px' }}>
             <Field label="Option 1">
               <Input value={tipPcts[0]} onChange={v => updateTip(0, v)} type="number" min="0" max="100" />
             </Field>
@@ -583,12 +583,13 @@ const ReceiptBuilderSection = ({ data, onChange }) => {
       </div>
 
       {/* Live Preview */}
-      <div>
+      <div style={{ marginTop: isMobile ? '20px' : 0 }}>
         <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Live Preview</div>
         <div style={{
           background: '#fff', borderRadius: '12px', border: '1px solid var(--border-subtle)',
           padding: '20px 16px', fontFamily: "'Courier New', monospace", fontSize: '0.7rem',
           color: '#333', boxShadow: '0 4px 16px rgba(0,0,0,0.06)', lineHeight: 1.6,
+          maxWidth: isMobile ? '100%' : '280px', margin: '0 auto'
         }}>
           {/* Logo placeholder */}
           <div style={{ textAlign: 'center', marginBottom: '8px' }}>
@@ -648,7 +649,7 @@ const ReceiptBuilderSection = ({ data, onChange }) => {
 };
 
 // ─── Roles & Permissions ──────────────────────────────────
-const RolesSection = ({ data, onChange }) => {
+const RolesSection = ({ data, onChange, isMobile }) => {
   const [newRole, setNewRole] = useState('');
   const allPerms = ['pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'settings'];
 
@@ -729,7 +730,7 @@ const RolesSection = ({ data, onChange }) => {
 };
 
 // ─── Appearance ───────────────────────────────────────────
-const AppearanceSection = ({ data, onChange }) => (
+const AppearanceSection = ({ data, onChange, isMobile }) => (
   <div>
     <Field label="Theme">
       <div style={{ display: 'flex', gap: '10px' }}>
@@ -922,9 +923,15 @@ const MenuCategoriesSection = ({ data, onChange }) => {
   const currentSubcategories = selectedCategory ? (subcategories[selectedCategory] || []) : [];
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', minHeight: '350px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '24px', minHeight: '350px' }}>
       {/* Categories Column */}
-      <div style={{ borderRight: '1px solid var(--border-subtle)', paddingRight: '20px' }}>
+      <div style={{ 
+        borderRight: isMobile ? 'none' : '1px solid var(--border-subtle)', 
+        borderBottom: isMobile ? '1px solid var(--border-subtle)' : 'none',
+        paddingRight: isMobile ? '0' : '20px',
+        paddingBottom: isMobile ? '20px' : '0',
+        marginBottom: isMobile ? '10px' : '0'
+      }}>
         <h3 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Categories</h3>
         
         {/* Add Category Form */}
@@ -1022,7 +1029,7 @@ const MenuCategoriesSection = ({ data, onChange }) => {
       </div>
 
       {/* Subcategories Column */}
-      <div style={{ paddingLeft: '4px' }}>
+      <div style={{ paddingLeft: isMobile ? '0' : '4px', paddingTop: isMobile ? '10px' : '0' }}>
         <h3 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>
           Subcategories {selectedCategory ? `for "${selectedCategory}"` : ''}
         </h3>
@@ -1137,7 +1144,7 @@ const MenuCategoriesSection = ({ data, onChange }) => {
 // ─── Team Members ─────────────────────────────────────────
 const ROLE_OPTIONS = ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'];
 
-const TeamSection = () => {
+const TeamSection = ({ isMobile }) => {
   const { register } = useAuth();
   const [users, setUsers] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -1196,7 +1203,7 @@ const TeamSection = () => {
       {showAdd && (
         <div style={{ background: 'rgba(124,58,237,0.04)', border: '1.5px solid rgba(124,58,237,0.15)', borderRadius: '14px', padding: '16px', marginBottom: '16px' }}>
           <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '12px', color: 'var(--text-primary)' }}>New Team Member</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '5px', color: 'var(--text-secondary)' }}>Full Name *</label>
               <input style={inpStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Priya Sharma" />
@@ -1274,10 +1281,25 @@ const Settings = () => {
   const [activeSection, setActiveSection] = useState('restaurant');
   const [localSettings, setLocalSettings] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileView, setMobileView] = useState('menu'); // 'menu' | 'content'
 
   useEffect(() => {
     if (settings) setLocalSettings(JSON.parse(JSON.stringify(settings)));
   }, [settings]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setMobileView('menu');
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   if (!localSettings) return null;
 
@@ -1305,21 +1327,21 @@ const Settings = () => {
   const renderSection = () => {
     const s = localSettings[activeSection] || {};
     switch (activeSection) {
-      case 'restaurant': return <RestaurantSection data={s} onChange={sectionChange} />;
-      case 'billing': return <BillingSection data={s} onChange={sectionChange} />;
-      case 'payments': return <PaymentsSection data={s} onChange={sectionChange} />;
-      case 'operations': return <OperationsSection data={s} onChange={sectionChange} />;
-      case 'menuConfig': return <MenuCategoriesSection data={localSettings.menuCategories || {}} onChange={data => handleChange('menuCategories', null, data)} />;
-      case 'delivery': return <DeliverySection data={s} onChange={sectionChange} />;
-      case 'notifications': return <NotificationsSection data={s} onChange={sectionChange} />;
-      case 'printer': return <PrinterSection data={s} onChange={sectionChange} />;
-      case 'modules': return <ModulesSection data={localSettings.modules || {}} onChange={(field, value) => handleChange('modules', field, value)} />;
-      case 'naming': return <NamingSection data={localSettings.naming || {}} onChange={(field, value) => handleChange('naming', field, value)} />;
-      case 'workflow': return <WorkflowSection data={localSettings.workflow || {}} onChange={(field, value) => handleChange('workflow', field, value)} />;
-      case 'receipt': return <ReceiptBuilderSection data={localSettings.receipt || {}} onChange={(field, value) => handleChange('receipt', field, value)} />;
-      case 'roles': return <RolesSection data={localSettings.roles || []} onChange={handleRolesChange} />;
-      case 'team': return <TeamSection />;
-      case 'appearance': return <AppearanceSection data={s} onChange={sectionChange} />;
+      case 'restaurant': return <RestaurantSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'billing': return <BillingSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'payments': return <PaymentsSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'operations': return <OperationsSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'menuConfig': return <MenuCategoriesSection data={localSettings.menuCategories || {}} onChange={data => handleChange('menuCategories', null, data)} isMobile={isMobile} />;
+      case 'delivery': return <DeliverySection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'notifications': return <NotificationsSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'printer': return <PrinterSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'modules': return <ModulesSection data={localSettings.modules || {}} onChange={(field, value) => handleChange('modules', field, value)} isMobile={isMobile} />;
+      case 'naming': return <NamingSection data={localSettings.naming || {}} onChange={(field, value) => handleChange('naming', field, value)} isMobile={isMobile} />;
+      case 'workflow': return <WorkflowSection data={localSettings.workflow || {}} onChange={(field, value) => handleChange('workflow', field, value)} isMobile={isMobile} />;
+      case 'receipt': return <ReceiptBuilderSection data={localSettings.receipt || {}} onChange={(field, value) => handleChange('receipt', field, value)} isMobile={isMobile} />;
+      case 'roles': return <RolesSection data={localSettings.roles || []} onChange={handleRolesChange} isMobile={isMobile} />;
+      case 'team': return <TeamSection isMobile={isMobile} />;
+      case 'appearance': return <AppearanceSection data={s} onChange={sectionChange} isMobile={isMobile} />;
       default: return null;
     }
   };
@@ -1327,67 +1349,86 @@ const Settings = () => {
   const activeInfo = SECTIONS.find(s => s.id === activeSection);
 
   return (
-    <div className="animate-fade-up" style={{ display: 'grid', gridTemplateColumns: '230px 1fr', gap: '16px', height: '100%' }}>
+    <div className="animate-fade-up" style={{ 
+      display: isMobile ? 'block' : 'grid', 
+      gridTemplateColumns: isMobile ? 'none' : '230px 1fr', 
+      gap: '16px', 
+      height: '100%' 
+    }}>
       {/* Left Nav */}
-      <div className="card" style={{ padding: '10px', height: 'fit-content', position: 'sticky', top: 16 }}>
-        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 10px 10px' }}>
-          Configuration
-        </div>
-        {SECTIONS.map((s, idx) => {
-          const Icon = s.icon;
-          const active = activeSection === s.id;
-          // Group separators
-          const showSep = idx === 8 || idx === 12;
-          return (
-            <React.Fragment key={s.id}>
-              {showSep && (
-                <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '6px 10px' }} />
-              )}
-              <button onClick={() => setActiveSection(s.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
-                  padding: '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                  background: active ? 'white' : 'transparent',
-                  boxShadow: active ? 'var(--shadow-md)' : 'none',
-                  color: active ? 'var(--primary)' : 'var(--text-secondary)',
-                  fontWeight: active ? 700 : 500, fontSize: '0.82rem',
-                  marginBottom: '2px', textAlign: 'left',
-                  transition: 'all 0.15s',
+      {(!isMobile || mobileView === 'menu') && (
+        <div className="card" style={{ padding: '10px', height: 'fit-content', position: isMobile ? 'static' : 'sticky', top: 16 }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 10px 10px' }}>
+            Configuration
+          </div>
+          {SECTIONS.map((s, idx) => {
+            const Icon = s.icon;
+            const active = activeSection === s.id;
+            // Group separators
+            const showSep = idx === 8 || idx === 12;
+            return (
+              <React.Fragment key={s.id}>
+                {showSep && (
+                  <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '6px 10px' }} />
+                )}
+                <button onClick={() => {
+                  setActiveSection(s.id);
+                  if (isMobile) {
+                    setMobileView('content');
+                  }
                 }}
-                onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
-                onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-              >
-                <Icon size={16} style={{ flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-              </button>
-            </React.Fragment>
-          );
-        })}
-      </div>
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
+                    padding: '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                    background: active ? 'white' : 'transparent',
+                    boxShadow: active ? 'var(--shadow-md)' : 'none',
+                    color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                    fontWeight: active ? 700 : 500, fontSize: '0.82rem',
+                    marginBottom: '2px', textAlign: 'left',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
+                  onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <Icon size={16} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
 
       {/* Right Content */}
-      <div className="card" style={{ padding: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {activeInfo && (
-              <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
-                <activeInfo.icon size={20} />
+      {(!isMobile || mobileView === 'content') && (
+        <div className="card" style={{ padding: isMobile ? '16px' : '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {isMobile && (
+                <button onClick={() => setMobileView('menu')} style={{ background: 'rgba(124,58,237,0.06)', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '8px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                  <ChevronLeft size={18} />
+                </button>
+              )}
+              {activeInfo && (
+                <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                  <activeInfo.icon size={20} />
+                </div>
+              )}
+              <div>
+                <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>{activeInfo?.label}</h2>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure {activeInfo?.label.toLowerCase()} for your restaurant</p>
               </div>
-            )}
-            <div>
-              <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>{activeInfo?.label}</h2>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure {activeInfo?.label.toLowerCase()} for your restaurant</p>
             </div>
+            <button className="btn btn-primary" onClick={handleSave} style={{ width: isMobile ? '100%' : 'auto' }}>
+              <Save size={15} /> Save Changes
+            </button>
           </div>
-          <button className="btn btn-primary" onClick={handleSave}>
-            <Save size={15} /> Save Changes
-          </button>
-        </div>
 
-        <div style={{ maxHeight: 'calc(100vh - 260px)', overflowY: 'auto', paddingRight: '4px' }}>
-          {renderSection()}
+          <div style={{ maxHeight: isMobile ? 'none' : 'calc(100vh - 260px)', overflowY: isMobile ? 'visible' : 'auto', paddingRight: '4px' }}>
+            {renderSection()}
+          </div>
         </div>
-      </div>
+      )}
 
       <SaveBanner saved={saved} />
     </div>

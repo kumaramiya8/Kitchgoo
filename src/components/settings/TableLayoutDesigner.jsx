@@ -29,6 +29,16 @@ export default function TableLayoutDesigner() {
   const [draggingId, setDraggingId] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [successMessage, setSuccessMessage] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Sync state from context
   useEffect(() => {
@@ -208,7 +218,7 @@ export default function TableLayoutDesigner() {
   const selectedTable = tables.find(t => t.id === selectedTableId);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px', height: '100%', minHeight: '620px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '320px 1fr', gap: '20px', height: '100%', minHeight: '620px' }}>
       {/* Toast Notification */}
       {successMessage && (
         <div style={{
@@ -356,68 +366,70 @@ export default function TableLayoutDesigner() {
         </div>
 
         {/* Interactive Canvas container */}
-        <div
-          ref={canvasRef}
-          style={{
-            position: 'relative',
-            width: CANVAS_WIDTH,
-            height: CANVAS_HEIGHT,
-            background: 'var(--card-bg)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: '18px',
-            border: '1.5px solid var(--border-subtle)',
-            boxShadow: 'inset 0 4px 16px rgba(0,0,0,0.02)',
-            backgroundSize: `${GRID_SIZE * 2}px ${GRID_SIZE * 2}px`,
-            backgroundImage: 'radial-gradient(rgba(124,58,237,0.06) 1.5px, transparent 0)',
-            overflow: 'hidden',
-          }}
-        >
-          {tables.filter(t => activeFilterSection === 'All' || t.section === activeFilterSection).map(table => {
-            const isSelected = selectedTableId === table.id;
-            const size = table.shape === 'bar' ? 80 : 90;
-            const borderCol = isSelected ? 'var(--primary)' : 'rgba(124,58,237,0.25)';
-            const borderStyle = isSelected ? '2.5px solid' : '1.5px solid';
-            const shadow = isSelected ? '0 8px 20px rgba(124,58,237,0.2)' : '0 2px 6px rgba(0,0,0,0.05)';
-
-            return (
-              <div
-                key={table.id}
-                onMouseDown={(e) => handleMouseDown(e, table.id)}
-                style={{
-                  position: 'absolute',
-                  left: table.x,
-                  top: table.y,
-                  width: size,
-                  height: size,
-                  background: 'white',
-                  border: `${borderStyle} ${borderCol}`,
-                  borderRadius: table.shape === 'round' ? '50%' : '14px',
-                  boxShadow: shadow,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'move',
-                  userSelect: 'none',
-                  transition: 'border-color 0.15s, box-shadow 0.15s',
-                  zIndex: isSelected ? 10 : 2,
-                }}
-              >
-                <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>T{table.number}</span>
-                <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 600, marginTop: '1px' }}>{table.seats} Pax</span>
-                <span style={{ fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, marginTop: '2px', background: 'rgba(124,58,237,0.06)', padding: '1px 5px', borderRadius: '4px', maxWidth: '78px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {table.section}
-                </span>
+        <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '8px' }}>
+          <div
+            ref={canvasRef}
+            style={{
+              position: 'relative',
+              width: CANVAS_WIDTH,
+              height: CANVAS_HEIGHT,
+              background: 'var(--card-bg)',
+              backdropFilter: 'blur(20px)',
+              borderRadius: '18px',
+              border: '1.5px solid var(--border-subtle)',
+              boxShadow: 'inset 0 4px 16px rgba(0,0,0,0.02)',
+              backgroundSize: `${GRID_SIZE * 2}px ${GRID_SIZE * 2}px`,
+              backgroundImage: 'radial-gradient(rgba(124,58,237,0.06) 1.5px, transparent 0)',
+              overflow: 'hidden',
+            }}
+          >
+            {tables.filter(t => activeFilterSection === 'All' || t.section === activeFilterSection).map(table => {
+              const isSelected = selectedTableId === table.id;
+              const size = table.shape === 'bar' ? 80 : 90;
+              const borderCol = isSelected ? 'var(--primary)' : 'rgba(124,58,237,0.25)';
+              const borderStyle = isSelected ? '2.5px solid' : '1.5px solid';
+              const shadow = isSelected ? '0 8px 20px rgba(124,58,237,0.2)' : '0 2px 6px rgba(0,0,0,0.05)';
+  
+              return (
+                <div
+                  key={table.id}
+                  onMouseDown={(e) => handleMouseDown(e, table.id)}
+                  style={{
+                    position: 'absolute',
+                    left: table.x,
+                    top: table.y,
+                    width: size,
+                    height: size,
+                    background: 'white',
+                    border: `${borderStyle} ${borderCol}`,
+                    borderRadius: table.shape === 'round' ? '50%' : '14px',
+                    boxShadow: shadow,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'move',
+                    userSelect: 'none',
+                    transition: 'border-color 0.15s, box-shadow 0.15s',
+                    zIndex: isSelected ? 10 : 2,
+                  }}
+                >
+                  <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>T{table.number}</span>
+                  <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 600, marginTop: '1px' }}>{table.seats} Pax</span>
+                  <span style={{ fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, marginTop: '2px', background: 'rgba(124,58,237,0.06)', padding: '1px 5px', borderRadius: '4px', maxWidth: '78px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {table.section}
+                  </span>
+                </div>
+              );
+            })}
+  
+            {tables.filter(t => activeFilterSection === 'All' || t.section === activeFilterSection).length === 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
+                <LayoutGrid size={40} strokeWidth={1} style={{ opacity: 0.3, marginBottom: '8px' }} />
+                <div style={{ fontSize: '0.85rem' }}>No tables in this section. Add a table using the panel on the left.</div>
               </div>
-            );
-          })}
-
-          {tables.filter(t => activeFilterSection === 'All' || t.section === activeFilterSection).length === 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
-              <LayoutGrid size={40} strokeWidth={1} style={{ opacity: 0.3, marginBottom: '8px' }} />
-              <div style={{ fontSize: '0.85rem' }}>No tables in this section. Add a table using the panel on the left.</div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', color: 'var(--text-muted)', paddingLeft: '8px' }}>
           <HelpCircle size={12} />
