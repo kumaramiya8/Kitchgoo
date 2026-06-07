@@ -3,9 +3,10 @@ import {
   Plus, Edit2, Trash2, X, Save, Search, ToggleLeft, ToggleRight,
   QrCode, AlertOctagon, ChevronDown, ChevronUp, Filter, Star,
   TrendingUp, TrendingDown, Zap, Coffee, Layers, Tag, Clock,
-  DollarSign, Flame, ShieldAlert, Check, Info, Grid3X3
+  DollarSign, Flame, ShieldAlert, Check, Info, Grid3X3, Download, Upload
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { parseCSV, arrayToCSV, downloadCSV } from '../utils/csv';
 
 /* ── Constants ─────────────────────────────────────────────────── */
 const CATEGORIES = ['Starters', 'Main Course', 'Desserts', 'Beverages', 'Breads', 'Salads', 'Sides', 'Specials'];
@@ -189,6 +190,192 @@ const MenuScreen = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [qrItem, setQrItem] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [csvError, setCsvError] = useState('');
+  const [csvSuccess, setCsvSuccess] = useState('');
+
+  const MENU_HEADERS = [
+    'id', 'name', 'description', 'price', 'costPrice', 'category',
+    'subcategory', 'type', 'station', 'preparationTime', 'calories',
+    'taxGroup', 'active', 'sold86', 'delete'
+  ];
+
+  const handleExportCSV = () => {
+    try {
+      const csvContent = arrayToCSV(MENU_HEADERS, menu.map(item => ({
+        id: item.id || '',
+        name: item.name || '',
+        description: item.description || '',
+        price: item.price || '',
+        costPrice: item.costPrice || '',
+        category: item.category || '',
+        subcategory: item.subcategory || '',
+        type: item.type || '',
+        station: item.station || '',
+        preparationTime: item.preparationTime || '',
+        calories: item.calories || '',
+        taxGroup: item.taxGroup || '',
+        active: String(item.active !== false),
+        sold86: String(item.sold86 || false),
+        delete: 'false'
+      })));
+      downloadCSV('kitchgoo_menu.csv', csvContent);
+      setCsvSuccess('Menu exported successfully.');
+      setCsvError('');
+    } catch (e) {
+      setCsvError('Failed to export CSV: ' + e.message);
+      setCsvSuccess('');
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    try {
+      const templateRows = [
+        {
+          id: '',
+          name: 'Butter Chicken',
+          description: 'Classic creamy chicken curry',
+          price: '450',
+          costPrice: '150',
+          category: 'Main Course',
+          subcategory: 'Curry',
+          type: 'Non-Veg',
+          station: 'Main Kitchen',
+          preparationTime: '25',
+          calories: '550',
+          taxGroup: 'food',
+          active: 'true',
+          sold86: 'false',
+          delete: 'false'
+        },
+        {
+          id: '',
+          name: 'Paneer Tikka',
+          description: 'Grilled spiced paneer cubes',
+          price: '250',
+          costPrice: '80',
+          category: 'Starters',
+          subcategory: 'Appetizer',
+          type: 'Veg',
+          station: 'Grill',
+          preparationTime: '15',
+          calories: '320',
+          taxGroup: 'food',
+          active: 'true',
+          sold86: 'false',
+          delete: 'false'
+        }
+      ];
+      const csvContent = arrayToCSV(MENU_HEADERS, templateRows);
+      downloadCSV('kitchgoo_menu_template.csv', csvContent);
+      setCsvSuccess('Template downloaded. Populate it and upload to bulk add/edit/delete.');
+      setCsvError('');
+    } catch (e) {
+      setCsvError('Failed to download template: ' + e.message);
+      setCsvSuccess('');
+    }
+  };
+
+  const handleUploadCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const lines = parseCSV(text);
+        if (lines.length < 2) {
+          throw new Error('CSV is empty or missing headers');
+        }
+
+        const headers = lines[0].map(h => h.trim().toLowerCase());
+        
+        // Check required fields
+        const nameIdx = headers.indexOf('name');
+        const priceIdx = headers.indexOf('price');
+        
+        if (nameIdx === -1 || priceIdx === -1) {
+          throw new Error('CSV must contain at least "name" and "price" columns.');
+        }
+
+        let updated = 0;
+        let created = 0;
+        let deleted = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i];
+          if (row.length < headers.length) continue;
+
+          const itemData = {};
+          headers.forEach((header, idx) => {
+            itemData[header] = row[idx]?.trim();
+          });
+
+          if (!itemData.name) continue;
+
+          const isDelete = itemData.delete === 'true' || itemData.delete === '1' || itemData.delete?.toLowerCase() === 'yes';
+          const id = itemData.id;
+
+          if (id) {
+            const existing = menu.find(item => item.id === id);
+            if (existing) {
+              if (isDelete) {
+                await deleteMenuItem(id);
+                deleted++;
+              } else {
+                await editMenuItem(id, {
+                  name: itemData.name,
+                  description: itemData.description || '',
+                  price: parseFloat(itemData.price) || 0,
+                  costPrice: parseFloat(itemData.costprice || itemData.costPrice) || 0,
+                  category: itemData.category || 'Starters',
+                  subcategory: itemData.subcategory || '',
+                  reportingGroup: itemData.reportinggroup || itemData.reportingGroup || 'Food',
+                  type: itemData.type || 'Veg',
+                  station: itemData.station || 'Grill',
+                  preparationTime: parseInt(itemData.preparationtime || itemData.preparationTime) || 15,
+                  calories: parseInt(itemData.calories) || 0,
+                  taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
+                  active: itemData.active !== 'false',
+                  sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
+                });
+                updated++;
+              }
+              continue;
+            }
+          }
+
+          if (!isDelete) {
+            await addMenuItem({
+              name: itemData.name,
+              description: itemData.description || '',
+              price: parseFloat(itemData.price) || 0,
+              costPrice: parseFloat(itemData.costprice || itemData.costPrice) || 0,
+              category: itemData.category || 'Starters',
+              subcategory: itemData.subcategory || '',
+              reportingGroup: itemData.reportinggroup || itemData.reportingGroup || 'Food',
+              type: itemData.type || 'Veg',
+              station: itemData.station || 'Grill',
+              preparationTime: parseInt(itemData.preparationtime || itemData.preparationTime) || 15,
+              calories: parseInt(itemData.calories) || 0,
+              taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
+              active: itemData.active !== 'false',
+              sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
+            });
+            created++;
+          }
+        }
+
+        setCsvSuccess(`Successfully processed CSV! Created: ${created}, Updated: ${updated}, Deleted: ${deleted}`);
+        setCsvError('');
+      } catch (err) {
+        setCsvError(err.message || 'Error processing CSV file');
+        setCsvSuccess('');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   // Modifier state
   const [modAddModal, setModAddModal] = useState(false);
@@ -527,6 +714,53 @@ const MenuScreen = () => {
      ══════════════════════════════════════════════════════════════ */
   const renderMenuItems = () => (
     <>
+      {/* CSV alerts */}
+      {csvSuccess && (
+        <div style={{
+          background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
+          borderRadius: 12, padding: '10px 14px', marginBottom: 16, fontSize: '0.82rem',
+          color: '#16a34a', display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <Check size={16} /> {csvSuccess}
+        </div>
+      )}
+      {csvError && (
+        <div style={{
+          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+          borderRadius: 12, padding: '10px 14px', marginBottom: 16, fontSize: '0.82rem',
+          color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <AlertOctagon size={16} /> {csvError}
+        </div>
+      )}
+
+      {/* CSV sync bar */}
+      <div style={{
+        background: 'rgba(124,58,237,0.04)', border: '1px solid var(--border-subtle)',
+        borderRadius: 16, padding: '12px 18px', marginBottom: 16,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexWrap: 'wrap', gap: 12
+      }}>
+        <div>
+          <span style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Bulk Operations</span>
+          <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+            Download current menu, customize templates, and upload to add/edit/delete in bulk.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
+            <Download size={14} /> Export CSV
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={handleDownloadTemplate}>
+            <Layers size={14} /> Download Template
+          </button>
+          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Upload size={14} /> Import CSV
+            <input type="file" accept=".csv" onChange={handleUploadCSV} style={{ display: 'none' }} />
+          </label>
+        </div>
+      </div>
+
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>

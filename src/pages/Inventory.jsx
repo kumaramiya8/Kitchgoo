@@ -4,9 +4,10 @@ import {
   Search, Filter, ShoppingCart, ChefHat, Truck, FileText, BarChart3,
   Star, Phone, Mail, Clock, CheckCircle, XCircle, ArrowRight,
   TrendingUp, TrendingDown, Minus, RefreshCw, Eye, Send, Archive,
-  Flame, Droplets, AlertCircle, IndianRupee, Layers, ChevronDown
+  Flame, Droplets, AlertCircle, IndianRupee, Layers, ChevronDown, Upload
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { parseCSV, arrayToCSV, downloadCSV } from '../utils/csv';
 
 // ─── Constants ──────────────────────────────────────────────
 const CATEGORIES = ['Vegetables', 'Grains', 'Meat', 'Dairy', 'Pantry', 'Spices', 'Beverages', 'Oils', 'Other'];
@@ -106,6 +107,157 @@ const StockTab = () => {
   const [modal, setModal] = useState(null); // 'add' | item object for edit
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [form, setForm] = useState({ name: '', category: 'Vegetables', stock: '', unit: 'kg', min: '', cost: '', supplier: '' });
+  const [csvError, setCsvError] = useState('');
+  const [csvSuccess, setCsvSuccess] = useState('');
+
+  const INVENTORY_HEADERS = [
+    'id', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'delete'
+  ];
+
+  const handleExportCSV = () => {
+    try {
+      const csvContent = arrayToCSV(INVENTORY_HEADERS, inventory.map(item => ({
+        id: item.id || '',
+        name: item.name || '',
+        category: item.category || '',
+        stock: item.stock || '',
+        unit: item.unit || '',
+        min: item.min || '',
+        cost: item.cost || '',
+        supplier: item.supplier || '',
+        delete: 'false'
+      })));
+      downloadCSV('kitchgoo_inventory.csv', csvContent);
+      setCsvSuccess('Inventory exported successfully.');
+      setCsvError('');
+    } catch (e) {
+      setCsvError('Failed to export CSV: ' + e.message);
+      setCsvSuccess('');
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    try {
+      const templateRows = [
+        {
+          id: '',
+          name: 'Tomatoes',
+          category: 'Vegetables',
+          stock: '15',
+          unit: 'kg',
+          min: '10',
+          cost: '30',
+          supplier: 'Raj Suppliers',
+          delete: 'false'
+        },
+        {
+          id: '',
+          name: 'Basmati Rice',
+          category: 'Grains',
+          stock: '50',
+          unit: 'kg',
+          min: '20',
+          cost: '80',
+          supplier: 'Grain House',
+          delete: 'false'
+        }
+      ];
+      const csvContent = arrayToCSV(INVENTORY_HEADERS, templateRows);
+      downloadCSV('kitchgoo_inventory_template.csv', csvContent);
+      setCsvSuccess('Template downloaded. Populate it and upload to bulk add/edit/delete.');
+      setCsvError('');
+    } catch (e) {
+      setCsvError('Failed to download template: ' + e.message);
+      setCsvSuccess('');
+    }
+  };
+
+  const handleUploadCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const lines = parseCSV(text);
+        if (lines.length < 2) {
+          throw new Error('CSV is empty or missing headers');
+        }
+
+        const headers = lines[0].map(h => h.trim().toLowerCase());
+        
+        const nameIdx = headers.indexOf('name');
+        const stockIdx = headers.indexOf('stock');
+        
+        if (nameIdx === -1 || stockIdx === -1) {
+          throw new Error('CSV must contain at least "name" and "stock" columns.');
+        }
+
+        let updated = 0;
+        let created = 0;
+        let deleted = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i];
+          if (row.length < headers.length) continue;
+
+          const itemData = {};
+          headers.forEach((header, idx) => {
+            itemData[header] = row[idx]?.trim();
+          });
+
+          if (!itemData.name) continue;
+
+          const isDelete = itemData.delete === 'true' || itemData.delete === '1' || itemData.delete?.toLowerCase() === 'yes';
+          const id = itemData.id;
+
+          if (id) {
+            const existing = inventory.find(item => item.id === id);
+            if (existing) {
+              if (isDelete) {
+                await deleteInventoryItem(id);
+                deleted++;
+              } else {
+                await editInventoryItem(id, {
+                  name: itemData.name,
+                  category: itemData.category || 'Vegetables',
+                  stock: parseFloat(itemData.stock) || 0,
+                  unit: itemData.unit || 'kg',
+                  min: parseFloat(itemData.min) || 5,
+                  cost: parseFloat(itemData.cost) || 0,
+                  supplier: itemData.supplier || '',
+                });
+                updated++;
+              }
+              continue;
+            }
+          }
+
+          if (!isDelete) {
+            await addInventoryItem({
+              name: itemData.name,
+              category: itemData.category || 'Vegetables',
+              stock: parseFloat(itemData.stock) || 0,
+              unit: itemData.unit || 'kg',
+              min: parseFloat(itemData.min) || 5,
+              cost: parseFloat(itemData.cost) || 0,
+              supplier: itemData.supplier || '',
+            });
+            created++;
+          }
+        }
+
+        setCsvSuccess(`Successfully processed CSV! Created: ${created}, Updated: ${updated}, Deleted: ${deleted}`);
+        setCsvError('');
+      } catch (err) {
+        setCsvError(err.message || 'Error processing CSV file');
+        setCsvSuccess('');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const filtered = useMemo(() => {
     return inventory.filter(i => {
@@ -158,6 +310,53 @@ const StockTab = () => {
 
   return (
     <>
+      {/* CSV Alerts */}
+      {csvSuccess && (
+        <div style={{
+          background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
+          borderRadius: 12, padding: '10px 14px', marginBottom: 16, fontSize: '0.82rem',
+          color: '#16a34a', display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <CheckCircle size={16} /> {csvSuccess}
+        </div>
+      )}
+      {csvError && (
+        <div style={{
+          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+          borderRadius: 12, padding: '10px 14px', marginBottom: 16, fontSize: '0.82rem',
+          color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <AlertCircle size={16} /> {csvError}
+        </div>
+      )}
+
+      {/* CSV Sync Bar */}
+      <div style={{
+        background: 'rgba(124,58,237,0.04)', border: '1px solid var(--border-subtle)',
+        borderRadius: 16, padding: '12px 18px', marginBottom: 16,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexWrap: 'wrap', gap: 12
+      }}>
+        <div>
+          <span style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Bulk Operations</span>
+          <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+            Download current inventory, customize templates, and upload to add/edit/delete in bulk.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
+            <Download size={14} /> Export CSV
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={handleDownloadTemplate}>
+            <Layers size={14} /> Download Template
+          </button>
+          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Upload size={14} /> Import CSV
+            <input type="file" accept=".csv" onChange={handleUploadCSV} style={{ display: 'none' }} />
+          </label>
+        </div>
+      </div>
+
       {/* Stats */}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 20 }}>
         <StatCard icon={Package} label="Total Items" value={stats.total} color="var(--primary)" />
@@ -181,7 +380,6 @@ const StockTab = () => {
           {['All', 'Good', 'Low', 'Critical'].map(s => <option key={s}>{s}</option>)}
         </select>
         <button className="btn btn-primary" onClick={openAdd}><Plus size={16} /> Add Item</button>
-        <button className="btn btn-secondary" onClick={handleExport}><Download size={16} /> CSV</button>
       </div>
 
       {/* Table */}

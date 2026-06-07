@@ -765,6 +765,9 @@ tbody tr:hover {
   box-shadow: 0 24px 60px rgba(0,0,0,0.14);
   width: 90%;
   max-width: 520px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
   animation: fadeUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
@@ -784,6 +787,8 @@ tbody tr:hover {
 
 .modal-body {
   padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .modal-footer {
