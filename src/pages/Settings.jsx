@@ -5,7 +5,7 @@ import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
 import { getAll, update as dbUpdate, remove as dbRemove } from '../db/database';
 import {
   Store, CreditCard, Truck, Bell, Printer, Palette, Shield,
-  Clock, Save, ToggleLeft, ToggleRight, X,
+  Clock, Save, ToggleLeft, ToggleRight, X, Edit2,
   MapPin, Phone, Mail, FileText, Percent, DollarSign,
   Wifi, WifiOff, Users, Plus, Trash2, AlertTriangle, Check,
   Eye, EyeOff, User, KeyRound, Layers, Type, Workflow,
@@ -21,6 +21,7 @@ const SECTIONS = [
   { id: 'billing', label: 'Billing & Taxes', icon: CreditCard },
   { id: 'payments', label: 'Payment Methods', icon: DollarSign },
   { id: 'operations', label: 'Operations', icon: Clock },
+  { id: 'menuConfig', label: 'Menu Categories', icon: LayoutGrid },
   { id: 'delivery', label: 'Delivery Platforms', icon: Truck },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'printer', label: 'Printer & Receipt', icon: Printer },
@@ -765,6 +766,374 @@ const AppearanceSection = ({ data, onChange }) => (
   </div>
 );
 
+// ─── Menu Categories ──────────────────────────────────────
+const MenuCategoriesSection = ({ data, onChange }) => {
+  const categories = data.categories || [];
+  const subcategories = data.subcategories || {};
+
+  const [selectedCategory, setSelectedCategory] = useState(categories[0] || '');
+  const [newCatName, setNewCatName] = useState('');
+  const [newSubCatName, setNewSubCatName] = useState('');
+
+  // Editing states for category
+  const [editingCatIndex, setEditingCatIndex] = useState(null);
+  const [editingCatValue, setEditingCatValue] = useState('');
+
+  // Editing states for subcategory
+  const [editingSubIndex, setEditingSubIndex] = useState(null);
+  const [editingSubValue, setEditingSubValue] = useState('');
+
+  const handleAddCategory = () => {
+    const name = newCatName.trim();
+    if (!name) return;
+    if (categories.includes(name)) {
+      alert('Category already exists!');
+      return;
+    }
+    const updatedCats = [...categories, name];
+    const updatedSubcats = { ...subcategories, [name]: [] };
+
+    onChange({
+      categories: updatedCats,
+      subcategories: updatedSubcats
+    });
+
+    setNewCatName('');
+    if (!selectedCategory) {
+      setSelectedCategory(name);
+    }
+  };
+
+  const handleRenameCategory = (index, newName) => {
+    newName = newName.trim();
+    if (!newName) return;
+    const oldName = categories[index];
+    if (oldName === newName) {
+      setEditingCatIndex(null);
+      return;
+    }
+    if (categories.includes(newName) && categories.indexOf(newName) !== index) {
+      alert('Category already exists!');
+      return;
+    }
+
+    const updatedCats = [...categories];
+    updatedCats[index] = newName;
+
+    const updatedSubcats = { ...subcategories };
+    updatedSubcats[newName] = updatedSubcats[oldName] || [];
+    delete updatedSubcats[oldName];
+
+    onChange({
+      categories: updatedCats,
+      subcategories: updatedSubcats
+    });
+
+    if (selectedCategory === oldName) {
+      setSelectedCategory(newName);
+    }
+    setEditingCatIndex(null);
+  };
+
+  const handleDeleteCategory = (catName) => {
+    if (!window.confirm(`Are you sure you want to delete category "${catName}" and all its subcategories?`)) {
+      return;
+    }
+    const updatedCats = categories.filter(c => c !== catName);
+    const updatedSubcats = { ...subcategories };
+    delete updatedSubcats[catName];
+
+    onChange({
+      categories: updatedCats,
+      subcategories: updatedSubcats
+    });
+
+    if (selectedCategory === catName) {
+      setSelectedCategory(updatedCats[0] || '');
+    }
+  };
+
+  const handleAddSubcategory = () => {
+    if (!selectedCategory) return;
+    const name = newSubCatName.trim();
+    if (!name) return;
+    const currentSub = subcategories[selectedCategory] || [];
+    if (currentSub.includes(name)) {
+      alert('Subcategory already exists!');
+      return;
+    }
+    const updatedSubcats = {
+      ...subcategories,
+      [selectedCategory]: [...currentSub, name]
+    };
+
+    onChange({
+      categories,
+      subcategories: updatedSubcats
+    });
+    setNewSubCatName('');
+  };
+
+  const handleRenameSubcategory = (index, newName) => {
+    newName = newName.trim();
+    if (!newName || !selectedCategory) return;
+    const currentSub = subcategories[selectedCategory] || [];
+    const oldName = currentSub[index];
+    if (oldName === newName) {
+      setEditingSubIndex(null);
+      return;
+    }
+    if (currentSub.includes(newName) && currentSub.indexOf(newName) !== index) {
+      alert('Subcategory already exists!');
+      return;
+    }
+
+    const updatedSub = [...currentSub];
+    updatedSub[index] = newName;
+
+    const updatedSubcats = {
+      ...subcategories,
+      [selectedCategory]: updatedSub
+    };
+
+    onChange({
+      categories,
+      subcategories: updatedSubcats
+    });
+    setEditingSubIndex(null);
+  };
+
+  const handleDeleteSubcategory = (subName) => {
+    if (!selectedCategory) return;
+    const currentSub = subcategories[selectedCategory] || [];
+    const updatedSub = currentSub.filter(s => s !== subName);
+
+    const updatedSubcats = {
+      ...subcategories,
+      [selectedCategory]: updatedSub
+    };
+
+    onChange({
+      categories,
+      subcategories: updatedSubcats
+    });
+  };
+
+  const currentSubcategories = selectedCategory ? (subcategories[selectedCategory] || []) : [];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', minHeight: '350px' }}>
+      {/* Categories Column */}
+      <div style={{ borderRight: '1px solid var(--border-subtle)', paddingRight: '20px' }}>
+        <h3 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Categories</h3>
+        
+        {/* Add Category Form */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+          <input
+            className="input-field"
+            style={{ flex: 1, margin: 0, height: '36px' }}
+            value={newCatName}
+            onChange={e => setNewCatName(e.target.value)}
+            placeholder="e.g. Starters"
+            onKeyDown={e => e.key === 'Enter' && handleAddCategory()}
+          />
+          <button className="btn btn-primary" style={{ padding: '0 12px', height: '36px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddCategory}>
+            <Plus size={15} /> Add
+          </button>
+        </div>
+
+        {/* Categories List */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
+          {categories.map((cat, index) => {
+            const isSelected = selectedCategory === cat;
+            const isEditing = editingCatIndex === index;
+
+            return (
+              <div
+                key={cat}
+                onClick={() => !isEditing && setSelectedCategory(cat)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  background: isSelected ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.4)',
+                  border: isSelected ? '1.5px solid var(--primary)' : '1.5px solid transparent',
+                  cursor: isEditing ? 'default' : 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {isEditing ? (
+                  <div style={{ display: 'flex', gap: '6px', width: '100%', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                    <input
+                      className="input-field"
+                      style={{ flex: 1, margin: 0, height: '28px', padding: '2px 8px', fontSize: '0.8rem' }}
+                      value={editingCatValue}
+                      onChange={e => setEditingCatValue(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleRenameCategory(index, editingCatValue)}
+                      autoFocus
+                    />
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '4px 6px', height: '28px', width: '28px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                      onClick={() => handleRenameCategory(index, editingCatValue)}
+                    >
+                      <Check size={14} style={{ color: 'var(--success)' }} />
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '4px 6px', height: '28px', width: '28px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                      onClick={() => setEditingCatIndex(null)}
+                    >
+                      <X size={14} style={{ color: 'var(--danger)' }} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span style={{ fontSize: '0.82rem', fontWeight: isSelected ? 700 : 500, color: isSelected ? 'var(--primary)' : 'var(--text-primary)' }}>
+                      {cat}
+                    </span>
+                    <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '4px', height: '26px', width: '26px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none' }}
+                        onClick={() => {
+                          setEditingCatIndex(index);
+                          setEditingCatValue(cat);
+                        }}
+                      >
+                        <Edit2 size={13} style={{ color: 'var(--text-secondary)' }} />
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '4px', height: '26px', width: '26px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none' }}
+                        onClick={() => handleDeleteCategory(cat)}
+                      >
+                        <Trash2 size={13} style={{ color: 'var(--danger)' }} />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Subcategories Column */}
+      <div style={{ paddingLeft: '4px' }}>
+        <h3 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>
+          Subcategories {selectedCategory ? `for "${selectedCategory}"` : ''}
+        </h3>
+
+        {!selectedCategory ? (
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '20px', textAlign: 'center' }}>
+            Please select or add a category to configure subcategories.
+          </div>
+        ) : (
+          <>
+            {/* Add Subcategory Form */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <input
+                className="input-field"
+                style={{ flex: 1, margin: 0, height: '36px' }}
+                value={newSubCatName}
+                onChange={e => setNewSubCatName(e.target.value)}
+                placeholder="e.g. Appetizer"
+                onKeyDown={e => e.key === 'Enter' && handleAddSubcategory()}
+              />
+              <button className="btn btn-primary" style={{ padding: '0 12px', height: '36px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={handleAddSubcategory}>
+                <Plus size={15} /> Add
+              </button>
+            </div>
+
+            {/* Subcategories List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
+              {currentSubcategories.length === 0 && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '12px 6px' }}>
+                  No subcategories configured yet.
+                </div>
+              )}
+              {currentSubcategories.map((sub, index) => {
+                const isEditing = editingSubIndex === index;
+
+                return (
+                  <div
+                    key={sub}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      borderRadius: '10px',
+                      background: 'rgba(255,255,255,0.4)',
+                      border: '1.5px solid transparent',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {isEditing ? (
+                      <div style={{ display: 'flex', gap: '6px', width: '100%', alignItems: 'center' }}>
+                        <input
+                          className="input-field"
+                          style={{ flex: 1, margin: 0, height: '28px', padding: '2px 8px', fontSize: '0.8rem' }}
+                          value={editingSubValue}
+                          onChange={e => setEditingSubValue(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleRenameSubcategory(index, editingSubValue)}
+                          autoFocus
+                        />
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 6px', height: '28px', width: '28px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => handleRenameSubcategory(index, editingSubValue)}
+                        >
+                          <Check size={14} style={{ color: 'var(--success)' }} />
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 6px', height: '28px', width: '28px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => setEditingSubIndex(null)}
+                        >
+                          <X size={14} style={{ color: 'var(--danger)' }} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                          {sub}
+                        </span>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '4px', height: '26px', width: '26px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none' }}
+                            onClick={() => {
+                              setEditingSubIndex(index);
+                              setEditingSubValue(sub);
+                            }}
+                          >
+                            <Edit2 size={13} style={{ color: 'var(--text-secondary)' }} />
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '4px', height: '26px', width: '26px', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none' }}
+                            onClick={() => handleDeleteSubcategory(sub)}
+                          >
+                            <Trash2 size={13} style={{ color: 'var(--danger)' }} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Team Members ─────────────────────────────────────────
 const ROLE_OPTIONS = ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'];
 
@@ -915,7 +1284,7 @@ const Settings = () => {
   const handleChange = (section, field, value) => {
     setLocalSettings(prev => ({
       ...prev,
-      [section]: { ...prev[section], [field]: value }
+      [section]: field ? { ...prev[section], [field]: value } : value
     }));
   };
 
@@ -940,6 +1309,7 @@ const Settings = () => {
       case 'billing': return <BillingSection data={s} onChange={sectionChange} />;
       case 'payments': return <PaymentsSection data={s} onChange={sectionChange} />;
       case 'operations': return <OperationsSection data={s} onChange={sectionChange} />;
+      case 'menuConfig': return <MenuCategoriesSection data={localSettings.menuCategories || {}} onChange={data => handleChange('menuCategories', null, data)} />;
       case 'delivery': return <DeliverySection data={s} onChange={sectionChange} />;
       case 'notifications': return <NotificationsSection data={s} onChange={sectionChange} />;
       case 'printer': return <PrinterSection data={s} onChange={sectionChange} />;
@@ -967,7 +1337,7 @@ const Settings = () => {
           const Icon = s.icon;
           const active = activeSection === s.id;
           // Group separators
-          const showSep = idx === 7 || idx === 11;
+          const showSep = idx === 8 || idx === 12;
           return (
             <React.Fragment key={s.id}>
               {showSep && (

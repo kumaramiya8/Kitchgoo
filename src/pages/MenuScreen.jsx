@@ -35,8 +35,8 @@ const ALLERGEN_COLORS = {
 
 const TABS = ['Menu Items', 'Modifier Groups', 'Menu Engineering'];
 
-const emptyForm = () => ({
-  name: '', description: '', price: '', category: 'Starters', subcategory: '',
+const emptyForm = (defaultCategory = 'Starters') => ({
+  name: '', description: '', price: '', category: defaultCategory, subcategory: '',
   reportingGroup: 'Food', type: 'Veg', station: 'Grill', preparationTime: '15',
   costPrice: '', calories: '', allergens: [], dietaryLabels: [], taxGroup: 'food',
   modifierGroups: [], priceTiers: { regular: '', happyHour: '', delivery: '' },
@@ -182,6 +182,9 @@ const MenuScreen = () => {
     addModifier, editModifier, deleteModifier,
   } = useApp();
 
+  const dynamicCategories = settings?.menuCategories?.categories || CATEGORIES;
+  const dynamicSubcategories = settings?.menuCategories?.subcategories || SUBCATEGORIES;
+
   const [activeTab, setActiveTab] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCat, setFilterCat] = useState('All');
@@ -189,7 +192,7 @@ const MenuScreen = () => {
   const [editModal, setEditModal] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [qrItem, setQrItem] = useState(null);
-  const [form, setForm] = useState(emptyForm());
+  const [form, setForm] = useState(() => emptyForm(dynamicCategories[0] || 'Starters'));
   const [csvError, setCsvError] = useState('');
   const [csvSuccess, setCsvSuccess] = useState('');
 
@@ -383,7 +386,7 @@ const MenuScreen = () => {
   const [modForm, setModForm] = useState(emptyModifierForm());
   const [modDeleteConfirm, setModDeleteConfirm] = useState(null);
 
-  const allCategories = ['All', ...CATEGORIES];
+  const allCategories = ['All', ...dynamicCategories];
 
   const filtered = useMemo(() => menu.filter(i =>
     i.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
@@ -408,14 +411,14 @@ const MenuScreen = () => {
   };
 
   const openAdd = () => {
-    setForm(emptyForm());
+    setForm(emptyForm(dynamicCategories[0] || 'Starters'));
     setAddModal(true);
   };
 
   const openEdit = (item) => {
     setForm({
       name: item.name || '', description: item.description || '',
-      price: item.price || '', category: item.category || 'Starters',
+      price: item.price || '', category: item.category || dynamicCategories[0] || 'Starters',
       subcategory: item.subcategory || '', reportingGroup: item.reportingGroup || 'Food',
       type: item.type || 'Veg', station: item.station || 'Grill',
       preparationTime: item.preparationTime || '15', costPrice: item.costPrice || '',
@@ -530,19 +533,18 @@ const MenuScreen = () => {
           </div>
         </div>
 
-        {/* Row 3: Category + Subcategory + Reporting Group */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <div className="input-group">
             <label className="input-label">Category</label>
             <select className="input-field" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, subcategory: '' }))}>
-              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              {dynamicCategories.map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
           <div className="input-group">
             <label className="input-label">Subcategory</label>
             <select className="input-field" value={form.subcategory} onChange={e => setForm(f => ({ ...f, subcategory: e.target.value }))}>
               <option value="">-- None --</option>
-              {(SUBCATEGORIES[form.category] || []).map(s => <option key={s}>{s}</option>)}
+              {(dynamicSubcategories[form.category] || []).map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
           <div className="input-group">

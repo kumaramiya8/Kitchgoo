@@ -211,6 +211,19 @@ const SEEDS = {
       smsUsed: 0,
       onlineOrderFeePercent: 2.5,
     },
+    menuCategories: {
+      categories: ['Starters', 'Main Course', 'Desserts', 'Beverages', 'Breads', 'Salads', 'Sides', 'Specials'],
+      subcategories: {
+        'Starters': ['Soup', 'Appetizer', 'Finger Food'],
+        'Main Course': ['Curry', 'Rice', 'Noodles', 'Grill'],
+        'Desserts': ['Cake', 'Ice Cream', 'Pastry', 'Traditional'],
+        'Beverages': ['Hot', 'Cold', 'Alcoholic', 'Mocktail'],
+        'Breads': ['Indian', 'Western'],
+        'Salads': ['Green', 'Grain', 'Protein'],
+        'Sides': ['Accompaniment', 'Extra'],
+        'Specials': ['Chef Special', 'Seasonal']
+      }
+    }
   },
 
   staff: [
@@ -421,7 +434,11 @@ export async function setCollection(collection, data) {
 
 // ─── Settings ───────────────────────────────────────────────
 export function getSettings() {
-  return _cache['settings'] || SEEDS.settings;
+  const current = _cache['settings'] || SEEDS.settings;
+  if (!current.menuCategories) {
+    current.menuCategories = SEEDS.settings.menuCategories;
+  }
+  return current;
 }
 
 export async function updateSettings(section, data) {

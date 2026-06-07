@@ -1158,8 +1158,8 @@ const POS = () => {
 
   const categories = useMemo(() => {
     const cats = [...new Set(menuItems.map(i => i.category).filter(Boolean))];
-    return cats.length > 0 ? cats : ['Starters', 'Main Course', 'Desserts', 'Beverages'];
-  }, [menuItems]);
+    return cats.length > 0 ? cats : (settings?.menuCategories?.categories || ['Starters', 'Main Course', 'Desserts', 'Beverages']);
+  }, [menuItems, settings?.menuCategories?.categories]);
 
   useEffect(() => {
     if (!activeCategory && categories.length > 0) setActiveCategory(categories[0]);
