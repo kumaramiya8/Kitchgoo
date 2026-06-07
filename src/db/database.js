@@ -12,6 +12,10 @@
 
 import { supabase } from '../lib/supabase';
 
+export function genId() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
 const NS = 'kitchgoo_';
 
 // Local Storage backup helpers for Demo Mode
@@ -1083,5 +1087,3 @@ export async function updateCashDrawer(data) {
   }
   return updated;
 }
-
-export const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
