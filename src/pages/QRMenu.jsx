@@ -114,8 +114,8 @@ const QRMenu = () => {
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
-    if (!customerName.trim() || !phone.trim() || !tableNumber.trim()) {
-      alert('Please fill out your Name, Phone Number, and Table Number.');
+    if (!customerName.trim() || !tableNumber.trim()) {
+      alert('Please fill out your Name and Table Number.');
       return;
     }
 
@@ -155,7 +155,19 @@ const QRMenu = () => {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', color: 'var(--text-secondary)' }}>
+      <div style={{ 
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        background: '#f8fafc', 
+        color: 'var(--text-secondary)' 
+      }}>
         <Utensils className="animate-spin" size={32} style={{ color: 'var(--primary)', marginBottom: 12 }} />
         <p style={{ fontWeight: 600 }}>Loading digital menu...</p>
       </div>
@@ -166,7 +178,22 @@ const QRMenu = () => {
 
   if (orderSuccess) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 24, textAlign: 'center' }}>
+      <div style={{ 
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        background: '#f8fafc', 
+        padding: 24, 
+        textAlign: 'center' 
+      }}>
         <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,185,129,0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
           <Check size={40} strokeWidth={3} />
         </div>
@@ -182,7 +209,18 @@ const QRMenu = () => {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', paddingBottom: cartItemsCount > 0 ? 80 : 20, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div style={{ 
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      overflowY: 'auto',
+      WebkitOverflowScrolling: 'touch',
+      background: '#f8fafc', 
+      paddingBottom: cartItemsCount > 0 ? 100 : 40, 
+      fontFamily: 'system-ui, -apple-system, sans-serif' 
+    }}>
       
       {/* Premium Cover Banner */}
       <div style={{ 
@@ -488,10 +526,9 @@ const QRMenu = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 10, marginBottom: 12 }}>
                   <div className="input-group">
-                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Phone Number *</label>
+                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Phone Number (Optional)</label>
                     <input 
                       type="tel" 
-                      required 
                       placeholder="e.g. +91 98765 43210"
                       value={phone}
                       onChange={e => setPhone(e.target.value)}

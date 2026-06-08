@@ -1091,11 +1091,87 @@ const POS = () => {
     menu, settings, floorPlans, staff, guests, modifiers, cashDrawer,
     placeOrder, fireToKDS, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
+    onlineOrders, editOnlineOrder, reload,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [mobileTab, setMobileTab] = useState('menu');
+  const [showPendingModal, setShowPendingModal] = useState(false);
+
+  // Poll database every 15 seconds to fetch incoming QR Menu orders
+  useEffect(() => {
+    const interval = setInterval(() => {
+      reload();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [reload]);
+
+  const pendingOrders = useMemo(() => {
+    return (onlineOrders || []).filter(o => o.status === 'new');
+  }, [onlineOrders]);
+
+  const handleAcceptPendingOrder = async (order) => {
+    try {
+      // Map itemsList to POS cart items format
+      const posItems = (order.itemsList || []).map(item => {
+        const match = menu.find(m => m.name.toLowerCase() === item.name.toLowerCase());
+        return {
+          id: match?.id || `item_${Math.random().toString(36).substring(2, 9)}`,
+          name: item.name,
+          price: item.price,
+          qty: item.qty,
+          notes: item.notes || '',
+          modifierGroups: match?.modifierGroups || [],
+        };
+      });
+
+      const tableMatch = order.address && order.address.match(/Table\s+(\S+)/i);
+      const tableNum = tableMatch ? tableMatch[1] : null;
+
+      if (tableNum) {
+        const targetTable = tables.find(t => String(t.number || t.id).trim().toLowerCase() === tableNum.trim().toLowerCase());
+        if (targetTable) {
+          setSavedOrders(prev => ({
+            ...prev,
+            [targetTable.id]: posItems
+          }));
+
+          setTables(prev => prev.map(t => t.id === targetTable.id
+            ? {
+                ...t,
+                status: 'ordered',
+                guestName: order.customer,
+                seatedAt: new Date().toISOString(),
+              }
+            : t
+          ));
+
+          await fireToKDS(order.id, posItems, targetTable.id, 'dine-in');
+          await editOnlineOrder(order.id, { status: 'delivered' });
+          showSuccess(`Order accepted and added to Table ${tableNum}!`);
+        } else {
+          alert(`Table "${tableNum}" was not found in the layout.`);
+          return;
+        }
+      } else {
+        setCart(posItems);
+        setCustomerName(order.customer);
+        setCustomerPhone(order.phone || '');
+        setOrderType('takeout');
+        setView('order');
+        
+        await editOnlineOrder(order.id, { status: 'preparing' });
+        showSuccess(`Takeout order accepted! Cart populated.`);
+      }
+
+      setShowPendingModal(false);
+      reload();
+    } catch (err) {
+      console.error('Error accepting pending order:', err);
+      alert('Failed to accept order.');
+    }
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -1524,7 +1600,32 @@ const POS = () => {
 
         {/* Header */}
         <div className="page-title-row" style={{ marginBottom: 16 }}>
-          <h1 className="page-title">POS & Billing</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <h1 className="page-title" style={{ margin: 0 }}>POS & Billing</h1>
+            {pendingOrders.length > 0 && (
+              <button 
+                className="btn btn-sm btn-danger" 
+                onClick={() => setShowPendingModal(true)}
+                style={{ 
+                  boxShadow: '0 0 10px rgba(239, 68, 68, 0.35)',
+                  padding: '6px 12px',
+                  borderRadius: 10,
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff', display: 'inline-block', opacity: 0.8 }} />
+                {pendingOrders.length} New QR Order{pendingOrders.length > 1 ? 's' : ''}
+              </button>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {orderType === 'dine-in' && !isMobile && (
               <div style={{ display: 'flex', gap: '2px', background: 'rgba(255,255,255,0.5)', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
@@ -2348,6 +2449,86 @@ const POS = () => {
 
       {cashDrawerModal && (
         <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} />
+      )}
+
+      {showPendingModal && (
+        <Modal title={`Incoming Online/QR Orders (${pendingOrders.length})`} onClose={() => setShowPendingModal(false)} wide>
+          <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Review and accept orders placed by guests via QR Menu.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {pendingOrders.map(order => (
+                <div key={order.id} className="card" style={{ padding: 16, background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                    <div>
+                      <span className="badge badge-primary" style={{ marginBottom: 4 }}>Direct QR</span>
+                      <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Order #{order.id}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                        👤 {order.customer} {order.phone ? `(${order.phone})` : ''}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 700, marginTop: 2 }}>
+                        📍 {order.address || 'Takeout'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
+                        ₹{order.total?.toLocaleString('en-IN')}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                        {new Date(order.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Items list */}
+                  <div style={{ background: 'rgba(0,0,0,0.02)', padding: '8px 12px', borderRadius: 8, marginBottom: 12 }}>
+                    {order.itemsList && order.itemsList.map((item, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '3px 0' }}>
+                        <span>
+                          <strong style={{ color: 'var(--primary)' }}>{item.qty}x</strong> {item.name}
+                          {item.notes && <span style={{ fontSize: '0.7rem', color: 'var(--danger)', marginLeft: 6 }}>({item.notes})</span>}
+                        </span>
+                        <span style={{ fontWeight: 600 }}>₹{(item.price * item.qty).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {order.specialInstructions && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--danger)', padding: '6px 10px', background: 'rgba(239,68,68,0.04)', borderRadius: 6, border: '1px solid rgba(239,68,68,0.1)', marginBottom: 12 }}>
+                      <strong>Note:</strong> {order.specialInstructions}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button 
+                      className="btn btn-sm btn-secondary" 
+                      style={{ color: 'var(--danger)', borderColor: 'rgba(239,68,68,0.2)', padding: '5px 10px', borderRadius: 8 }}
+                      onClick={async () => {
+                        if (confirm('Are you sure you want to reject this order?')) {
+                          await editOnlineOrder(order.id, { status: 'rejected' });
+                          reload();
+                        }
+                      }}
+                    >
+                      Reject
+                    </button>
+                    <button 
+                      className="btn btn-sm btn-primary"
+                      style={{ padding: '5px 12px', borderRadius: 8 }}
+                      onClick={() => handleAcceptPendingOrder(order)}
+                    >
+                      {order.address?.toLowerCase().includes('table') ? 'Accept & Add to Table' : 'Accept Order'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowPendingModal(false)}>Close</button>
+          </div>
+        </Modal>
       )}
     </div>
   );
