@@ -1116,13 +1116,18 @@ const POS = () => {
       // Map itemsList to POS cart items format
       const posItems = (order.itemsList || []).map(item => {
         const match = menu.find(m => m.name.toLowerCase() === item.name.toLowerCase());
+        const itemId = match?.id || `item_${Math.random().toString(36).substring(2, 9)}`;
         return {
-          id: match?.id || `item_${Math.random().toString(36).substring(2, 9)}`,
+          id: itemId,
           name: item.name,
           price: item.price,
           qty: item.qty,
-          notes: item.notes || '',
+          _cartKey: `${itemId}_`,
+          modifiers: [],
+          specialInstructions: item.notes || '',
           modifierGroups: match?.modifierGroups || [],
+          course: 1,
+          seat: 1,
         };
       });
 
@@ -1155,6 +1160,7 @@ const POS = () => {
           return;
         }
       } else {
+        setActiveTable(null);
         setCart(posItems);
         setCustomerName(order.customer);
         setCustomerPhone(order.phone || '');
