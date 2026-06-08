@@ -186,6 +186,11 @@ const MenuScreen = () => {
   } = useApp();
   const { user } = useAuth();
 
+  const isOwnerOrAdmin = useMemo(() => {
+    const role = (user?.role || 'Owner').toLowerCase();
+    return role === 'owner' || role === 'admin' || role === 'manager';
+  }, [user]);
+
   const dynamicCategories = useMemo(() => {
     const settingsCats = settings?.menuCategories?.categories || CATEGORIES;
     const menuCats = [...new Set(menu.map(i => i.category).filter(Boolean))];
@@ -204,6 +209,7 @@ const MenuScreen = () => {
   const [form, setForm] = useState(() => emptyForm(dynamicCategories[0] || 'Starters'));
   const [csvError, setCsvError] = useState('');
   const [csvSuccess, setCsvSuccess] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const MENU_HEADERS = [
     'id', 'name', 'description', 'price', 'costPrice', 'category',
@@ -503,9 +509,33 @@ const MenuScreen = () => {
         categories: [],
         subcategories: {}
       });
+      setSelectedIds(new Set());
       alert("All menu items deleted successfully.");
     } catch (e) {
       alert("Failed to delete menu items: " + e.message);
+    }
+  };
+
+  const handleBulkDeleteSelected = async () => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.size} selected menu items?`)) {
+      return;
+    }
+    try {
+      await Promise.all([...selectedIds].map(id => deleteMenuItem(id)));
+      setSelectedIds(new Set());
+      const latestMenu = getAll('menu');
+      const newCats = [...new Set(latestMenu.map(item => item.category).filter(Boolean))];
+      const newSubcats = {};
+      newCats.forEach(cat => {
+        newSubcats[cat] = [...new Set(latestMenu.filter(item => item.category === cat).map(item => item.subcategory).filter(Boolean))];
+      });
+      await updateSettingsSection('menuCategories', {
+        categories: newCats,
+        subcategories: newSubcats
+      });
+      alert("Selected menu items deleted successfully.");
+    } catch (e) {
+      alert("Failed to delete selected items: " + e.message);
     }
   };
 
@@ -804,7 +834,7 @@ const MenuScreen = () => {
             <Upload size={14} /> Import CSV
             <input type="file" accept=".csv" onChange={handleUploadCSV} style={{ display: 'none' }} />
           </label>
-          {user?.role?.toLowerCase() === 'owner' && (
+          {isOwnerOrAdmin && (
             <button className="btn btn-danger btn-sm" onClick={handleBulkDeleteMenu} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Trash2 size={14} /> Delete All Items
             </button>
@@ -832,11 +862,46 @@ const MenuScreen = () => {
         </div>
       </div>
 
+      {/* Selected Items Bulk Actions Alert */}
+      {selectedIds.size > 0 && isOwnerOrAdmin && (
+        <div style={{
+          background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: 12, padding: '12px 18px', marginBottom: 12,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          animation: 'var(--transition-fade)'
+        }}>
+          <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--danger)' }}>
+            {selectedIds.size} menu items selected
+          </span>
+          <button className="btn btn-danger btn-sm" onClick={handleBulkDeleteSelected} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Trash2 size={14} /> Delete Selected
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="table-wrapper" style={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
-        <table style={{ width: '100%', minWidth: '1300px', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.8rem' }}>
+        <table style={{ width: '100%', minWidth: '1350px', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.8rem' }}>
           <thead>
             <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+              {isOwnerOrAdmin && (
+                <th style={{ padding: '10px 8px', borderBottom: '2px solid var(--border-subtle)', width: 40, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(item => selectedIds.has(item.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(new Set([...selectedIds, ...filtered.map(item => item.id)]));
+                      } else {
+                        const newSelected = new Set(selectedIds);
+                        filtered.forEach(item => newSelected.delete(item.id));
+                        setSelectedIds(newSelected);
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
+              )}
               {['Name', 'Category', 'Type', 'Price', 'Prep', 'Station', 'Cost', 'Margin', 'Cal', 'Allergens', 'Dietary', '86\'d', 'Active', 'Actions'].map(h => (
                 <th key={h} style={{
                   padding: '10px 8px', fontWeight: 700, color: 'var(--text-secondary)',
@@ -849,7 +914,7 @@ const MenuScreen = () => {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={14} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>No menu items found</td></tr>
+              <tr><td colSpan={isOwnerOrAdmin ? 15 : 14} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>No menu items found</td></tr>
             )}
             {filtered.map(item => {
               const margin = calcMargin(item);
@@ -858,9 +923,27 @@ const MenuScreen = () => {
                 <tr key={item.id} style={{
                   borderBottom: '1px solid var(--border-subtle)',
                   opacity: item.sold86 ? 0.55 : 1,
-                  background: item.sold86 ? 'rgba(239,68,68,0.03)' : 'transparent',
+                  background: selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : item.sold86 ? 'rgba(239,68,68,0.03)' : 'transparent',
                   transition: 'background .15s',
                 }}>
+                  {isOwnerOrAdmin && (
+                    <td style={{ padding: '10px 8px', textAlign: 'center', borderBottom: '1px solid var(--border-subtle)', width: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedIds);
+                          if (e.target.checked) {
+                            newSelected.add(item.id);
+                          } else {
+                            newSelected.delete(item.id);
+                          }
+                          setSelectedIds(newSelected);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                  )}
                   {/* Name */}
                   <td style={{ padding: '10px 8px', fontWeight: 600, color: 'var(--text-primary)', maxWidth: 180 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

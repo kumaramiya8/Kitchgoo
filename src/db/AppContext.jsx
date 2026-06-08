@@ -256,6 +256,12 @@ export function AppProvider({ children }) {
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
   }, []);
 
+  const clearInventory = useCallback(async () => {
+    await clearCollection('inventory');
+    setInventory([]);
+  }, []);
+
+
   // ── Menu ─────────────────────────────────────────────────
   const addMenuItem = useCallback(async (data) => {
     await insert('menu', { ...data, price: parseFloat(data.price) });
@@ -634,7 +640,7 @@ export function AppProvider({ children }) {
     // Staff
     addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,
     // Inventory
-    addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem,
+    addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem, clearInventory,
     // Menu
     addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86, clearMenu,
     // Orders / POS

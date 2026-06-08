@@ -7,6 +7,7 @@ import {
   Flame, Droplets, AlertCircle, IndianRupee, Layers, ChevronDown, Upload
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { useAuth } from '../db/AuthContext';
 import { parseCSV, arrayToCSV, downloadCSV } from '../utils/csv';
 
 // ─── Constants ──────────────────────────────────────────────
@@ -100,7 +101,9 @@ const thStyle = { ...cellStyle, fontWeight: 600, color: 'var(--text-secondary)',
 // STOCK TAB
 // ═══════════════════════════════════════════════════════════
 const StockTab = () => {
-  const { inventory, suppliers, addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem } = useApp();
+  const { inventory, suppliers, addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem, clearInventory } = useApp();
+  const { user } = useAuth();
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -109,6 +112,37 @@ const StockTab = () => {
   const [form, setForm] = useState({ name: '', category: 'Vegetables', stock: '', unit: 'kg', min: '', cost: '', supplier: '' });
   const [csvError, setCsvError] = useState('');
   const [csvSuccess, setCsvSuccess] = useState('');
+
+  const isOwnerOrAdmin = useMemo(() => {
+    const role = (user?.role || 'Owner').toLowerCase();
+    return role === 'owner' || role === 'admin' || role === 'manager';
+  }, [user]);
+
+  const handleBulkDeleteInventory = async () => {
+    if (!window.confirm("Are you sure you want to delete ALL inventory items? This action cannot be undone.")) {
+      return;
+    }
+    try {
+      await clearInventory();
+      setSelectedIds(new Set());
+      alert("All inventory items deleted successfully.");
+    } catch (e) {
+      alert("Failed to delete inventory items: " + e.message);
+    }
+  };
+
+  const handleBulkDeleteSelected = async () => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.size} selected inventory items?`)) {
+      return;
+    }
+    try {
+      await Promise.all([...selectedIds].map(id => deleteInventoryItem(id)));
+      setSelectedIds(new Set());
+      alert("Selected inventory items deleted successfully.");
+    } catch (e) {
+      alert("Failed to delete selected items: " + e.message);
+    }
+  };
 
   const INVENTORY_HEADERS = [
     'id', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'delete'
@@ -354,6 +388,11 @@ const StockTab = () => {
             <Upload size={14} /> Import CSV
             <input type="file" accept=".csv" onChange={handleUploadCSV} style={{ display: 'none' }} />
           </label>
+          {isOwnerOrAdmin && (
+            <button className="btn btn-danger btn-sm" onClick={handleBulkDeleteInventory} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Trash2 size={14} /> Delete All Items
+            </button>
+          )}
         </div>
       </div>
 
@@ -381,12 +420,47 @@ const StockTab = () => {
         </select>
         <button className="btn btn-primary" onClick={openAdd}><Plus size={16} /> Add Item</button>
       </div>
+      
+      {/* Selected Items Bulk Actions Alert */}
+      {selectedIds.size > 0 && isOwnerOrAdmin && (
+        <div style={{
+          background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: 12, padding: '12px 18px', marginBottom: 12,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          animation: 'var(--transition-fade)'
+        }}>
+          <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--danger)' }}>
+            {selectedIds.size} inventory items selected
+          </span>
+          <button className="btn btn-danger btn-sm" onClick={handleBulkDeleteSelected} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Trash2 size={14} /> Delete Selected
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="table-wrapper" style={{ maxHeight: 520, overflowY: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
+              {isOwnerOrAdmin && (
+                <th style={{ ...thStyle, width: 40, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(item => selectedIds.has(item.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(new Set([...selectedIds, ...filtered.map(item => item.id)]));
+                      } else {
+                        const newSelected = new Set(selectedIds);
+                        filtered.forEach(item => newSelected.delete(item.id));
+                        setSelectedIds(newSelected);
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
+              )}
               {['Name', 'Category', 'Stock', 'Unit', 'Par Level', 'Cost/Unit', 'Supplier', 'Status', 'Last Updated', 'Actions'].map(h => (
                 <th key={h} style={thStyle}>{h}</th>
               ))}
@@ -394,10 +468,31 @@ const StockTab = () => {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={10} style={{ ...cellStyle, textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No items found</td></tr>
+              <tr><td colSpan={isOwnerOrAdmin ? 11 : 10} style={{ ...cellStyle, textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No items found</td></tr>
             )}
             {filtered.map(item => (
-              <tr key={item.id} style={{ transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,58,237,0.04)'} onMouseLeave={e => e.currentTarget.style.background = ''}>
+              <tr key={item.id} style={{
+                transition: 'background 0.15s',
+                background: selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : 'transparent'
+              }} onMouseEnter={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.06)' : 'rgba(124,58,237,0.04)'} onMouseLeave={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : ''}>
+                {isOwnerOrAdmin && (
+                  <td style={{ ...cellStyle, textAlign: 'center', width: 40 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(item.id)}
+                      onChange={(e) => {
+                        const newSelected = new Set(selectedIds);
+                        if (e.target.checked) {
+                          newSelected.add(item.id);
+                        } else {
+                          newSelected.delete(item.id);
+                        }
+                        setSelectedIds(newSelected);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </td>
+                )}
                 <td style={{ ...cellStyle, fontWeight: 600 }}>{item.name}</td>
                 <td style={cellStyle}>{item.category}</td>
                 <td style={{ ...cellStyle, fontWeight: 600 }}>{item.stock}</td>
