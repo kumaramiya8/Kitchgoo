@@ -64,23 +64,26 @@ export function AppProvider({ children }) {
   const [guests, setGuests] = useState([]);
   const [cashDrawer, setCashDrawer] = useState({});
 
+  const { user, loading: authLoading } = useAuth();
+
   const [posTables, setPosTables] = useState([]);
   const [posSavedOrders, setPosSavedOrders] = useState({});
 
   useEffect(() => {
-    if (posTables.length > 0) {
-      const tenant = getCurrentTenant();
-      localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
-    }
-  }, [posTables]);
+    if (authLoading) return;
+    const tenant = getCurrentTenant();
+    localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
+  }, [posTables, authLoading]);
 
   useEffect(() => {
+    if (authLoading) return;
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_saved_orders`, JSON.stringify(posSavedOrders));
-  }, [posSavedOrders]);
+  }, [posSavedOrders, authLoading]);
 
   // Build posTables from floorPlans
   useEffect(() => {
+    if (authLoading) return;
     const fp = floorPlans || { tables: [], sections: [] };
     const floorTables = (fp.tables || []).map(t => ({
       id: t.id || t.number,
@@ -94,49 +97,26 @@ export function AppProvider({ children }) {
       seatedAt: null,
       serverId: t.serverId || null,
     }));
-    if (floorTables.length > 0) {
-      setPosTables(prev => {
-        const tenant = getCurrentTenant();
-        let currentSaved = [];
-        try {
-          const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
-          if (savedStr) currentSaved = JSON.parse(savedStr);
-        } catch {}
+    
+    setPosTables(prev => {
+      const tenant = getCurrentTenant();
+      let currentSaved = [];
+      try {
+        const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
+        if (savedStr) currentSaved = JSON.parse(savedStr);
+      } catch {}
 
-        return floorTables.map(t => {
-          const existing = currentSaved.find(p => p.id === t.id);
-          return existing ? { ...t, ...existing } : t;
-        });
+      return floorTables.map(t => {
+        const existing = currentSaved.find(p => p.id === t.id);
+        return existing ? { ...t, ...existing } : t;
       });
-    } else {
-      const generated = Array.from({ length: 16 }, (_, i) => ({
-        id: i + 1, number: i + 1, seats: [2, 4, 4, 6, 4, 2, 4, 8, 4, 2, 4, 4, 6, 4, 2, 4][i],
-        shape: i % 5 === 0 ? 'round' : i % 7 === 0 ? 'bar' : 'square',
-        section: i < 4 ? 'Patio' : i < 8 ? 'Main Hall' : i < 12 ? 'Bar' : 'Private',
-        status: 'available', guestName: null, guestId: null, seatedAt: null,
-        serverId: null,
-      }));
-      setPosTables(prev => {
-        const tenant = getCurrentTenant();
-        let currentSaved = [];
-        try {
-          const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
-          if (savedStr) currentSaved = JSON.parse(savedStr);
-        } catch {}
-
-        return generated.map(t => {
-          const existing = currentSaved.find(p => p.id === t.id);
-          return existing ? { ...t, ...existing } : t;
-        });
-      });
-    }
-  }, [floorPlans]);
-
-  const { user } = useAuth();
+    });
+  }, [floorPlans, authLoading]);
 
   useEffect(() => {
+    if (authLoading) return;
     reload();
-  }, [user]);
+  }, [user, authLoading]);
 
   useEffect(() => {
     setReady(true);
@@ -587,12 +567,13 @@ export function AppProvider({ children }) {
     if (data.status === 'delivered') {
       const order = getAll('online_orders').find(o => o.id === id);
       if (order) {
-        const dummyItems = [
-          { name: 'Direct Online Delivery', price: order.total, qty: 1 }
-        ];
+        const orderItems = (order.itemsList && order.itemsList.length > 0)
+          ? order.itemsList.map(item => ({ name: item.name, price: item.price, qty: item.qty }))
+          : [{ name: 'Direct Online Delivery', price: order.total, qty: 1 }];
+
         await insert('orders', {
           billNo: `ONL-${order.id.slice(0, 5)}`,
-          items: dummyItems,
+          items: orderItems,
           subtotal: order.total,
           tax: 0,
           total: order.total,

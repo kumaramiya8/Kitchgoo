@@ -16,6 +16,7 @@ import KDS from './pages/KDS';
 import Reservations from './pages/Reservations';
 import MultiLocation from './pages/MultiLocation';
 import PlatformAdmin from './pages/PlatformAdmin';
+import QRMenu from './pages/QRMenu';
 
 // Route guard
 const Protected = ({ children, allowAdmin = false }) => {
@@ -46,6 +47,7 @@ function App() {
     <Routes>
       {/* Public */}
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/qrmenu/:tenantId" element={<QRMenu />} />
 
       {/* Protected — Operations */}
       <Route path="/" element={<Protected allowAdmin={true}><RootElement /></Protected>} />

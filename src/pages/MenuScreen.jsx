@@ -42,7 +42,7 @@ const emptyForm = (defaultCategory = 'Starters') => ({
   reportingGroup: 'Food', type: 'Veg', station: 'Grill', preparationTime: '15',
   costPrice: '', calories: '', allergens: [], dietaryLabels: [], taxGroup: 'food',
   modifierGroups: [], priceTiers: { regular: '', happyHour: '', delivery: '' },
-  active: true, sold86: false,
+  active: true, sold86: false, image: '',
 });
 
 const emptyModifierForm = () => ({
@@ -179,7 +179,7 @@ const NutritionPopover = ({ item }) => {
    ══════════════════════════════════════════════════════════════════ */
 const MenuScreen = () => {
   const {
-    menu, modifiers, inventory, recipes, settings,
+    menu, modifiers, inventory, recipes, settings, orders,
     addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86, clearMenu,
     addModifier, editModifier, deleteModifier,
     updateSettingsSection,
@@ -206,6 +206,7 @@ const MenuScreen = () => {
   const [editModal, setEditModal] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [qrItem, setQrItem] = useState(null);
+  const [qrMenuModal, setQrMenuModal] = useState(false);
   const [form, setForm] = useState(() => emptyForm(dynamicCategories[0] || 'Starters'));
   const [csvError, setCsvError] = useState('');
   const [csvSuccess, setCsvSuccess] = useState('');
@@ -461,6 +462,7 @@ const MenuScreen = () => {
       modifierGroups: item.modifierGroups || [],
       priceTiers: item.priceTiers || { regular: item.price || '', happyHour: '', delivery: '' },
       active: item.active !== false, sold86: item.sold86 || false,
+      image: item.image || '',
     });
     setEditModal(item);
   };
@@ -589,6 +591,33 @@ const MenuScreen = () => {
         <div className="input-group">
           <label className="input-label">Description</label>
           <input className="input-field" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Short description" />
+        </div>
+
+        {/* Item Image */}
+        <div className="input-group">
+          <label className="input-label">Item Image (URL or File Upload)</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="input-field" value={form.image || ''} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="Paste image URL..." style={{ flex: 1, margin: 0 }} />
+            <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '8px 12px', height: '38px', display: 'flex', alignItems: 'center' }}>
+              Upload Image
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                const file = e.target.files[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    setForm(f => ({ ...f, image: reader.result }));
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }} />
+            </label>
+          </div>
+          {form.image && (
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <img src={form.image} alt="Preview" style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', border: '1px solid var(--border-subtle)' }} />
+              <button type="button" className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.08)', padding: '3px 10px' }} onClick={() => setForm(f => ({ ...f, image: '' }))}>Remove Image</button>
+            </div>
+          )}
         </div>
 
         {/* Row 2: Price + Cost + Prep */}
@@ -946,15 +975,24 @@ const MenuScreen = () => {
                   )}
                   {/* Name */}
                   <td style={{ padding: '10px 8px', fontWeight: 600, color: 'var(--text-primary)', maxWidth: 180 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      {item.name}
-                      <NutritionPopover item={item} />
-                    </div>
-                    {item.description && (
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-                        {item.description}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {item.image ? (
+                        <img src={item.image} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+                      ) : (
+                        <div style={{ width: 28, height: 28, borderRadius: 4, background: 'rgba(124,58,237,0.06)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>🍔</div>
+                      )}
+                      <div style={{ overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{item.name}</span>
+                          <NutritionPopover item={item} />
+                        </div>
+                        {item.description && (
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>
+                            {item.description}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </td>
                   {/* Category */}
                   <td style={{ padding: '10px 8px' }}>
@@ -1159,7 +1197,19 @@ const MenuScreen = () => {
       const price = parseFloat(item.price) || 0;
       const cost = parseFloat(item.costPrice) || 0;
       const margin = price > 0 ? ((price - cost) / price) * 100 : 0;
-      const ordered = item.timesOrdered || Math.floor(Math.random() * 120) + 5; // fallback demo data
+      
+      let ordered = item.timesOrdered || 0;
+      if (Array.isArray(orders)) {
+        orders.forEach(ord => {
+          if (Array.isArray(ord.items)) {
+            ord.items.forEach(ordItem => {
+              if (ordItem.name === item.name) {
+                ordered += (ordItem.qty || 1);
+              }
+            });
+          }
+        });
+      }
       return { ...item, margin, ordered };
     });
 
@@ -1421,9 +1471,14 @@ const MenuScreen = () => {
       <div className="page-title-row">
         <h1 className="page-title">Menu Management</h1>
         {activeTab === 0 && (
-          <button className="btn btn-primary" onClick={openAdd}>
-            <Plus size={15} /> Add Item
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={() => setQrMenuModal(true)}>
+              <QrCode size={15} /> QR Menu
+            </button>
+            <button className="btn btn-primary" onClick={openAdd}>
+              <Plus size={15} /> Add Item
+            </button>
+          </div>
         )}
         {activeTab === 1 && (
           <button className="btn btn-primary" onClick={openModAdd}>
@@ -1491,6 +1546,74 @@ const MenuScreen = () => {
 
       {/* QR Modal */}
       {qrItem && <QRModal item={qrItem} onClose={() => setQrItem(null)} />}
+
+      {/* QR Menu Modal */}
+      {qrMenuModal && (
+        <Modal title="QR Ordering Menu" onClose={() => setQrMenuModal(false)}>
+          <div className="modal-body" style={{ textAlign: 'center', padding: '24px' }}>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Scan this QR code with a phone to view the digital menu and place orders directly.
+            </p>
+            {(() => {
+              const tenantId = user?.accountId || user?.restaurantName || 'Kitchgoo';
+              const publicMenuUrl = `${window.location.origin}/qrmenu/${tenantId}`;
+              const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(publicMenuUrl)}`;
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+                  <div style={{ padding: 12, background: '#fff', borderRadius: 12, border: '1.5px solid var(--border-subtle)', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+                    <img src={qrImageUrl} alt="QR Menu" style={{ width: 180, height: 180, display: 'block' }} />
+                  </div>
+                  <div className="input-group" style={{ width: '100%', maxWidth: '360px', marginTop: 8 }}>
+                    <label className="input-label" style={{ textAlign: 'left' }}>Menu Link</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input className="input-field" readOnly value={publicMenuUrl} style={{ margin: 0, fontSize: '0.8rem' }} />
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                        navigator.clipboard.writeText(publicMenuUrl);
+                        alert('Link copied to clipboard!');
+                      }}>Copy</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => {
+                      const printWindow = window.open('', '_blank');
+                      printWindow.document.write(`
+                        <html>
+                          <head>
+                            <title>QR Menu - ${tenantId}</title>
+                            <style>
+                              body { font-family: sans-serif; text-align: center; padding: 40px; }
+                              .container { max-width: 400px; margin: 0 auto; padding: 30px; border: 2px solid #7c3aed; border-radius: 20px; box-shadow: 0 4px 20px rgba(124,58,237,0.15); }
+                              h1 { color: #1e1b4b; font-size: 24px; margin-bottom: 5px; }
+                              p { color: #6b7280; font-size: 14px; margin-bottom: 24px; }
+                              .qr-img { width: 220px; height: 220px; }
+                              .footer { margin-top: 30px; font-weight: bold; color: #7c3aed; }
+                            </style>
+                          </head>
+                          <body>
+                            <div class="container">
+                              <h1>SCAN TO ORDER</h1>
+                              <p>View our digital menu & order directly from your table</p>
+                              <img class="qr-img" src="${qrImageUrl}" alt="QR Code" />
+                              <div class="footer">${settings?.restaurant?.name || tenantId}</div>
+                            </div>
+                            <script>
+                              window.onload = () => {
+                                setTimeout(() => { window.print(); }, 500);
+                              };
+                            </script>
+                          </body>
+                        </html>
+                      `);
+                      printWindow.document.close();
+                    }}>Print QR Signage</button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setQrMenuModal(false)}>Close</button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </Modal>
+      )}
 
       {/* Add Modifier Modal */}
       {modAddModal && (

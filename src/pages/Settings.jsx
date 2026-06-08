@@ -226,10 +226,19 @@ const PaymentsSection = ({ data, onChange, isMobile }) => {
         <Toggle key={m.key} label={m.label} description={m.desc} value={data[m.key]} onChange={v => onChange(m.key, v)} />
       ))}
       {data.upi && (
-        <div style={{ paddingTop: '14px' }}>
-          <Field label="UPI ID" hint="e.g. restaurant@okicici">
-            <Input value={data.upiId} onChange={v => onChange('upiId', v)} placeholder="yourname@upi" />
+        <div style={{ paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <Field label="Your Name (Payee)">
+            <Input value={data.upiPayeeName || ''} onChange={v => onChange('upiPayeeName', v)} placeholder="E.g. John Doe / Restaurant Name" />
           </Field>
+          <Field label="Your UPI ID (VPA)" hint="e.g. restaurant@okicici">
+            <Input value={data.upiId || ''} onChange={v => onChange('upiId', v)} placeholder="yourname@upi" />
+          </Field>
+          <Field label="Remarks (Optional)">
+            <Input value={data.upiRemarks || ''} onChange={v => onChange('upiRemarks', v)} placeholder="E.g. Table Payment" />
+          </Field>
+          <div style={{ marginTop: '4px' }}>
+            <Toggle label="Show UPI QR Code on Receipt" description="Display a scannable UPI QR code with prefilled amount on the receipt" value={data.showUpiQr} onChange={v => onChange('showUpiQr', v)} />
+          </div>
         </div>
       )}
     </div>

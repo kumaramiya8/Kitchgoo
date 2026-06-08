@@ -8,14 +8,16 @@ import {
   ArrowRight, Briefcase, IndianRupee, Timer, PieChart, Zap
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { getAll, insert as dbInsert, update as dbUpdate, remove as dbRemove, getCurrentTenant, simpleHash } from '../db/database';
 
 // ─── Constants ──────────────────────────────────────────────
-const ROLES = ['Manager', 'Chef', 'Cashier', 'Waiter', 'Delivery Boy', 'Host'];
+const ROLES = ['Owner', 'Manager', 'Chef', 'Cashier', 'Waiter', 'Delivery Boy', 'Host'];
 const SHIFTS = ['Morning', 'Evening', 'Night', 'Split'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
 
 const ROLE_COLORS = {
+  Owner: '#1e1b4b',
   Manager: '#7c3aed', Chef: '#ef4444', Cashier: '#22c55e',
   Waiter: '#3b82f6', 'Delivery Boy': '#f59e0b', Host: '#ec4899',
 };
@@ -27,6 +29,7 @@ const ALL_PERMISSIONS = [
 ];
 
 const DEFAULT_ROLE_PERMS = {
+  Owner: ALL_PERMISSIONS,
   Manager: ALL_PERMISSIONS,
   Chef: ['kds', 'inventory', 'menu'],
   Cashier: ['pos', 'comp.small', 'discount'],
@@ -36,7 +39,7 @@ const DEFAULT_ROLE_PERMS = {
 };
 
 const DEFAULT_TIP_RULES = {
-  Waiter: 40, Chef: 20, Cashier: 15, Host: 10, 'Delivery Boy': 10, Manager: 5,
+  Owner: 0, Waiter: 40, Chef: 20, Cashier: 15, Host: 10, 'Delivery Boy': 10, Manager: 5,
 };
 
 const TABS = [
@@ -118,7 +121,7 @@ const Staff = () => {
     staff, schedules, tipPools, orders, settings, todayStats,
     addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,
     addSchedule, editSchedule, deleteSchedule,
-    updateTipPools, updateSettingsSection,
+    updateTipPools, updateSettingsSection, reload,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState('team');
@@ -137,21 +140,71 @@ const Staff = () => {
       name: '', role: 'Waiter', phone: '', shift: 'Morning', salary: '',
       pin: '', joinDate: today(), emergencyContact: '', emergencyPhone: '',
       documents: [], wageHistory: [],
+      email: '',
+      enableLogin: false,
+      loginPassword: '',
+      loginRole: 'Waiter',
     };
     const [form, setForm] = useState(emptyForm);
 
+    const tenant = getCurrentTenant();
+    const tenantUsers = useMemo(() => {
+      return getAll('users').filter(u => u.accountId === tenant);
+    }, [tenant, staff]);
+
+    const unifiedTeam = useMemo(() => {
+      const list = [];
+      const linkedEmails = new Set();
+      
+      staff.forEach(s => {
+        const match = tenantUsers.find(u => u.email && s.email && u.email.toLowerCase() === s.email.toLowerCase());
+        if (match) {
+          linkedEmails.add(match.email.toLowerCase());
+        }
+        list.push({
+          ...s,
+          email: s.email || match?.email || '',
+          hasLogin: !!match,
+          loginId: match?.id || null,
+          loginRole: match?.role || s.role,
+        });
+      });
+
+      tenantUsers.forEach(u => {
+        if (u.email && !linkedEmails.has(u.email.toLowerCase())) {
+          list.push({
+            id: u.id,
+            name: u.name,
+            role: u.role || 'Owner',
+            phone: u.phone || '',
+            email: u.email,
+            shift: 'N/A',
+            salary: 0,
+            status: 'active',
+            joinDate: u.createdAt || today(),
+            hasLogin: true,
+            loginId: u.id,
+            loginRole: u.role,
+            isOnlyUser: true,
+          });
+        }
+      });
+
+      return list;
+    }, [staff, tenantUsers]);
+
     const filtered = useMemo(() => {
       const q = search.toLowerCase();
-      return staff.filter(s =>
-        s.name?.toLowerCase().includes(q) || s.role?.toLowerCase().includes(q) || s.phone?.includes(q)
+      return unifiedTeam.filter(s =>
+        s.name?.toLowerCase().includes(q) || s.role?.toLowerCase().includes(q) || s.phone?.includes(q) || s.email?.toLowerCase().includes(q)
       );
-    }, [staff, search]);
+    }, [unifiedTeam, search]);
 
-    const activeCount = staff.filter(s => s.status === 'active').length;
-    const offCount = staff.filter(s => s.status !== 'active').length;
+    const activeCount = unifiedTeam.filter(s => s.status === 'active').length;
+    const offCount = unifiedTeam.filter(s => s.status !== 'active').length;
 
-    // Simulated weekly hours (in real app would come from attendance)
     const getWeeklyHours = (member) => {
+      if (member.isOnlyUser) return 0;
       const attendance = getStaffAttendance(member.id) || [];
       let totalMs = 0;
       const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -164,29 +217,128 @@ const Staff = () => {
       return Math.round(totalMs / (1000 * 60 * 60) * 10) / 10 || Math.floor(Math.random() * 20 + 25);
     };
 
-    const approachingOT = staff.filter(s => s.status === 'active' && getWeeklyHours(s) > 38).length;
+    const approachingOT = unifiedTeam.filter(s => s.status === 'active' && getWeeklyHours(s) > 38).length;
 
     const openAdd = () => { setForm(emptyForm); setAddModal(true); };
     const openEdit = (m) => {
+      const match = tenantUsers.find(u => u.email && m.email && u.email.toLowerCase() === m.email.toLowerCase());
       setForm({
         name: m.name || '', role: m.role || 'Waiter', phone: m.phone || '',
         shift: m.shift || 'Morning', salary: m.salary || '',
         pin: m.pin || '', joinDate: m.joinDate || today(),
         emergencyContact: m.emergencyContact || '', emergencyPhone: m.emergencyPhone || '',
         documents: m.documents || [], wageHistory: m.wageHistory || [],
+        email: m.email || '',
+        enableLogin: !!match,
+        loginPassword: '',
+        loginRole: match?.role || m.role || 'Waiter',
       });
       setEditModal(m);
     };
 
-    const handleSave = (isEdit) => {
+    const handleSave = async (isEdit) => {
       if (!form.name.trim()) return;
-      const data = { ...form, salary: parseFloat(form.salary) || 0 };
-      if (isEdit) {
-        editStaff(editModal.id, data);
-        setEditModal(null);
-      } else {
-        addStaff({ ...data, status: 'active' });
-        setAddModal(false);
+      const staffData = {
+        name: form.name.trim(),
+        role: form.role,
+        phone: form.phone.trim(),
+        shift: form.shift,
+        salary: parseFloat(form.salary) || 0,
+        pin: form.pin,
+        joinDate: form.joinDate,
+        emergencyContact: form.emergencyContact,
+        emergencyPhone: form.emergencyPhone,
+        email: form.email.trim(),
+        status: 'active'
+      };
+
+      try {
+        if (isEdit) {
+          if (!editModal.isOnlyUser) {
+            await editStaff(editModal.id, staffData);
+          }
+          
+          const match = tenantUsers.find(u => u.email && editModal.email && u.email.toLowerCase() === editModal.email.toLowerCase());
+          if (form.enableLogin) {
+            if (!form.email.trim()) {
+              alert('Email is required when system login is enabled.');
+              return;
+            }
+            const userPayload = {
+              name: form.name.trim(),
+              email: form.email.trim().toLowerCase(),
+              role: form.loginRole,
+              phone: form.phone.trim(),
+              restaurantName: tenant,
+              accountId: tenant,
+            };
+            if (form.loginPassword) {
+              userPayload.password = simpleHash(form.loginPassword);
+            }
+            if (match) {
+              await dbUpdate('users', match.id, userPayload);
+            } else {
+              if (!form.loginPassword) {
+                alert('Password is required when enabling system login.');
+                return;
+              }
+              await dbInsert('users', {
+                ...userPayload,
+                password: simpleHash(form.loginPassword),
+              });
+            }
+          } else {
+            if (match) {
+              await dbRemove('users', match.id);
+            }
+          }
+          setEditModal(null);
+        } else {
+          let newStaffId = genLocalId();
+          await addStaff({ ...staffData, id: newStaffId });
+
+          if (form.enableLogin) {
+            if (!form.email.trim()) {
+              alert('Email is required when system login is enabled.');
+              return;
+            }
+            if (!form.loginPassword) {
+              alert('Password is required when enabling system login.');
+              return;
+            }
+            const userPayload = {
+              name: form.name.trim(),
+              email: form.email.trim().toLowerCase(),
+              password: simpleHash(form.loginPassword),
+              role: form.loginRole,
+              phone: form.phone.trim(),
+              restaurantName: tenant,
+              accountId: tenant,
+            };
+            await dbInsert('users', userPayload);
+          }
+          setAddModal(false);
+        }
+        reload();
+      } catch (err) {
+        console.error('Error saving team member details:', err);
+        alert('An error occurred while saving.');
+      }
+    };
+
+    const handleDelete = async (member) => {
+      try {
+        if (!member.isOnlyUser) {
+          await deleteStaff(member.id);
+        }
+        const match = tenantUsers.find(u => u.email && member.email && u.email.toLowerCase() === member.email.toLowerCase());
+        if (match) {
+          await dbRemove('users', match.id);
+        }
+        setDeleteConfirm(null);
+        reload();
+      } catch (err) {
+        console.error('Error deleting team member:', err);
       }
     };
 
@@ -206,7 +358,7 @@ const Staff = () => {
             </div>
             <div className="input-group">
               <label className="input-label">Shift</label>
-              <select className="input-field" value={form.shift} onChange={e => setForm(f => ({ ...f, shift: e.target.value }))}>
+              <select className="input-field" value={form.shift} onChange={e => setForm(f => ({ ...f, shift: e.target.value }))} disabled={editModal?.isOnlyUser}>
                 {SHIFTS.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
@@ -215,42 +367,81 @@ const Staff = () => {
               <input className="input-field" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 XXXXX XXXXX" />
             </div>
             <div className="input-group">
+              <label className="input-label">Email</label>
+              <input className="input-field" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="e.g. employee@email.com" />
+            </div>
+            <div className="input-group">
               <label className="input-label">Salary (per month)</label>
-              <input className="input-field" type="number" min="0" value={form.salary} onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} placeholder="0" />
+              <input className="input-field" type="number" min="0" value={form.salary} onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} placeholder="0" disabled={editModal?.isOnlyUser} />
             </div>
             <div className="input-group">
               <label className="input-label">4-Digit PIN</label>
-              <input className="input-field" value={form.pin} maxLength={4} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '').slice(0, 4) }))} placeholder="1234" />
+              <input className="input-field" value={form.pin} maxLength={4} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '').slice(0, 4) }))} placeholder="1234" disabled={editModal?.isOnlyUser} />
             </div>
-            <div className="input-group">
+            <div className="input-group" style={{ gridColumn: '1 / -1' }}>
               <label className="input-label">Join Date</label>
-              <input className="input-field" type="date" value={form.joinDate} onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} />
+              <input className="input-field" type="date" value={form.joinDate} onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} disabled={editModal?.isOnlyUser} />
             </div>
           </div>
+
+          {/* System Login Configuration */}
           <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0', paddingTop: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>Emergency Contact</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="input-group">
-                <label className="input-label">Contact Name</label>
-                <input className="input-field" value={form.emergencyContact} onChange={e => setForm(f => ({ ...f, emergencyContact: e.target.value }))} placeholder="Name" />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>System Login Settings</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Allow this member to log into Kitchgoo with their email and password</div>
               </div>
-              <div className="input-group">
-                <label className="input-label">Contact Phone</label>
-                <input className="input-field" value={form.emergencyPhone} onChange={e => setForm(f => ({ ...f, emergencyPhone: e.target.value }))} placeholder="Phone" />
+              <ToggleSwitch on={form.enableLogin} onToggle={() => setForm(f => ({ ...f, enableLogin: !f.enableLogin }))} />
+            </div>
+            {form.enableLogin && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+                <div className="input-group">
+                  <label className="input-label">Login Email *</label>
+                  <input className="input-field" value={form.email} readOnly disabled style={{ background: 'var(--border-subtle)', cursor: 'not-allowed' }} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Password {isEdit ? '(Leave blank to keep unchanged)' : '*'}</label>
+                  <input className="input-field" type="password" value={form.loginPassword} onChange={e => setForm(f => ({ ...f, loginPassword: e.target.value }))} placeholder={isEdit ? '••••••••' : 'Enter login password'} />
+                </div>
+                <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                  <label className="input-label">Login System Role</label>
+                  <select className="input-field" value={form.loginRole} onChange={e => setForm(f => ({ ...f, loginRole: e.target.value }))}>
+                    {ROLES.map(r => <option key={r}>{r}</option>)}
+                  </select>
+                </div>
               </div>
-            </div>
+            )}
           </div>
-          <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0', paddingTop: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>Documents</div>
-            <div style={{
-              border: '2px dashed var(--border-subtle)', borderRadius: 10, padding: '20px',
-              textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
-            }}>
-              <FileText size={20} style={{ marginBottom: 4 }} /><br />
-              Click to upload ID, certificates, etc.
-            </div>
-          </div>
-          {isEdit && (form.wageHistory || []).length > 0 && (
+
+          {!editModal?.isOnlyUser && (
+            <>
+              <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0', paddingTop: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>Emergency Contact</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="input-group">
+                    <label className="input-label">Contact Name</label>
+                    <input className="input-field" value={form.emergencyContact} onChange={e => setForm(f => ({ ...f, emergencyContact: e.target.value }))} placeholder="Name" />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">Contact Phone</label>
+                    <input className="input-field" value={form.emergencyPhone} onChange={e => setForm(f => ({ ...f, emergencyPhone: e.target.value }))} placeholder="Phone" />
+                  </div>
+                </div>
+              </div>
+              <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0', paddingTop: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>Documents</div>
+                <div style={{
+                  border: '2px dashed var(--border-subtle)', borderRadius: 10, padding: '20px',
+                  textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
+                }}>
+                  <FileText size={20} style={{ marginBottom: 4 }} /><br />
+                  Click to upload ID, certificates, etc.
+                </div>
+              </div>
+            </>
+          )}
+
+          {isEdit && !editModal?.isOnlyUser && (form.wageHistory || []).length > 0 && (
             <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '16px 0', paddingTop: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>Wage History</div>
               {form.wageHistory.map((w, i) => (
@@ -275,7 +466,7 @@ const Staff = () => {
       <>
         {/* Stats Row */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
-          <StatCard icon={Users} label="Total Staff" value={staff.length} color="var(--primary)" />
+          <StatCard icon={Users} label="Total Team" value={unifiedTeam.length} color="var(--primary)" />
           <StatCard icon={UserCheck} label="Active" value={activeCount} color="var(--success)" />
           <StatCard icon={UserX} label="Off-Duty" value={offCount} color="var(--text-muted)" />
           <StatCard icon={AlertTriangle} label="Approaching OT" value={approachingOT} color="var(--warning)" />
@@ -327,30 +518,40 @@ const Staff = () => {
                     <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{m.phone || '--'}</td>
                     <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{m.shift || '--'}</td>
                     <td style={{ padding: '10px 12px' }}>
-                      <button onClick={() => toggleStaffStatus(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      <button onClick={() => !m.isOnlyUser && toggleStaffStatus(m.id)} style={{ background: 'none', border: 'none', cursor: m.isOnlyUser ? 'default' : 'pointer', padding: 0 }}>
                         <Badge color={m.status === 'active' ? 'var(--success)' : 'var(--text-muted)'}>
                           {m.status === 'active' ? <><CheckCircle size={12} /> Active</> : <><XCircle size={12} /> Off-Duty</>}
                         </Badge>
                       </button>
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)', letterSpacing: 1 }}>
-                          {showPin[m.id] ? (m.pin || '----') : '****'}
-                        </span>
-                        <button onClick={() => setShowPin(p => ({ ...p, [m.id]: !p[m.id] }))}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}>
-                          {showPin[m.id] ? <EyeOff size={13} /> : <Eye size={13} />}
-                        </button>
-                      </div>
+                      {m.isOnlyUser ? (
+                        <span style={{ color: 'var(--text-muted)' }}>--</span>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)', letterSpacing: 1 }}>
+                            {showPin[m.id] ? (m.pin || '----') : '****'}
+                          </span>
+                          <button onClick={() => setShowPin(p => ({ ...p, [m.id]: !p[m.id] }))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}>
+                            {showPin[m.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                          </button>
+                        </div>
+                      )}
                     </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>{fmt(m.salary)}</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {m.isOnlyUser ? <span style={{ color: 'var(--text-muted)' }}>--</span> : fmt(m.salary)}
+                    </td>
                     <td style={{ padding: '10px 12px', color: 'var(--text-secondary)', fontSize: 12 }}>{fmtDate(m.joinDate)}</td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontWeight: 600, color: otWarning ? 'var(--warning)' : 'var(--text-primary)' }}>{hrs}h</span>
-                        {otWarning && <AlertTriangle size={14} color="var(--warning)" />}
-                      </div>
+                      {m.isOnlyUser ? (
+                        <span style={{ color: 'var(--text-muted)' }}>--</span>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontWeight: 600, color: otWarning ? 'var(--warning)' : 'var(--text-primary)' }}>{hrs}h</span>
+                          {otWarning && <AlertTriangle size={14} color="var(--warning)" />}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       <div style={{ display: 'flex', gap: 4 }}>
@@ -381,7 +582,7 @@ const Staff = () => {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={() => { deleteStaff(deleteConfirm.id); setDeleteConfirm(null); }}>
+              <button className="btn btn-danger" onClick={() => handleDelete(deleteConfirm)}>
                 <Trash2 size={14} /> Delete
               </button>
             </div>

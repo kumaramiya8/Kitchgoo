@@ -98,27 +98,11 @@ const TABS = [
 const COMMISSARY_FLOW = ['placed', 'in-production', 'ready', 'dispatched', 'received'];
 
 // ── Demo Data Generators ────────────────────────────────────────
-const DEMO_LOCATIONS = [
-  { id: 'loc_hq', name: 'Kitchgoo Downtown HQ', address: '12 MG Road, Bengaluru 560001', phone: '+91 80 4567 8900', manager: 'Arjun Mehta', status: 'active', isHQ: true, revenue: 1845000, orderCount: 2340 },
-  { id: 'loc_2', name: 'Kitchgoo Koramangala', address: '5th Block, Koramangala, Bengaluru 560034', phone: '+91 80 4567 8901', manager: 'Priya Sharma', status: 'active', isHQ: false, revenue: 1230000, orderCount: 1780 },
-  { id: 'loc_3', name: 'Kitchgoo Indiranagar', address: '100 Feet Road, Indiranagar, Bengaluru 560038', phone: '+91 80 4567 8902', manager: 'Vikram Das', status: 'active', isHQ: false, revenue: 980000, orderCount: 1450 },
-  { id: 'loc_4', name: 'Kitchgoo Whitefield', address: 'ITPL Main Road, Whitefield, Bengaluru 560066', phone: '+91 80 4567 8903', manager: 'Neha Reddy', status: 'inactive', isHQ: false, revenue: 420000, orderCount: 620 },
-];
+const DEMO_LOCATIONS = [];
 
-const DEMO_ROYALTY_INVOICES = [
-  { id: 'ri_1', locationId: 'loc_2', locationName: 'Kitchgoo Koramangala', period: 'Mar 2026', grossSales: 1230000, royaltyPct: 6, amountDue: 73800, status: 'paid' },
-  { id: 'ri_2', locationId: 'loc_3', locationName: 'Kitchgoo Indiranagar', period: 'Mar 2026', grossSales: 980000, royaltyPct: 6, amountDue: 58800, status: 'pending' },
-  { id: 'ri_3', locationId: 'loc_4', locationName: 'Kitchgoo Whitefield', period: 'Mar 2026', grossSales: 420000, royaltyPct: 5, amountDue: 21000, status: 'overdue' },
-  { id: 'ri_4', locationId: 'loc_2', locationName: 'Kitchgoo Koramangala', period: 'Feb 2026', grossSales: 1180000, royaltyPct: 6, amountDue: 70800, status: 'paid' },
-  { id: 'ri_5', locationId: 'loc_3', locationName: 'Kitchgoo Indiranagar', period: 'Feb 2026', grossSales: 910000, royaltyPct: 6, amountDue: 54600, status: 'paid' },
-];
+const DEMO_ROYALTY_INVOICES = [];
 
-const DEMO_COMMISSARY_ORDERS = [
-  { id: 'co_1', fromLocation: 'Kitchgoo Koramangala', fromId: 'loc_2', items: [{ name: 'Paneer Tikka Base', qty: 50 }, { name: 'Dal Makhani Premix', qty: 30 }], status: 'received', date: '2026-03-28T10:30:00' },
-  { id: 'co_2', fromLocation: 'Kitchgoo Indiranagar', fromId: 'loc_3', items: [{ name: 'Naan Dough', qty: 200 }, { name: 'Tandoori Marinade', qty: 25 }], status: 'dispatched', date: '2026-03-29T08:00:00' },
-  { id: 'co_3', fromLocation: 'Kitchgoo Whitefield', fromId: 'loc_4', items: [{ name: 'Biryani Masala Mix', qty: 40 }], status: 'in-production', date: '2026-03-30T06:15:00' },
-  { id: 'co_4', fromLocation: 'Kitchgoo Koramangala', fromId: 'loc_2', items: [{ name: 'Naan Dough', qty: 150 }, { name: 'Paneer Tikka Base', qty: 40 }, { name: 'Raita Premix', qty: 20 }], status: 'placed', date: '2026-03-30T09:00:00' },
-];
+const DEMO_COMMISSARY_ORDERS = [];
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -129,10 +113,10 @@ export default function MultiLocation() {
   const [activeTab, setActiveTab] = useState('locations');
   const [search, setSearch] = useState('');
 
-  // Use context locations if available, fallback to demo
+  // Use context locations if available, fallback to empty
   const locations = useMemo(() => {
     if (ctxLocations && ctxLocations.length > 0) return ctxLocations;
-    return DEMO_LOCATIONS;
+    return [];
   }, [ctxLocations]);
 
   // ── Location Modal State ─────────────────────────────────────

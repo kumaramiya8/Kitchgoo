@@ -6,6 +6,7 @@
 export function printReceipt({ order, settings, tableId, guestName }) {
   const restaurant = settings?.restaurant || {};
   const billing = settings?.billing || {};
+  const payments = settings?.payments || {};
 
   const formatDate = (iso) => {
     const d = new Date(iso || Date.now());
@@ -24,6 +25,27 @@ export function printReceipt({ order, settings, tableId, guestName }) {
   const serviceCharge = billing.enableServiceCharge
     ? subtotal * ((billing.serviceCharge || 0) / 100) : 0;
   const total = subtotal + tax + serviceCharge;
+
+  let showUpiQrHtml = '';
+  if (payments.upi && payments.showUpiQr && payments.upiId) {
+    const upiId = payments.upiId;
+    const payeeName = payments.upiPayeeName || restaurant.name || 'Kitchgoo';
+    const remarks = payments.upiRemarks || (order.billNo ? `Bill ${order.billNo}` : 'Kitchgoo Bill');
+    const amount = total.toFixed(2);
+    const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(amount)}&tn=${encodeURIComponent(remarks)}&cu=INR`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiUrl)}`;
+
+    showUpiQrHtml = `
+  <div class="center" style="margin: 12px 0;">
+    <div class="bold" style="font-size: 10px; margin-bottom: 6px; letter-spacing: 0.5px;">SCAN TO PAY WITH UPI</div>
+    <img src="${qrCodeUrl}" alt="UPI QR Code" style="width: 120px; height: 120px; display: block; margin: 0 auto;" />
+    <div class="sm" style="margin-top: 6px; font-family: monospace;">UPI ID: ${upiId}</div>
+    ${payments.upiPayeeName ? `<div class="sm" style="font-family: monospace;">Payee: ${payments.upiPayeeName}</div>` : ''}
+    <div class="sm bold" style="margin-top: 4px; font-size: 11px;">Amount: ${restaurant.currency || '₹'}${amount}</div>
+  </div>
+  <div class="divider"></div>
+`;
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -136,6 +158,8 @@ export function printReceipt({ order, settings, tableId, guestName }) {
     <span>${restaurant.currency || '₹'}${total.toFixed(2)}</span>
   </div>
   <div class="divider"></div>
+
+  ${showUpiQrHtml}
 
   <!-- Items count -->
   <div class="sm center">${order.items.reduce((s,i) => s + i.qty, 0)} item(s) &nbsp;|&nbsp; Thank you!</div>

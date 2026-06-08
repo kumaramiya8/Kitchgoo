@@ -1126,6 +1126,18 @@ const POS = () => {
   const [driverInstructions, setDriverInstructions] = useState('');
   const [deliveryChannel, setDeliveryChannel] = useState('In-House');
 
+  // Prefill Takeout defaults
+  useEffect(() => {
+    if (orderType === 'takeout' && view === 'floor') {
+      setCustomerName('Walk-in Guest');
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 15);
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      setPickupTime(`${hours}:${minutes}`);
+    }
+  }, [orderType, view]);
+
   // Modals
   const [guestModal, setGuestModal] = useState(null);
   const [modifierModal, setModifierModal] = useState(null);
@@ -1604,7 +1616,27 @@ const POS = () => {
             )}
 
             {/* Table Grid or Floor Plan Map */}
-            {(isMobile ? 'grid' : viewMode) === 'map' ? (
+            {tables.length === 0 ? (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '40px',
+                background: 'rgba(255, 255, 255, 0.4)',
+                borderRadius: '18px',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-muted)',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                textAlign: 'center',
+                gap: '8px',
+                minHeight: '200px'
+              }}>
+                <div style={{ fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 800 }}>No Tables Configured</div>
+                <div>Design your floor plan in Settings &gt; Table Layout first.</div>
+              </div>
+            ) : (isMobile ? 'grid' : viewMode) === 'map' ? (
               <div style={{
                 position: 'relative',
                 width: '100%',
@@ -1796,8 +1828,14 @@ const POS = () => {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="input-group">
-                <label className="input-label">Customer Name *</label>
-                <input className="input-field" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. Rahul" />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label className="input-label" style={{ margin: 0 }}>Customer Name *</label>
+                  <button type="button" onClick={() => setCustomerName('Walk-in Guest')}
+                    style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                    Set Walk-in
+                  </button>
+                </div>
+                <input className="input-field" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. Rahul" style={{ margin: 0 }} />
               </div>
               <div className="input-group">
                 <label className="input-label">Phone *</label>
@@ -1982,35 +2020,46 @@ const POS = () => {
             return (
               <button key={item.id} onClick={() => handleAddItem(item)}
                 style={{
-                  padding: '12px', textAlign: 'left', borderRadius: 'var(--r-lg)', cursor: 'pointer',
+                  padding: 0, textAlign: 'left', borderRadius: 'var(--r-lg)', cursor: 'pointer',
                   background: totalInCart > 0 ? 'rgba(124,58,237,0.07)' : 'var(--card-bg)',
                   backdropFilter: 'blur(16px)',
                   border: `1.5px solid ${totalInCart > 0 ? 'rgba(124,58,237,0.3)' : 'var(--border-subtle)'}`,
                   transition: 'all var(--t-fast)', position: 'relative',
+                  display: 'flex', flexDirection: 'column', overflow: 'hidden',
                 }}
                 onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
                 onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
               >
-                <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.3 }}>{item.name}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.88rem' }}>
-                    {item.price.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                  </span>
-                  {totalInCart > 0 && (
-                    <span style={{
-                      fontSize: '0.68rem', fontWeight: 700, background: 'var(--primary)',
-                      color: 'white', borderRadius: 20, padding: '2px 7px',
-                    }}>
-                      x{totalInCart}
-                    </span>
+                <div style={{ position: 'relative', height: 70, width: '100%', overflow: 'hidden', background: 'rgba(124,58,237,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
+                  {item.image ? (
+                    <img src={item.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ fontSize: '1.5rem', opacity: 0.15 }}>🍳</div>
                   )}
+                </div>
+                <div style={{ padding: '10px 12px 12px 12px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between', width: '100%' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>{item.name}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
+                    <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.88rem' }}>
+                      {item.price.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                    </span>
+                    {totalInCart > 0 && (
+                      <span style={{
+                        fontSize: '0.68rem', fontWeight: 700, background: 'var(--primary)',
+                        color: 'white', borderRadius: 20, padding: '2px 7px',
+                      }}>
+                        x{totalInCart}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {item.sold86 && (
                   <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(255,255,255,0.7)', borderRadius: 'var(--r-lg)',
+                    background: 'rgba(255,255,255,0.7)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontWeight: 800, color: 'var(--danger)', fontSize: '0.82rem',
+                    zIndex: 2,
                   }}>
                     86'd
                   </div>

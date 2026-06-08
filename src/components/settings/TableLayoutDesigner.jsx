@@ -6,6 +6,25 @@ const CANVAS_WIDTH = 750;
 const CANVAS_HEIGHT = 500;
 const GRID_SIZE = 15;
 
+const findFreeGridPosition = (existingTables, shape) => {
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 6; c++) {
+      const x = c * 120 + 40;
+      const y = r * 120 + 40;
+      const collides = existingTables.some(t => {
+        return Math.abs(t.x - x) < 90 && Math.abs(t.y - y) < 90;
+      });
+      if (!collides) {
+        return { x, y };
+      }
+    }
+  }
+  return {
+    x: Math.round((CANVAS_WIDTH / 2 - 45 + (Math.random() * 60 - 30)) / GRID_SIZE) * GRID_SIZE,
+    y: Math.round((CANVAS_HEIGHT / 2 - 45 + (Math.random() * 60 - 30)) / GRID_SIZE) * GRID_SIZE
+  };
+};
+
 export default function TableLayoutDesigner() {
   const { floorPlans, updateFloorPlans } = useApp();
 
@@ -23,6 +42,14 @@ export default function TableLayoutDesigner() {
   const [newTableSeats, setNewTableSeats] = useState(4);
   const [newTableShape, setNewTableShape] = useState('square');
   const [newTableSection, setNewTableSection] = useState('');
+
+  // Bulk state
+  const [bulkStartNum, setBulkStartNum] = useState('');
+  const [bulkCount, setBulkCount] = useState(5);
+  const [bulkSeats, setBulkSeats] = useState(4);
+  const [bulkShape, setBulkShape] = useState('square');
+  const [bulkSection, setBulkSection] = useState('');
+  const [bulkDeleteSection, setBulkDeleteSection] = useState('All');
 
   // Drag state
   const canvasRef = useRef(null);
@@ -48,6 +75,7 @@ export default function TableLayoutDesigner() {
       setSections(secs);
       if (secs.length > 0) {
         setNewTableSection(secs[0]);
+        setBulkSection(secs[0]);
       }
     }
   }, [floorPlans]);
@@ -189,6 +217,67 @@ export default function TableLayoutDesigner() {
     }
   };
 
+  const handleBulkAdd = () => {
+    const startNum = parseInt(bulkStartNum);
+    const count = parseInt(bulkCount);
+    if (isNaN(startNum) || startNum <= 0) {
+      alert('Please enter a valid starting table number');
+      return;
+    }
+    if (isNaN(count) || count <= 0 || count > 50) {
+      alert('Please enter a count between 1 and 50');
+      return;
+    }
+
+    const proposedTables = [];
+    let tempTables = [...tables];
+
+    for (let i = 0; i < count; i++) {
+      const num = startNum + i;
+      const exists = tempTables.some(t => t.id === num || t.number === num);
+      if (exists) {
+        alert(`Table number ${num} already exists! Bulk add cancelled.`);
+        return;
+      }
+
+      const { x, y } = findFreeGridPosition(tempTables, bulkShape);
+      const newTable = {
+        id: num,
+        number: num,
+        label: `Table ${num}`,
+        shape: bulkShape,
+        seats: parseInt(bulkSeats) || 4,
+        section: bulkSection || sections[0] || 'Main Dining',
+        x,
+        y,
+        server: ''
+      };
+      
+      tempTables.push(newTable);
+      proposedTables.push(newTable);
+    }
+
+    setTables(tempTables);
+    setBulkStartNum('');
+    showToast(`Successfully added ${count} tables to ${bulkSection || 'Main Dining'}!`);
+  };
+
+  const handleBulkDelete = () => {
+    const targetSection = bulkDeleteSection;
+    const targetTables = tables.filter(t => targetSection === 'All' || t.section === targetSection);
+
+    if (targetTables.length === 0) {
+      alert(`No tables found in section "${targetSection}".`);
+      return;
+    }
+
+    if (confirm(`Are you sure you want to delete all ${targetTables.length} tables in "${targetSection}"?`)) {
+      setTables(prev => prev.filter(t => targetSection !== 'All' && t.section !== targetSection));
+      setSelectedTableId(null);
+      showToast(`Removed ${targetTables.length} tables.`);
+    }
+  };
+
   // Edit selected table inline
   const updateSelectedTableField = (field, value) => {
     if (!selectedTableId) return;
@@ -291,6 +380,68 @@ export default function TableLayoutDesigner() {
             <button className="btn btn-primary" onClick={handleAddTable} style={{ width: '100%', marginTop: '4px', padding: '8px 14px' }}>
               <Plus size={14} /> Add to Floor
             </button>
+          </div>
+        </div>
+
+        {/* Bulk Operations */}
+        <div className="card" style={{ padding: '16px' }}>
+          <h4 style={{ fontSize: '0.82rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', letterSpacing: '0.04em' }}>Bulk Operations</h4>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            
+            {/* Bulk Add Sub-section */}
+            <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>Bulk Add Tables</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label" style={{ fontSize: '0.72rem' }}>Start No. *</label>
+                  <input className="input-field" type="number" placeholder="e.g. 21" value={bulkStartNum} onChange={e => setBulkStartNum(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.78rem' }} />
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label" style={{ fontSize: '0.72rem' }}>Count *</label>
+                  <input className="input-field" type="number" min="1" max="50" value={bulkCount} onChange={e => setBulkCount(parseInt(e.target.value) || 0)} style={{ padding: '6px 10px', fontSize: '0.78rem' }} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '8px', marginBottom: '8px' }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label" style={{ fontSize: '0.72rem' }}>Seats *</label>
+                  <input className="input-field" type="number" min="1" value={bulkSeats} onChange={e => setBulkSeats(parseInt(e.target.value) || 4)} style={{ padding: '6px 10px', fontSize: '0.78rem' }} />
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label" style={{ fontSize: '0.72rem' }}>Shape</label>
+                  <select className="input-field" value={bulkShape} onChange={e => setBulkShape(e.target.value)} style={{ padding: '5px 10px', fontSize: '0.78rem' }}>
+                    <option value="square">Square</option>
+                    <option value="round">Round</option>
+                    <option value="bar">Bar (Pill)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="input-group" style={{ marginBottom: '10px' }}>
+                <label className="input-label" style={{ fontSize: '0.72rem' }}>Section</label>
+                <select className="input-field" value={bulkSection} onChange={e => setBulkSection(e.target.value)} style={{ padding: '5px 10px', fontSize: '0.78rem', width: '100%' }}>
+                  {sections.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={handleBulkAdd} style={{ width: '100%', padding: '6px 12px' }}>
+                <Plus size={13} /> Bulk Add Tables
+              </button>
+            </div>
+
+            {/* Bulk Delete Sub-section */}
+            <div>
+              <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>Bulk Delete Tables</div>
+              <div className="input-group" style={{ marginBottom: '10px' }}>
+                <label className="input-label" style={{ fontSize: '0.72rem' }}>Target Area</label>
+                <select className="input-field" value={bulkDeleteSection} onChange={e => setBulkDeleteSection(e.target.value)} style={{ padding: '5px 10px', fontSize: '0.78rem', width: '100%' }}>
+                  <option value="All">All Areas</option>
+                  {sections.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={handleBulkDelete} style={{ width: '100%', padding: '6px 12px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
+                <Trash2 size={13} /> Bulk Delete Tables
+              </button>
+            </div>
+
           </div>
         </div>
 

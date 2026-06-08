@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS menu (
     dietary_labels JSONB DEFAULT '[]'::jsonb,
     cost_price NUMERIC,
     sold_86 BOOLEAN DEFAULT false,
+    image TEXT DEFAULT '',
     price_tiers JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );

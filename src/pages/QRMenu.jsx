@@ -1,0 +1,551 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { useApp } from '../db/AppContext';
+import { initTenantDB } from '../db/database';
+import { 
+  Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award
+} from 'lucide-react';
+
+const QRMenu = () => {
+  const { tenantId } = useParams();
+  const [searchParams] = useSearchParams();
+  const tableParam = searchParams.get('table') || '';
+
+  const { menu, settings, addOnlineOrder, reload } = useApp();
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('All');
+  const [cart, setCart] = useState({}); // { itemId: { item, qty, notes } }
+  const [showCart, setShowCart] = useState(false);
+  
+  // Checkout form state
+  const [customerName, setCustomerName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [tableNumber, setTableNumber] = useState(tableParam);
+  const [notes, setNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [orderSuccess, setOrderSuccess] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        await initTenantDB(tenantId);
+        reload();
+      } catch (err) {
+        console.error('[QRMenu] Error loading tenant database:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [tenantId]);
+
+  // Derived active menu items
+  const menuItems = useMemo(() => {
+    if (!menu) return [];
+    return menu.filter(item => item.active !== false && !item.sold86);
+  }, [menu]);
+
+  // Categories list
+  const categories = useMemo(() => {
+    const cats = [...new Set(menuItems.map(i => i.category).filter(Boolean))];
+    return ['All', ...cats];
+  }, [menuItems]);
+
+  // Filtered menu list
+  const filteredItems = useMemo(() => {
+    let items = menuItems;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter(i => i.name?.toLowerCase().includes(q) || i.description?.toLowerCase().includes(q));
+    } else if (activeCategory !== 'All') {
+      items = items.filter(i => i.category === activeCategory);
+    }
+    return items;
+  }, [menuItems, activeCategory, searchQuery]);
+
+  // Helper values
+  const cartItemsCount = Object.values(cart).reduce((sum, item) => sum + item.qty, 0);
+  const cartSubtotal = Object.values(cart).reduce((sum, item) => sum + (item.item.price * item.qty), 0);
+
+  const handleAddToCart = (item) => {
+    setCart(prev => {
+      const existing = prev[item.id];
+      if (existing) {
+        return {
+          ...prev,
+          [item.id]: { ...existing, qty: existing.qty + 1 }
+        };
+      } else {
+        return {
+          ...prev,
+          [item.id]: { item, qty: 1, notes: '' }
+        };
+      }
+    });
+  };
+
+  const handleRemoveFromCart = (itemId) => {
+    setCart(prev => {
+      const existing = prev[itemId];
+      if (!existing) return prev;
+      if (existing.qty <= 1) {
+        const copy = { ...prev };
+        delete copy[itemId];
+        return copy;
+      } else {
+        return {
+          ...prev,
+          [itemId]: { ...existing, qty: existing.qty - 1 }
+        };
+      }
+    });
+  };
+
+  const handleUpdateNotes = (itemId, noteText) => {
+    setCart(prev => {
+      if (!prev[itemId]) return prev;
+      return {
+        ...prev,
+        [itemId]: { ...prev[itemId], notes: noteText }
+      };
+    });
+  };
+
+  const handlePlaceOrder = async (e) => {
+    e.preventDefault();
+    if (!customerName.trim() || !phone.trim() || !tableNumber.trim()) {
+      alert('Please fill out your Name, Phone Number, and Table Number.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const itemsList = Object.values(cart).map(c => ({
+        name: c.item.name,
+        price: c.item.price,
+        qty: c.qty,
+        notes: c.notes || ''
+      }));
+
+      const payload = {
+        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+        customer: customerName.trim(),
+        phone: phone.trim(),
+        address: `Table ${tableNumber.trim()}`,
+        total: cartSubtotal,
+        items: cartItemsCount,
+        itemsList,
+        status: 'new',
+        specialInstructions: notes.trim(),
+        createdAt: new Date().toISOString(),
+      };
+
+      await addOnlineOrder(payload);
+      setOrderSuccess(true);
+      setCart({});
+      setShowCart(false);
+    } catch (err) {
+      console.error('[QRMenu] Error placing order:', err);
+      alert('Failed to place order. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', color: 'var(--text-secondary)' }}>
+        <Utensils className="animate-spin" size={32} style={{ color: 'var(--primary)', marginBottom: 12 }} />
+        <p style={{ fontWeight: 600 }}>Loading digital menu...</p>
+      </div>
+    );
+  }
+
+  const restaurantName = settings?.restaurant?.name || tenantId || 'Kitchgoo';
+
+  if (orderSuccess) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 24, textAlign: 'center' }}>
+        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,185,129,0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+          <Check size={40} strokeWidth={3} />
+        </div>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e1b4b', marginBottom: 8 }}>Order Placed Successfully!</h2>
+        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', maxWidth: 300, margin: '0 auto 24px auto', lineHeight: 1.5 }}>
+          Your order has been sent directly to the kitchen. Please sit back and relax while we prepare your food!
+        </p>
+        <button className="btn btn-primary" onClick={() => setOrderSuccess(false)}>
+          Back to Menu
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', paddingBottom: cartItemsCount > 0 ? 80 : 20, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      
+      {/* Premium Cover Banner */}
+      <div style={{ 
+        background: 'linear-gradient(135deg, var(--primary), #a855f7)', 
+        color: 'white', 
+        padding: '30px 20px 24px 20px', 
+        borderBottomLeftRadius: 24, 
+        borderBottomRightRadius: 24,
+        boxShadow: '0 4px 20px rgba(124, 58, 237, 0.15)',
+        position: 'relative'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.9, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginBottom: 4 }}>
+              <Award size={13} /> Digital QR Menu
+            </div>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, letterSpacing: '-0.5px', margin: 0 }}>{restaurantName}</h1>
+            <p style={{ fontSize: '0.82rem', opacity: 0.85, marginTop: 4, marginBottom: 0 }}>Welcome! Scan, order, and enjoy.</p>
+          </div>
+          {tableNumber && (
+            <div style={{ background: 'rgba(255,255,255,0.2)', padding: '6px 12px', borderRadius: 12, fontWeight: 800, fontSize: '0.82rem', border: '1px solid rgba(255,255,255,0.3)', backdropFilter: 'blur(4px)' }}>
+              Table {tableNumber}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Body */}
+      <div style={{ padding: '16px 16px 0 16px' }}>
+        
+        {/* Search Bar */}
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input 
+            type="text" 
+            placeholder="Search delicious dishes..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ 
+              width: '100%', 
+              padding: '12px 16px 12px 40px', 
+              borderRadius: 16, 
+              border: '1.5px solid var(--border-subtle)', 
+              background: '#fff', 
+              fontSize: '0.9rem',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+              outline: 'none',
+              transition: 'border-color var(--t-fast)'
+            }} 
+          />
+          {searchQuery && (
+            <X 
+              size={16} 
+              style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer' }}
+              onClick={() => setSearchQuery('')}
+            />
+          )}
+        </div>
+
+        {/* Categories Scroller */}
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, margin: '0 -16px 8px -16px', paddingLeft: 16, paddingRight: 16 }} className="no-scrollbar">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => { setActiveCategory(cat); setSearchQuery(''); }}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 20,
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                border: 'none',
+                background: activeCategory === cat ? 'var(--primary)' : '#fff',
+                color: activeCategory === cat ? '#white' : 'var(--text-secondary)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                cursor: 'pointer',
+                transition: 'all var(--t-fast)'
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Menu Items List */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {filteredItems.map(item => {
+            const cartQty = cart[item.id]?.qty || 0;
+            return (
+              <div 
+                key={item.id} 
+                className="card" 
+                style={{ 
+                  padding: 12, 
+                  display: 'flex', 
+                  gap: 12, 
+                  alignItems: 'center', 
+                  background: '#fff', 
+                  borderRadius: 16,
+                  border: '1px solid var(--border-subtle)',
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
+                }}
+              >
+                {/* Item Thumbnail Crop */}
+                <div style={{ width: 80, height: 80, borderRadius: 12, overflow: 'hidden', background: 'rgba(124,58,237,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ fontSize: '1.8rem', opacity: 0.2 }}>🍔</div>
+                  )}
+                </div>
+
+                {/* Details */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 3px 0', color: '#1e1b4b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{item.name}</h3>
+                  {item.description && (
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 6px 0', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {item.description}
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.9rem' }}>
+                      ₹{item.price.toLocaleString('en-IN')}
+                    </span>
+
+                    {/* Quantity controller */}
+                    {cartQty > 0 ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--primary-light)', padding: '2px 4px', borderRadius: 8 }}>
+                        <button 
+                          onClick={() => handleRemoveFromCart(item.id)}
+                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+                        >
+                          <Minus size={13} strokeWidth={2.5} />
+                        </button>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--primary)', minWidth: 14, textAlign: 'center' }}>{cartQty}</span>
+                        <button 
+                          onClick={() => handleAddToCart(item)}
+                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+                        >
+                          <Plus size={13} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => handleAddToCart(item)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '4px 12px', fontSize: '0.78rem', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4 }}
+                      >
+                        <Plus size={12} /> Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {filteredItems.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
+              <Utensils size={32} style={{ strokeWidth: 1.5, margin: '0 auto 12px auto', opacity: 0.5 }} />
+              <p style={{ fontSize: '0.88rem' }}>No items match your search.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sticky Bottom Cart Bar */}
+      {cartItemsCount > 0 && (
+        <div style={{ 
+          position: 'fixed', 
+          bottom: 0, 
+          left: 0, 
+          right: 0, 
+          background: 'rgba(255,255,255,0.9)', 
+          backdropFilter: 'blur(20px)',
+          borderTop: '1px solid var(--border-subtle)', 
+          padding: '12px 16px', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          zIndex: 10,
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.05)'
+        }}>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>{cartItemsCount} item{cartItemsCount > 1 ? 's' : ''} added</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--primary)' }}>₹{cartSubtotal.toLocaleString('en-IN')}</div>
+          </div>
+          <button 
+            className="btn btn-primary" 
+            onClick={() => setShowCart(true)}
+            style={{ padding: '10px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <ShoppingCart size={15} /> View Cart <ChevronRight size={15} />
+          </button>
+        </div>
+      )}
+
+      {/* Cart Drawer / Modal */}
+      {showCart && (
+        <div style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          background: 'rgba(30,27,75,0.5)', 
+          zIndex: 99, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          justifyContent: 'flex-end' 
+        }}>
+          {/* Dismiss overlay click */}
+          <div style={{ flex: 1 }} onClick={() => setShowCart(false)} />
+          
+          {/* Drawer content */}
+          <div style={{ 
+            background: '#fff', 
+            borderTopLeftRadius: 24, 
+            borderTopRightRadius: 24, 
+            maxHeight: '85vh', 
+            display: 'flex', 
+            flexDirection: 'column',
+            boxShadow: '0 -8px 32px rgba(0,0,0,0.12)',
+            animation: 'slideUp 0.3s ease-out'
+          }}>
+            {/* Header */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e1b4b', margin: 0 }}>Your Cart</h2>
+              <button 
+                onClick={() => setShowCart(false)} 
+                style={{ border: 'none', background: 'rgba(0,0,0,0.04)', width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Scrollable list */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+              
+              {/* Cart Items */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
+                {Object.entries(cart).map(([itemId, cartItem]) => (
+                  <div key={itemId} style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e1b4b' }}>{cartItem.item.name}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2 }}>₹{cartItem.item.price} each</div>
+                      </div>
+                      
+                      {/* Qty selectors */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--primary-light)', padding: '2px 4px', borderRadius: 8 }}>
+                        <button 
+                          onClick={() => handleRemoveFromCart(itemId)}
+                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4 }}
+                        >
+                          <Minus size={12} strokeWidth={2.5} />
+                        </button>
+                        <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--primary)', minWidth: 12, textAlign: 'center' }}>{cartItem.qty}</span>
+                        <button 
+                          onClick={() => handleAddToCart(cartItem.item)}
+                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4 }}
+                        >
+                          <Plus size={12} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Special instruction for item */}
+                    <input 
+                      type="text" 
+                      placeholder="Add preparation notes (e.g. less spice, no onion)..."
+                      value={cartItem.notes || ''}
+                      onChange={e => handleUpdateNotes(itemId, e.target.value)}
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px 10px', 
+                        borderRadius: 8, 
+                        border: '1px solid var(--border-subtle)', 
+                        fontSize: '0.72rem', 
+                        background: '#f8fafc',
+                        outline: 'none'
+                      }} 
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Checkout Form */}
+              <form onSubmit={handlePlaceOrder} style={{ borderTop: '2px dashed var(--border-subtle)', paddingTop: 16 }}>
+                <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e1b4b', marginBottom: 12 }}>Guest Details</h3>
+                
+                <div className="input-group" style={{ marginBottom: 12 }}>
+                  <label className="input-label" style={{ fontSize: '0.75rem' }}>Your Name *</label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="Enter payee/customer name"
+                    value={customerName}
+                    onChange={e => setCustomerName(e.target.value)}
+                    className="input-field" 
+                    style={{ margin: 0, padding: 10, fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 10, marginBottom: 12 }}>
+                  <div className="input-group">
+                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Phone Number *</label>
+                    <input 
+                      type="tel" 
+                      required 
+                      placeholder="e.g. +91 98765 43210"
+                      value={phone}
+                      onChange={e => setPhone(e.target.value)}
+                      className="input-field" 
+                      style={{ margin: 0, padding: 10, fontSize: '0.85rem' }}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Table No. *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="e.g. 5"
+                      value={tableNumber}
+                      onChange={e => setTableNumber(e.target.value)}
+                      className="input-field" 
+                      style={{ margin: 0, padding: 10, fontSize: '0.85rem' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="input-group" style={{ marginBottom: 20 }}>
+                  <label className="input-label" style={{ fontSize: '0.75rem' }}>Additional Remarks / Instructions (Optional)</label>
+                  <textarea 
+                    placeholder="Any general instruction for the kitchen..."
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    className="input-field" 
+                    rows={2}
+                    style={{ margin: 0, padding: 10, fontSize: '0.85rem', resize: 'none' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Total Amount</span>
+                  <span style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--primary)' }}>₹{cartSubtotal.toLocaleString('en-IN')}</span>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="btn btn-primary" 
+                  style={{ width: '100%', padding: '12px', borderRadius: 12, fontWeight: 700 }}
+                >
+                  {isSubmitting ? 'Sending Order...' : 'Send Order to Kitchen'}
+                </button>
+              </form>
+
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default QRMenu;

@@ -1246,6 +1246,24 @@ const OrderDetailContent = ({ order, onAdvance, onReject, onClose }) => {
           )}
         </div>
 
+        {order.itemsList && order.itemsList.length > 0 && (
+          <div style={{ marginBottom: 16, borderTop: '1px solid var(--border-subtle)', paddingTop: 14 }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>Order Items</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {order.itemsList.map((item, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.82rem', padding: '6px 8px', background: 'rgba(0,0,0,0.02)', borderRadius: 6 }}>
+                  <div>
+                    <span style={{ fontWeight: 700, marginRight: 6 }}>{item.qty}x</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{item.name}</span>
+                    {item.notes && <div style={{ fontSize: '0.7rem', color: 'var(--danger)', marginTop: 2 }}>* {item.notes}</div>}
+                  </div>
+                  <span style={{ fontWeight: 600 }}>₹{(item.price * item.qty).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Indicators */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {order.isPreOrder && (
