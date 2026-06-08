@@ -32,6 +32,7 @@ import {
   updateCashDrawer,
   genId,
   getCurrentTenant,
+  syncTenantDataFromSupabase,
 } from './database';
 
 const AppContext = createContext(null);
@@ -69,17 +70,25 @@ export function AppProvider({ children }) {
   const [posTables, setPosTables] = useState([]);
   const [posSavedOrders, setPosSavedOrders] = useState({});
 
-  useEffect(() => {
-    if (authLoading) return;
-    const tenant = getCurrentTenant();
-    localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
-  }, [posTables, authLoading]);
+  const [hasLoadedFromDb, setHasLoadedFromDb] = useState(false);
 
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || !hasLoadedFromDb) return;
+    const tenant = getCurrentTenant();
+    localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
+    if (tenant) {
+      setCollection('pos_tables', posTables).catch(err => console.error("Error saving pos_tables:", err));
+    }
+  }, [posTables, authLoading, hasLoadedFromDb]);
+
+  useEffect(() => {
+    if (authLoading || !hasLoadedFromDb) return;
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_saved_orders`, JSON.stringify(posSavedOrders));
-  }, [posSavedOrders, authLoading]);
+    if (tenant) {
+      setCollection('pos_saved_orders', posSavedOrders).catch(err => console.error("Error saving pos_saved_orders:", err));
+    }
+  }, [posSavedOrders, authLoading, hasLoadedFromDb]);
 
   // Build posTables from floorPlans
   useEffect(() => {
@@ -122,8 +131,11 @@ export function AppProvider({ children }) {
     setReady(true);
   }, []);
 
-  const reload = () => {
+  const reload = async () => {
     const tenant = getCurrentTenant();
+    if (tenant) {
+      await syncTenantDataFromSupabase(tenant);
+    }
 
     setStaff(getAll('staff'));
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
@@ -152,20 +164,32 @@ export function AppProvider({ children }) {
     setGuests(getAll('guests'));
     setCashDrawer(getAll('cash_drawer') || {});
 
-    // Load tenant-prefixed POS tables and saved orders
-    try {
-      const savedTables = localStorage.getItem(`${tenant}_pos_tables`);
-      setPosTables(savedTables ? JSON.parse(savedTables) : []);
-    } catch {
-      setPosTables([]);
+    // Sync posTables and posSavedOrders from DB
+    const dbTables = getAll('pos_tables');
+    if (dbTables && dbTables.length > 0) {
+      setPosTables(dbTables);
+    } else {
+      try {
+        const savedTables = localStorage.getItem(`${tenant}_pos_tables`);
+        setPosTables(savedTables ? JSON.parse(savedTables) : []);
+      } catch {
+        setPosTables([]);
+      }
     }
 
-    try {
-      const savedOrders = localStorage.getItem(`${tenant}_pos_saved_orders`);
-      setPosSavedOrders(savedOrders ? JSON.parse(savedOrders) : {});
-    } catch {
-      setPosSavedOrders({});
+    const dbOrders = getAll('pos_saved_orders');
+    if (dbOrders && typeof dbOrders === 'object' && !Array.isArray(dbOrders) && Object.keys(dbOrders).length > 0) {
+      setPosSavedOrders(dbOrders);
+    } else {
+      try {
+        const savedOrders = localStorage.getItem(`${tenant}_pos_saved_orders`);
+        setPosSavedOrders(savedOrders ? JSON.parse(savedOrders) : {});
+      } catch {
+        setPosSavedOrders({});
+      }
     }
+
+    setHasLoadedFromDb(true);
   };
 
   // ── Staff ────────────────────────────────────────────────

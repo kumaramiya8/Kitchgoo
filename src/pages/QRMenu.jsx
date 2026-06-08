@@ -11,7 +11,7 @@ const QRMenu = () => {
   const [searchParams] = useSearchParams();
   const tableParam = searchParams.get('table') || '';
 
-  const { menu, settings, addOnlineOrder, reload } = useApp();
+  const { menu, settings, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS } = useApp();
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
@@ -30,7 +30,7 @@ const QRMenu = () => {
     async function load() {
       try {
         await initTenantDB(tenantId);
-        reload();
+        await reload();
       } catch (err) {
         console.error('[QRMenu] Error loading tenant database:', err);
       } finally {
@@ -39,6 +39,24 @@ const QRMenu = () => {
     }
     load();
   }, [tenantId]);
+
+  // Poll database every 15 seconds to fetch incoming POS table statuses and active orders
+  useEffect(() => {
+    const interval = setInterval(() => {
+      reload();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [reload]);
+
+  // Prefill guest name if table is already occupied
+  useEffect(() => {
+    if (tableNumber && posTables) {
+      const targetTable = posTables.find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
+      if (targetTable && targetTable.guestName) {
+        setCustomerName(targetTable.guestName);
+      }
+    }
+  }, [tableNumber, posTables]);
 
   // Derived active menu items
   const menuItems = useMemo(() => {
@@ -121,27 +139,61 @@ const QRMenu = () => {
 
     setIsSubmitting(true);
     try {
-      const itemsList = Object.values(cart).map(c => ({
-        name: c.item.name,
-        price: c.item.price,
-        qty: c.qty,
-        notes: c.notes || ''
+      const targetTable = (posTables || []).find(
+        t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase()
+      );
+
+      if (!targetTable) {
+        alert(`Table "${tableNumber}" was not found in the restaurant layout.`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const newItems = Object.values(cart).map(c => {
+        const itemId = c.item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
+        return {
+          id: itemId,
+          name: c.item.name,
+          price: c.item.price,
+          qty: c.qty,
+          _cartKey: `${itemId}_`,
+          modifiers: [],
+          specialInstructions: c.notes || '',
+          modifierGroups: c.item.modifierGroups || [],
+          course: 1,
+          seat: 1,
+        };
+      });
+
+      const existingItems = posSavedOrders[targetTable.id] || [];
+      const mergedItems = [...existingItems];
+      newItems.forEach(newItem => {
+        const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
+        if (idx >= 0) {
+          mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + newItem.qty };
+        } else {
+          mergedItems.push(newItem);
+        }
+      });
+
+      // Occupy table
+      setPosTables(prev => prev.map(t => t.id === targetTable.id ? {
+        ...t,
+        status: 'ordered',
+        guestName: customerName.trim(),
+        seatedAt: t.seatedAt || new Date().toISOString()
+      } : t));
+
+      // Update active table cart items
+      setPosSavedOrders(prev => ({
+        ...prev,
+        [targetTable.id]: mergedItems
       }));
 
-      const payload = {
-        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
-        customer: customerName.trim(),
-        phone: phone.trim(),
-        address: `Table ${tableNumber.trim()}`,
-        total: cartSubtotal,
-        items: cartItemsCount,
-        itemsList,
-        status: 'new',
-        specialInstructions: notes.trim(),
-        createdAt: new Date().toISOString(),
-      };
+      // Fire only the newly added items to KDS immediately
+      const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
+      await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in');
 
-      await addOnlineOrder(payload);
       setOrderSuccess(true);
       setCart({});
       setShowCart(false);
@@ -175,6 +227,24 @@ const QRMenu = () => {
   }
 
   const restaurantName = settings?.restaurant?.name || tenantId || 'Kitchgoo';
+
+  // Fetch active items on the table from posSavedOrders
+  const guestTableOrder = useMemo(() => {
+    if (!tableNumber) return null;
+    const targetTable = (posTables || []).find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
+    if (targetTable && targetTable.status !== 'available') {
+      return posSavedOrders[targetTable.id] || [];
+    }
+    return null;
+  }, [posTables, posSavedOrders, tableNumber]);
+
+  const billTotal = useMemo(() => {
+    if (!guestTableOrder) return 0;
+    return guestTableOrder.reduce((sum, item) => {
+      const modPrice = (item.modifiers || []).reduce((ms, m) => ms + (m.price || 0), 0);
+      return sum + (item.price + modPrice) * item.qty;
+    }, 0);
+  }, [guestTableOrder]);
 
   if (orderSuccess) {
     return (
@@ -251,6 +321,71 @@ const QRMenu = () => {
       {/* Main Body */}
       <div style={{ padding: '16px 16px 0 16px' }}>
         
+        {guestTableOrder && guestTableOrder.length > 0 && (
+          <div style={{
+            background: 'linear-gradient(135deg, #ffffff 0%, #faf5ff 100%)',
+            borderRadius: 20,
+            padding: 16,
+            marginBottom: 20,
+            border: '1px solid rgba(124, 58, 237, 0.15)',
+            boxShadow: '0 8px 30px rgba(124, 58, 237, 0.06)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Utensils size={18} style={{ color: 'var(--primary)' }} />
+                <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#1e1b4b' }}>Active Table Order</span>
+              </div>
+              <span style={{ 
+                fontSize: '0.7rem', 
+                fontWeight: 700, 
+                color: '#d97706', 
+                background: 'rgba(217, 119, 6, 0.08)', 
+                padding: '4px 10px', 
+                borderRadius: 20,
+                border: '1px solid rgba(217, 119, 6, 0.15)'
+              }}>
+                PAYMENT PENDING
+              </span>
+            </div>
+
+            {/* List of items already ordered */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 160, overflowY: 'auto', paddingRight: 4 }}>
+              {guestTableOrder.map((item, idx) => {
+                const modPrice = (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0);
+                const itemTotal = (item.price + modPrice) * item.qty;
+                return (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.82rem', borderBottom: '1px dashed rgba(0,0,0,0.04)', paddingBottom: 6 }}>
+                    <div>
+                      <span style={{ fontWeight: 800, color: 'var(--primary)', marginRight: 6 }}>{item.qty}x</span>
+                      <span style={{ fontWeight: 600, color: '#374151' }}>{item.name}</span>
+                      {item.specialInstructions && (
+                        <div style={{ fontSize: '0.72rem', color: '#b45309', fontStyle: 'italic', marginTop: 2 }}>
+                          Note: {item.specialInstructions}
+                        </div>
+                      )}
+                    </div>
+                    <span style={{ fontWeight: 700, color: '#1e1b4b' }}>
+                      ₹{itemTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ height: '1px', background: 'rgba(0,0,0,0.06)', margin: '12px 0' }} />
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Current Bill (Subtotal):</span>
+              <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--primary)' }}>
+                ₹{billTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: 8 }}>
+              You can add more items to this order by selecting from the menu below.
+            </div>
+          </div>
+        )}
+
         {/* Search Bar */}
         <div style={{ position: 'relative', marginBottom: 16 }}>
           <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
@@ -294,7 +429,7 @@ const QRMenu = () => {
                 whiteSpace: 'nowrap',
                 border: 'none',
                 background: activeCategory === cat ? 'var(--primary)' : '#fff',
-                color: activeCategory === cat ? '#white' : 'var(--text-secondary)',
+                color: activeCategory === cat ? 'white' : 'var(--text-secondary)',
                 boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
                 cursor: 'pointer',
                 transition: 'all var(--t-fast)'

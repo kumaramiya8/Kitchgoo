@@ -316,6 +316,8 @@ const SEEDS = {
     discrepancies: [],
     shiftStart: new Date().toISOString(),
   },
+  pos_tables: [],
+  pos_saved_orders: {},
 };
 
 // ─── Asynchronous Helper to load tenant data from Supabase ────
@@ -324,7 +326,8 @@ async function loadTenantDataFromSupabase(tenantName) {
     'staff', 'delivery_orders', 'attendance', 'guests', 'kds_tickets',
     'reservations', 'waitlist', 'online_orders', 'suppliers', 'purchase_orders',
     'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
-    'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer'
+    'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
+    'pos_tables', 'pos_saved_orders'
   ];
 
   // Core tables queries
@@ -362,6 +365,50 @@ async function loadTenantDataFromSupabase(tenantName) {
     flexRes.data.forEach(row => {
       _cache[row.collection_name] = row.value;
     });
+  }
+}
+
+export async function syncTenantDataFromSupabase(tenantName) {
+  if (!supabase || isDemoMode()) return;
+  try {
+    const collections = [
+      'staff', 'delivery_orders', 'attendance', 'guests', 'kds_tickets',
+      'reservations', 'waitlist', 'online_orders', 'suppliers', 'purchase_orders',
+      'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
+      'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
+      'pos_tables', 'pos_saved_orders'
+    ];
+
+    const [menuRes, inventoryRes, ordersRes, settingsRes, flexRes] = await Promise.all([
+      supabase.from('menu').select('*').eq('account_id', tenantName),
+      supabase.from('inventory').select('*').eq('account_id', tenantName),
+      supabase.from('orders').select('*').eq('account_id', tenantName),
+      supabase.from('settings').select('*').eq('account_id', tenantName),
+      supabase.from('tenant_data').select('*').eq('account_id', tenantName)
+    ]);
+
+    if (menuRes.data) _cache['menu'] = menuRes.data.map(toCamelCase);
+    if (inventoryRes.data) _cache['inventory'] = inventoryRes.data.map(toCamelCase);
+    if (ordersRes.data) _cache['orders'] = ordersRes.data.map(toCamelCase);
+
+    if (settingsRes.data && settingsRes.data.length > 0) {
+      const settingsObj = JSON.parse(JSON.stringify(SEEDS.settings));
+      settingsRes.data.forEach(row => {
+        settingsObj[row.section_name] = row.value;
+      });
+      _cache['settings'] = settingsObj;
+    }
+
+    if (flexRes.data) {
+      collections.forEach(col => {
+        const found = flexRes.data.find(row => row.collection_name === col);
+        if (found) {
+          _cache[col] = found.value;
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[DB] syncTenantDataFromSupabase error:', err);
   }
 }
 
@@ -506,7 +553,8 @@ export async function initTenantDB(tenantName) {
       'attendance', 'guests', 'kds_tickets', 'reservations', 'waitlist',
       'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
       'locations', 'floor_plans', 'modifiers', 'schedules',
-      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer'
+      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
+      'pos_tables', 'pos_saved_orders'
     ];
     for (const col of collections) {
       const key = `${tenantName}_${col}`;

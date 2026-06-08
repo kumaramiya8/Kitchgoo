@@ -1395,12 +1395,36 @@ const POS = () => {
   };
 
   // ── KOT / Fire ────────────────────────────────────────────
-  const handleSaveKOT = () => {
+  const handleSaveKOT = async () => {
     if (cart.length === 0) return;
-    setSavedOrders(prev => ({ ...prev, [activeTable?.id || 'takeout']: cart }));
+
+    const tableId = activeTable?.id || 'takeout';
+    const previousItems = savedOrders[tableId] || [];
+
+    // Diff current cart with already fired items to fire only new items/quantities
+    const itemsToFire = [];
+    cart.forEach(item => {
+      const prev = previousItems.find(p => (p._cartKey || p.id) === (item._cartKey || item.id));
+      const prevQty = prev ? prev.qty : 0;
+      const diffQty = item.qty - prevQty;
+      if (diffQty > 0) {
+        itemsToFire.push({
+          ...item,
+          qty: diffQty
+        });
+      }
+    });
+
+    setSavedOrders(prev => ({ ...prev, [tableId]: cart }));
     if (activeTable) {
       setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'ordered' } : t));
     }
+
+    if (itemsToFire.length > 0) {
+      const orderId = activeTable ? `T${activeTable.id}-${Date.now().toString().slice(-4)}` : `TK-${Date.now().toString().slice(-4)}`;
+      await fireToKDS(orderId, itemsToFire, activeTable?.id || null, orderType);
+    }
+
     showSuccess('KOT saved! Kitchen notified.');
   };
 
@@ -1555,8 +1579,11 @@ const POS = () => {
       ));
     }
 
-    // Fire to KDS
-    fireToKDS(order.id || Date.now().toString(), cart, tableId, orderType);
+    // Fire to KDS if dine-in order wasn't saved, or if it is takeout/delivery
+    const wasFired = activeTable && savedOrders[activeTable.id]?.length > 0;
+    if (!wasFired) {
+      fireToKDS(order.id || Date.now().toString(), cart, tableId, orderType);
+    }
 
     // Reset
     setCart([]);

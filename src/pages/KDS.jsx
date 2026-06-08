@@ -278,7 +278,7 @@ const RecallPanel = ({ tickets, onRecall, onClose }) => {
 
 /* ── Main KDS Component ────────────────────────────────── */
 export default function KDS() {
-  const { kdsTickets, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction } = useApp();
+  const { kdsTickets, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, posTables, reload } = useApp();
 
   const [station, setStation] = useState('All');
   const [viewMode, setViewMode] = useState('tickets');
@@ -297,6 +297,14 @@ export default function KDS() {
     return () => clearInterval(interval);
   }, []);
 
+  // Poll database every 15 seconds to fetch incoming KDS tickets and table statuses
+  useEffect(() => {
+    const interval = setInterval(() => {
+      reload();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [reload]);
+
   // Track new tickets
   useEffect(() => {
     const activeCount = kdsTickets.filter(t => t.status === 'active').length;
@@ -305,6 +313,16 @@ export default function KDS() {
     }
     prevTicketCountRef.current = activeCount;
   }, [kdsTickets]);
+
+  const isPaymentPending = (ticket) => {
+    if (ticket.tableId && (!ticket.orderType || ticket.orderType === 'dine-in')) {
+      const table = (posTables || []).find(t => String(t.id) === String(ticket.tableId) || String(t.number) === String(ticket.tableId));
+      if (table && table.status !== 'available') {
+        return true;
+      }
+    }
+    return false;
+  };
 
   // Filter tickets
   const activeTickets = useMemo(() => {
@@ -550,6 +568,11 @@ export default function KDS() {
                     </span>
                     <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>T{ticket.tableId}</span>
                     <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
+                    {isPaymentPending(ticket) ? (
+                      <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
+                    ) : (
+                      <span style={s.badge('rgba(34,197,94,0.15)', '#22c55e')}>PAID</span>
+                    )}
                   </div>
                   <div style={{
                     fontWeight: 800, fontSize: '1.15rem', fontFamily: 'monospace',
@@ -654,6 +677,11 @@ export default function KDS() {
                     </div>
                     <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: 2 }}>
                       Table {ticket.tableId} <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
+                      {isPaymentPending(ticket) ? (
+                        <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
+                      ) : (
+                        <span style={s.badge('rgba(34,197,94,0.15)', '#22c55e')}>PAID</span>
+                      )}
                     </div>
                   </div>
 
