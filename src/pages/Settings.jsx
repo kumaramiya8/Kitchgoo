@@ -769,7 +769,7 @@ const AppearanceSection = ({ data, onChange, isMobile }) => (
 );
 
 // ─── Menu Categories ──────────────────────────────────────
-const MenuCategoriesSection = ({ data, onChange }) => {
+const MenuCategoriesSection = ({ data, onChange, isMobile }) => {
   const categories = data.categories || [];
   const subcategories = data.subcategories || {};
 
