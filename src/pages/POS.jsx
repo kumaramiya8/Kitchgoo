@@ -1173,7 +1173,13 @@ const POS = () => {
   }, [menuItems, settings?.menuCategories?.categories]);
 
   useEffect(() => {
-    if (!activeCategory && categories.length > 0) setActiveCategory(categories[0]);
+    if (categories.length > 0) {
+      if (!activeCategory || !categories.includes(activeCategory)) {
+        setActiveCategory(categories[0]);
+      }
+    } else {
+      setActiveCategory('');
+    }
   }, [categories, activeCategory]);
 
 

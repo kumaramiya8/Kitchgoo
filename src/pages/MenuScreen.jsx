@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Plus, Edit2, Trash2, X, Save, Search, ToggleLeft, ToggleRight,
   QrCode, AlertOctagon, ChevronDown, ChevronUp, Filter, Star,
@@ -182,7 +182,12 @@ const MenuScreen = () => {
     addModifier, editModifier, deleteModifier,
   } = useApp();
 
-  const dynamicCategories = settings?.menuCategories?.categories || CATEGORIES;
+  const dynamicCategories = useMemo(() => {
+    const settingsCats = settings?.menuCategories?.categories || CATEGORIES;
+    const menuCats = [...new Set(menu.map(i => i.category).filter(Boolean))];
+    return [...new Set([...settingsCats, ...menuCats])];
+  }, [menu, settings?.menuCategories?.categories]);
+
   const dynamicSubcategories = settings?.menuCategories?.subcategories || SUBCATEGORIES;
 
   const [activeTab, setActiveTab] = useState(0);
@@ -387,6 +392,12 @@ const MenuScreen = () => {
   const [modDeleteConfirm, setModDeleteConfirm] = useState(null);
 
   const allCategories = ['All', ...dynamicCategories];
+
+  useEffect(() => {
+    if (!allCategories.includes(filterCat)) {
+      setFilterCat('All');
+    }
+  }, [allCategories, filterCat]);
 
   const filtered = useMemo(() => menu.filter(i =>
     i.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
