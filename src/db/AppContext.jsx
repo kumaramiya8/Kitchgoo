@@ -3,6 +3,7 @@
  * All pages can access and mutate shared data from here.
  */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useAuth } from './AuthContext';
 import {
   getAll,
   getSettings,
@@ -10,6 +11,7 @@ import {
   update,
   remove,
   setCollection,
+  clearCollection,
   computeStockStatus,
   logAttendance,
   getAttendanceForStaff,
@@ -130,8 +132,13 @@ export function AppProvider({ children }) {
     }
   }, [floorPlans]);
 
+  const { user } = useAuth();
+
   useEffect(() => {
     reload();
+  }, [user]);
+
+  useEffect(() => {
     setReady(true);
   }, []);
 
@@ -263,6 +270,11 @@ export function AppProvider({ children }) {
   const deleteMenuItem = useCallback(async (id) => {
     await remove('menu', id);
     setMenu(getAll('menu'));
+  }, []);
+
+  const clearMenu = useCallback(async () => {
+    await clearCollection('menu');
+    setMenu([]);
   }, []);
 
   const toggleMenuItemAvailability = useCallback(async (id) => {
@@ -624,7 +636,7 @@ export function AppProvider({ children }) {
     // Inventory
     addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem,
     // Menu
-    addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86,
+    addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86, clearMenu,
     // Orders / POS
     placeOrder,
     // Delivery

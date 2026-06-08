@@ -663,23 +663,30 @@ export async function insert(collection, data) {
     try {
       if (collection === 'users') {
         const tenantName = newItem.restaurantName || 'Kitchgoo';
-        const { data: existing } = await supabase.from('accounts').select('id').eq('id', tenantName);
+        const { data: existing, error: existErr } = await supabase.from('accounts').select('id').eq('id', tenantName);
+        if (existErr) throw existErr;
         if (!existing || existing.length === 0) {
-          await supabase.from('accounts').insert({ id: tenantName, name: tenantName, status: 'active', plan: 'pro' });
+          const { error: accError } = await supabase.from('accounts').insert({ id: tenantName, name: tenantName, status: 'active', plan: 'pro' });
+          if (accError) throw accError;
         }
-        await supabase.from('users').insert(sanitizeInsertPayload('users', { ...newItem, accountId: tenantName }));
+        const { error: userError } = await supabase.from('users').insert(sanitizeInsertPayload('users', { ...newItem, accountId: tenantName }));
+        if (userError) throw userError;
       } else if (collection === 'menu') {
-        await supabase.from('menu').insert(sanitizeInsertPayload('menu', { ...newItem, accountId: _currentTenant }));
+        const { error: menuError } = await supabase.from('menu').insert(sanitizeInsertPayload('menu', { ...newItem, accountId: _currentTenant }));
+        if (menuError) throw menuError;
       } else if (collection === 'inventory') {
-        await supabase.from('inventory').insert(sanitizeInsertPayload('inventory', { ...newItem, accountId: _currentTenant }));
+        const { error: invError } = await supabase.from('inventory').insert(sanitizeInsertPayload('inventory', { ...newItem, accountId: _currentTenant }));
+        if (invError) throw invError;
       } else if (collection === 'orders') {
-        await supabase.from('orders').insert(sanitizeInsertPayload('orders', { ...newItem, accountId: _currentTenant }));
+        const { error: orderError } = await supabase.from('orders').insert(sanitizeInsertPayload('orders', { ...newItem, accountId: _currentTenant }));
+        if (orderError) throw orderError;
       } else {
-        await supabase.from('tenant_data').upsert({
+        const { error: tdError } = await supabase.from('tenant_data').upsert({
           account_id: _currentTenant,
           collection_name: collection,
           value: _cache[collection]
         });
+        if (tdError) throw tdError;
       }
     } catch (err) {
       console.error(`[DB] Error inserting to ${collection}:`, err);
@@ -778,6 +785,35 @@ export async function remove(collection, id) {
   }
 }
 
+export async function clearCollection(collection) {
+  _cache[collection] = [];
+  localBackup(`${_currentTenant}_${collection}`, []);
+
+  if (supabase && !isDemoMode()) {
+    try {
+      if (collection === 'menu') {
+        const { error } = await supabase.from('menu').delete().eq('account_id', _currentTenant);
+        if (error) throw error;
+      } else if (collection === 'inventory') {
+        const { error } = await supabase.from('inventory').delete().eq('account_id', _currentTenant);
+        if (error) throw error;
+      } else if (collection === 'orders') {
+        const { error } = await supabase.from('orders').delete().eq('account_id', _currentTenant);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('tenant_data').upsert({
+          account_id: _currentTenant,
+          collection_name: collection,
+          value: []
+        });
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error(`[DB] Error clearing ${collection}:`, err);
+    }
+  }
+}
+
 export async function setCollection(collection, data) {
   _cache[collection] = data;
   localBackup(`${_currentTenant}_${collection}`, data);
@@ -818,11 +854,12 @@ export async function updateSettings(section, data) {
 
   if (supabase && !isDemoMode()) {
     try {
-      await supabase.from('settings').upsert({
+      const { error } = await supabase.from('settings').upsert({
         account_id: _currentTenant,
         section_name: section,
         value: newSectionValue
       });
+      if (error) throw error;
     } catch (err) {
       console.error('[DB] Error updating settings row:', err);
     }

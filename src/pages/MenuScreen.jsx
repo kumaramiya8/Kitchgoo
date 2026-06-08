@@ -6,6 +6,7 @@ import {
   DollarSign, Flame, ShieldAlert, Check, Info, Grid3X3, Download, Upload
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { useAuth } from '../db/AuthContext';
 import { parseCSV, arrayToCSV, downloadCSV } from '../utils/csv';
 import { getAll } from '../db/database';
 
@@ -179,10 +180,11 @@ const NutritionPopover = ({ item }) => {
 const MenuScreen = () => {
   const {
     menu, modifiers, inventory, recipes, settings,
-    addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86,
+    addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86, clearMenu,
     addModifier, editModifier, deleteModifier,
     updateSettingsSection,
   } = useApp();
+  const { user } = useAuth();
 
   const dynamicCategories = useMemo(() => {
     const settingsCats = settings?.menuCategories?.categories || CATEGORIES;
@@ -491,6 +493,22 @@ const MenuScreen = () => {
     setEditModal(null);
   };
 
+  const handleBulkDeleteMenu = async () => {
+    if (!window.confirm("Are you sure you want to delete ALL menu items? This action cannot be undone.")) {
+      return;
+    }
+    try {
+      await clearMenu();
+      await updateSettingsSection('menuCategories', {
+        categories: [],
+        subcategories: {}
+      });
+      alert("All menu items deleted successfully.");
+    } catch (e) {
+      alert("Failed to delete menu items: " + e.message);
+    }
+  };
+
   /* ── Modifier Helpers ────────────────────────────────────────── */
   const openModAdd = () => {
     setModForm(emptyModifierForm());
@@ -786,6 +804,11 @@ const MenuScreen = () => {
             <Upload size={14} /> Import CSV
             <input type="file" accept=".csv" onChange={handleUploadCSV} style={{ display: 'none' }} />
           </label>
+          {user?.role?.toLowerCase() === 'owner' && (
+            <button className="btn btn-danger btn-sm" onClick={handleBulkDeleteMenu} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Trash2 size={14} /> Delete All Items
+            </button>
+          )}
         </div>
       </div>
 
