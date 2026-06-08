@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { parseCSV, arrayToCSV, downloadCSV } from '../utils/csv';
+import { getAll } from '../db/database';
 
 /* ── Constants ─────────────────────────────────────────────────── */
 const CATEGORIES = ['Starters', 'Main Course', 'Desserts', 'Beverages', 'Breads', 'Salads', 'Sides', 'Specials'];
@@ -180,6 +181,7 @@ const MenuScreen = () => {
     menu, modifiers, inventory, recipes, settings,
     addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86,
     addModifier, editModifier, deleteModifier,
+    updateSettingsSection,
   } = useApp();
 
   const dynamicCategories = useMemo(() => {
@@ -373,6 +375,19 @@ const MenuScreen = () => {
             created++;
           }
         }
+
+        // Automatically update settings with the custom categories and subcategories from the imported menu items
+        const latestMenu = getAll('menu');
+        const newCats = [...new Set(latestMenu.map(item => item.category).filter(Boolean))];
+        const newSubcats = {};
+        newCats.forEach(cat => {
+          newSubcats[cat] = [...new Set(latestMenu.filter(item => item.category === cat).map(item => item.subcategory).filter(Boolean))];
+        });
+
+        await updateSettingsSection('menuCategories', {
+          categories: newCats,
+          subcategories: newSubcats
+        });
 
         setCsvSuccess(`Successfully processed CSV! Created: ${created}, Updated: ${updated}, Deleted: ${deleted}`);
         setCsvError('');
