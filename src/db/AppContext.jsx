@@ -110,10 +110,16 @@ export function AppProvider({ children }) {
     setPosTables(prev => {
       const tenant = getCurrentTenant();
       let currentSaved = [];
-      try {
-        const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
-        if (savedStr) currentSaved = JSON.parse(savedStr);
-      } catch {}
+      
+      const dbTables = getAll('pos_tables');
+      if (dbTables && dbTables.length > 0) {
+        currentSaved = dbTables;
+      } else {
+        try {
+          const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
+          if (savedStr) currentSaved = JSON.parse(savedStr);
+        } catch {}
+      }
 
       return floorTables.map(t => {
         const existing = currentSaved.find(p => p.id === t.id);
