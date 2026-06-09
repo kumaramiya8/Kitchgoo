@@ -165,7 +165,7 @@ const QRMenu = () => {
         };
       });
 
-      const existingItems = posSavedOrders[targetTable.id] || [];
+      const existingItems = (posSavedOrders || {})[targetTable.id] || [];
       const mergedItems = [...existingItems];
       newItems.forEach(newItem => {
         const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
@@ -186,7 +186,7 @@ const QRMenu = () => {
 
       // Update active table cart items
       setPosSavedOrders(prev => ({
-        ...prev,
+        ...(prev || {}),
         [targetTable.id]: mergedItems
       }));
 
@@ -233,7 +233,7 @@ const QRMenu = () => {
     if (!tableNumber) return null;
     const targetTable = (posTables || []).find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
     if (targetTable && targetTable.status !== 'available') {
-      return posSavedOrders[targetTable.id] || [];
+      return (posSavedOrders || {})[targetTable.id] || [];
     }
     return null;
   }, [posTables, posSavedOrders, tableNumber]);

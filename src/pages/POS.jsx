@@ -1190,11 +1190,11 @@ const POS = () => {
   const [orderType, setOrderType] = useState('dine-in');
   const [view, setView] = useState('floor'); // 'floor' | 'order'
   const [viewMode, setViewMode] = useState('map'); // 'grid' | 'map'
-  const tables = posTables;
+  const tables = posTables || [];
   const setTables = setPosTables;
   const [activeTable, setActiveTable] = useState(null);
   const [cart, setCart] = useState([]);
-  const savedOrders = posSavedOrders;
+  const savedOrders = posSavedOrders || {};
   const setSavedOrders = setPosSavedOrders;
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
