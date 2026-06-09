@@ -26,6 +26,46 @@ const QRMenu = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
 
+  // Override global scroll lock styles from index.css for the public QR Menu page
+  useEffect(() => {
+    const origBodyOverflow = document.body.style.overflow;
+    const origHtmlOverflow = document.documentElement.style.overflow;
+    const origBodyHeight = document.body.style.height;
+    const origHtmlHeight = document.documentElement.style.height;
+    
+    const rootEl = document.getElementById('root');
+    const origRootHeight = rootEl ? rootEl.style.height : '';
+
+    document.body.style.overflow = 'auto';
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.height = 'auto';
+    document.documentElement.style.height = 'auto';
+    if (rootEl) {
+      rootEl.style.height = 'auto';
+    }
+
+    return () => {
+      document.body.style.overflow = origBodyOverflow;
+      document.documentElement.style.overflow = origHtmlOverflow;
+      document.body.style.height = origBodyHeight;
+      document.documentElement.style.height = origHtmlHeight;
+      if (rootEl) {
+        rootEl.style.height = origRootHeight;
+      }
+    };
+  }, []);
+
+  // Lock background scroll when the cart drawer is open to prevent scroll leaks on mobile
+  useEffect(() => {
+    if (showCart) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+      document.documentElement.style.overflow = 'auto';
+    }
+  }, [showCart]);
+
   useEffect(() => {
     async function load() {
       try {
@@ -422,7 +462,7 @@ const QRMenu = () => {
         </div>
 
         {/* Categories Scroller */}
-        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, margin: '0 -16px 8px -16px', paddingLeft: 16, paddingRight: 16 }} className="no-scrollbar">
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, margin: '0 -16px 8px -16px', paddingLeft: 16, paddingRight: 16 }} className="scrollbar-hide">
           {categories.map(cat => (
             <button
               key={cat}
