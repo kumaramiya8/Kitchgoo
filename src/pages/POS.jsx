@@ -806,7 +806,7 @@ const ManagerPinModal = ({ title, reasons, onConfirm, onClose, showAmount }) => 
 const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) => {
   const [selectedTable, setSelectedTable] = useState(null);
   const occupiedTables = tables.filter(t =>
-    t.status !== 'available' && t.id !== currentTableId && savedOrders[t.id]?.length > 0
+    t.status !== 'available' && String(t.id) !== String(currentTableId) && savedOrders[t.id]?.length > 0
   );
 
   return (
@@ -1142,7 +1142,7 @@ const POS = () => {
             [targetTable.id]: posItems
           }));
 
-          setTables(prev => prev.map(t => t.id === targetTable.id
+          setTables(prev => prev.map(t => String(t.id) === String(targetTable.id)
             ? {
                 ...t,
                 status: 'ordered',
@@ -1382,11 +1382,11 @@ const POS = () => {
 
   const handleGuestConfirmed = (guest) => {
     const tableId = guestModal;
-    setTables(prev => prev.map(t => t.id === tableId
+    setTables(prev => prev.map(t => String(t.id) === String(tableId)
       ? { ...t, status: 'seated', guestName: guest.name, guestId: guest.id || null, seatedAt: new Date().toISOString() }
       : t
     ));
-    const table = tables.find(t => t.id === tableId);
+    const table = tables.find(t => String(t.id) === String(tableId));
     const updatedTable = { ...table, status: 'seated', guestName: guest.name, guestId: guest.id || null, seatedAt: new Date().toISOString() };
     setActiveTable(updatedTable);
     setCart(savedOrders[tableId] || []);
@@ -1417,7 +1417,7 @@ const POS = () => {
 
     setSavedOrders(prev => ({ ...prev, [tableId]: cart }));
     if (activeTable) {
-      setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'ordered' } : t));
+      setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) ? { ...t, status: 'ordered' } : t));
     }
 
     if (itemsToFire.length > 0) {
@@ -1480,7 +1480,7 @@ const POS = () => {
       delete next[fromTableId];
       return next;
     });
-    setTables(prev => prev.map(t => t.id === fromTableId
+    setTables(prev => prev.map(t => String(t.id) === String(fromTableId)
       ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
       : t
     ));
@@ -1573,7 +1573,7 @@ const POS = () => {
     // Clear table
     if (activeTable) {
       setSavedOrders(prev => { const next = { ...prev }; delete next[activeTable.id]; return next; });
-      setTables(prev => prev.map(t => t.id === activeTable.id
+      setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
         ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
         : t
       ));
@@ -1788,7 +1788,7 @@ const POS = () => {
                   backgroundImage: 'radial-gradient(rgba(124,58,237,0.06) 1.5px, transparent 0)',
                 }}>
                   {tables.map(table => {
-                    const fpTable = floorPlans?.tables?.find(t => t.id === table.id || t.number === table.number) || {};
+                    const fpTable = floorPlans?.tables?.find(t => String(t.id) === String(table.id) || String(t.number) === String(table.number)) || {};
                     const posX = fpTable.x !== undefined ? fpTable.x : 50;
                     const posY = fpTable.y !== undefined ? fpTable.y : 50;
                     

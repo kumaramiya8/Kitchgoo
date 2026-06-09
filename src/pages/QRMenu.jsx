@@ -177,7 +177,7 @@ const QRMenu = () => {
       });
 
       // Occupy table
-      setPosTables(prev => prev.map(t => t.id === targetTable.id ? {
+      setPosTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
         ...t,
         status: 'ordered',
         guestName: customerName.trim(),

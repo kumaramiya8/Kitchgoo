@@ -92,7 +92,7 @@ export default function TableLayoutDesigner() {
     setSelectedTableId(tableId);
     setDraggingId(tableId);
 
-    const table = tables.find(t => t.id === tableId);
+    const table = tables.find(t => String(t.id) === String(tableId));
     if (!table) return;
 
     const canvasRect = canvasRef.current.getBoundingClientRect();
@@ -121,12 +121,12 @@ export default function TableLayoutDesigner() {
       newY = Math.round(newY / GRID_SIZE) * GRID_SIZE;
 
       // Constraints
-      const table = tables.find(t => t.id === draggingId);
+      const table = tables.find(t => String(t.id) === String(draggingId));
       const size = table.shape === 'bar' ? 80 : 90; // Size on canvas
       newX = Math.max(0, Math.min(newX, CANVAS_WIDTH - size));
       newY = Math.max(0, Math.min(newY, CANVAS_HEIGHT - size));
 
-      setTables(prev => prev.map(t => t.id === draggingId ? { ...t, x: newX, y: newY } : t));
+      setTables(prev => prev.map(t => String(t.id) === String(draggingId) ? { ...t, x: newX, y: newY } : t));
     };
 
     const handleMouseUp = () => {
@@ -184,7 +184,7 @@ export default function TableLayoutDesigner() {
       return;
     }
 
-    const exists = tables.some(t => t.id === num || t.number === num);
+    const exists = tables.some(t => String(t.id) === String(num) || String(t.number) === String(num));
     if (exists) {
       alert(`Table number ${num} already exists on the floor plan!`);
       return;
@@ -211,8 +211,8 @@ export default function TableLayoutDesigner() {
 
   const handleDeleteTable = (id) => {
     if (confirm(`Remove Table ${id} from layout?`)) {
-      setTables(prev => prev.filter(t => t.id !== id));
-      if (selectedTableId === id) setSelectedTableId(null);
+      setTables(prev => prev.filter(t => String(t.id) !== String(id)));
+      if (String(selectedTableId) === String(id)) setSelectedTableId(null);
       showToast(`Table ${id} removed.`);
     }
   };
@@ -234,7 +234,7 @@ export default function TableLayoutDesigner() {
 
     for (let i = 0; i < count; i++) {
       const num = startNum + i;
-      const exists = tempTables.some(t => t.id === num || t.number === num);
+      const exists = tempTables.some(t => String(t.id) === String(num) || String(t.number) === String(num));
       if (exists) {
         alert(`Table number ${num} already exists! Bulk add cancelled.`);
         return;
@@ -281,7 +281,7 @@ export default function TableLayoutDesigner() {
   // Edit selected table inline
   const updateSelectedTableField = (field, value) => {
     if (!selectedTableId) return;
-    setTables(prev => prev.map(t => t.id === selectedTableId ? { ...t, [field]: value } : t));
+    setTables(prev => prev.map(t => String(t.id) === String(selectedTableId) ? { ...t, [field]: value } : t));
   };
 
   // Save layout
@@ -304,7 +304,7 @@ export default function TableLayoutDesigner() {
   };
 
   // Render selected table edit panel
-  const selectedTable = tables.find(t => t.id === selectedTableId);
+  const selectedTable = tables.find(t => String(t.id) === String(selectedTableId));
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '320px 1fr', gap: '20px', height: '100%', minHeight: '620px' }}>
@@ -535,7 +535,7 @@ export default function TableLayoutDesigner() {
             }}
           >
             {tables.filter(t => activeFilterSection === 'All' || t.section === activeFilterSection).map(table => {
-              const isSelected = selectedTableId === table.id;
+              const isSelected = String(selectedTableId) === String(table.id);
               const size = table.shape === 'bar' ? 80 : 90;
               const borderCol = isSelected ? 'var(--primary)' : 'rgba(124,58,237,0.25)';
               const borderStyle = isSelected ? '2.5px solid' : '1.5px solid';

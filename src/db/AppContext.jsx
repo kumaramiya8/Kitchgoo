@@ -122,7 +122,7 @@ export function AppProvider({ children }) {
       }
 
       return floorTables.map(t => {
-        const existing = currentSaved.find(p => p.id === t.id);
+        const existing = currentSaved.find(p => String(p.id) === String(t.id));
         return existing ? { ...t, ...existing } : t;
       });
     });

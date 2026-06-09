@@ -217,7 +217,7 @@ const Reservations = () => {
   const predictWait = useCallback((partySize) => {
     const avgTurn = 55; // minutes avg turn time
     const tablesForSize = tables.filter(t => (t.seats || t.capacity || 4) >= partySize);
-    const seatedOnThem = dayReservations.filter(r => r.status === 'seated' && tablesForSize.some(t => t.id === r.tableId));
+    const seatedOnThem = dayReservations.filter(r => r.status === 'seated' && tablesForSize.some(t => String(t.id) === String(r.tableId)));
     if (tablesForSize.length === 0) return avgTurn;
     const occupiedRatio = seatedOnThem.length / tablesForSize.length;
     const waitingAhead = activeWaitlist.filter(w => (w.partySize || 2) <= partySize).length;
@@ -351,7 +351,7 @@ const Reservations = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.62rem', color: 'var(--text-muted)' }}>
                             <Users size={9} /> {r.partySize}
                             <span style={{ margin: '0 2px' }}>|</span>
-                            {r.tableId ? tables.find(t => t.id === r.tableId)?.label || r.tableId : 'No table'}
+                            {r.tableId ? tables.find(t => String(t.id) === String(r.tableId))?.label || r.tableId : 'No table'}
                           </div>
                           <div style={{ marginTop: 3 }}>
                             <StatusBadge status={r.status} styles={STATUS_STYLES} />
@@ -402,7 +402,7 @@ const Reservations = () => {
                     {r.phone && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={12} /> {r.phone}</span>}
                     {r.tableId && (
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Armchair size={12} /> {tables.find(t => t.id === r.tableId)?.label || `Table ${r.tableId}`}
+                        <Armchair size={12} /> {tables.find(t => String(t.id) === String(r.tableId))?.label || `Table ${r.tableId}`}
                       </span>
                     )}
                     {r.duration && <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{r.duration} min</span>}
