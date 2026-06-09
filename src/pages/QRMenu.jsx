@@ -58,6 +58,16 @@ const QRMenu = () => {
     }
   }, [tableNumber, posTables]);
 
+  // Sync guest table ID to sessionStorage for concurrency-safe database merging
+  useEffect(() => {
+    if (tableNumber && posTables) {
+      const targetTable = posTables.find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
+      if (targetTable) {
+        window.sessionStorage.setItem('kitchgoo_guest_table', targetTable.id);
+      }
+    }
+  }, [tableNumber, posTables]);
+
   // Derived active menu items
   const menuItems = useMemo(() => {
     if (!menu) return [];
@@ -81,6 +91,24 @@ const QRMenu = () => {
     }
     return items;
   }, [menuItems, activeCategory, searchQuery]);
+
+  // Fetch active items on the table from posSavedOrders
+  const guestTableOrder = useMemo(() => {
+    if (!tableNumber) return null;
+    const targetTable = (posTables || []).find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
+    if (targetTable && targetTable.status !== 'available') {
+      return (posSavedOrders || {})[targetTable.id] || [];
+    }
+    return null;
+  }, [posTables, posSavedOrders, tableNumber]);
+
+  const billTotal = useMemo(() => {
+    if (!guestTableOrder) return 0;
+    return guestTableOrder.reduce((sum, item) => {
+      const modPrice = (item.modifiers || []).reduce((ms, m) => ms + (m.price || 0), 0);
+      return sum + (item.price + modPrice) * item.qty;
+    }, 0);
+  }, [guestTableOrder]);
 
   // Helper values
   const cartItemsCount = Object.values(cart).reduce((sum, item) => sum + item.qty, 0);
@@ -228,24 +256,6 @@ const QRMenu = () => {
 
   const restaurantName = settings?.restaurant?.name || tenantId || 'Kitchgoo';
 
-  // Fetch active items on the table from posSavedOrders
-  const guestTableOrder = useMemo(() => {
-    if (!tableNumber) return null;
-    const targetTable = (posTables || []).find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
-    if (targetTable && targetTable.status !== 'available') {
-      return (posSavedOrders || {})[targetTable.id] || [];
-    }
-    return null;
-  }, [posTables, posSavedOrders, tableNumber]);
-
-  const billTotal = useMemo(() => {
-    if (!guestTableOrder) return 0;
-    return guestTableOrder.reduce((sum, item) => {
-      const modPrice = (item.modifiers || []).reduce((ms, m) => ms + (m.price || 0), 0);
-      return sum + (item.price + modPrice) * item.qty;
-    }, 0);
-  }, [guestTableOrder]);
-
   if (orderSuccess) {
     return (
       <div style={{ 
@@ -280,16 +290,12 @@ const QRMenu = () => {
 
   return (
     <div style={{ 
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      overflowY: 'auto',
-      WebkitOverflowScrolling: 'touch',
+      minHeight: '100vh',
       background: '#f8fafc', 
       paddingBottom: cartItemsCount > 0 ? 100 : 40, 
-      fontFamily: 'system-ui, -apple-system, sans-serif' 
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      display: 'flex',
+      flexDirection: 'column'
     }}>
       
       {/* Premium Cover Banner */}

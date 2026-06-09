@@ -1558,11 +1558,34 @@ const MenuScreen = () => {
               const tenantId = user?.accountId || user?.restaurantName || 'Kitchgoo';
               const publicMenuUrl = `${window.location.origin}/qrmenu/${tenantId}`;
               const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(publicMenuUrl)}`;
+              const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
                   <div style={{ padding: 12, background: '#fff', borderRadius: 12, border: '1.5px solid var(--border-subtle)', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
                     <img src={qrImageUrl} alt="QR Menu" style={{ width: 180, height: 180, display: 'block' }} />
                   </div>
+                  {isLocalhost && (
+                    <div style={{
+                      padding: '10px 14px',
+                      background: 'rgba(217, 119, 6, 0.08)',
+                      border: '1px solid rgba(217, 119, 6, 0.2)',
+                      borderRadius: 12,
+                      fontSize: '0.78rem',
+                      color: '#b45309',
+                      textAlign: 'left',
+                      lineHeight: 1.4,
+                      maxWidth: '360px'
+                    }}>
+                      <strong>⚠️ Local Testing Warning:</strong> this QR code points to <code>localhost</code>. 
+                      Since your mobile phone cannot access <code>localhost</code> directly, scanning this code on your phone will show a blank or failed page.
+                      <br /><br />
+                      To test on your mobile device:
+                      <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                        <li>Open this dashboard on your computer using its local IP address (e.g. <code>http://192.168.x.x:5174</code>) and generate the QR code again.</li>
+                        <li>Or, test the QR Menu on your deployed Vercel/Supabase environment.</li>
+                      </ul>
+                    </div>
+                  )}
                   <div className="input-group" style={{ width: '100%', maxWidth: '360px', marginTop: 8 }}>
                     <label className="input-label" style={{ textAlign: 'left' }}>Menu Link</label>
                     <div style={{ display: 'flex', gap: 8 }}>

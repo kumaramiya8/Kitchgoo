@@ -823,12 +823,59 @@ export async function setCollection(collection, data) {
 
   if (supabase && !isDemoMode()) {
     try {
+      let payload = data;
+      const isGuestDevice = typeof window !== 'undefined' && !window.localStorage.getItem('kitchgoo_session');
+      const guestTableId = typeof window !== 'undefined' ? window.sessionStorage.getItem('kitchgoo_guest_table') : null;
+
+      if (isGuestDevice && guestTableId) {
+        if (collection === 'pos_tables') {
+          const { data: latestRow } = await supabase
+            .from('tenant_data')
+            .select('value')
+            .eq('account_id', _currentTenant)
+            .eq('collection_name', collection)
+            .maybeSingle();
+
+          if (latestRow && Array.isArray(latestRow.value)) {
+            const dbTables = latestRow.value;
+            payload = dbTables.map(dbTable => {
+              if (String(dbTable.id) === String(guestTableId)) {
+                const localTable = data.find(t => String(t.id) === String(guestTableId));
+                return localTable || dbTable;
+              }
+              return dbTable;
+            });
+          }
+        } else if (collection === 'pos_saved_orders') {
+          const { data: latestRow } = await supabase
+            .from('tenant_data')
+            .select('value')
+            .eq('account_id', _currentTenant)
+            .eq('collection_name', collection)
+            .maybeSingle();
+
+          if (latestRow && latestRow.value && typeof latestRow.value === 'object' && !Array.isArray(latestRow.value)) {
+            const dbOrders = latestRow.value;
+            payload = { ...dbOrders };
+            if (data[guestTableId]) {
+              payload[guestTableId] = data[guestTableId];
+            } else {
+              delete payload[guestTableId];
+            }
+          }
+        }
+      }
+
       const { error } = await supabase.from('tenant_data').upsert({
         account_id: _currentTenant,
         collection_name: collection,
-        value: data
+        value: payload
       });
       if (error) throw error;
+      
+      // Update cache and localStorage with the merged payload
+      _cache[collection] = payload;
+      localBackup(`${_currentTenant}_${collection}`, payload);
     } catch (err) {
       console.error(`[DB] Error setCollection ${collection}:`, err);
       throw err;
