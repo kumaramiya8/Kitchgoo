@@ -1,15 +1,12 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Download, BarChart2, Package,
-  Users, Grid, Filter, ChevronDown, Search, Calendar,
-  ShoppingBag, CreditCard, IndianRupee, Clock, CheckCircle,
-  AlertTriangle, XCircle, ArrowUpRight, Layers, FileText,
-  Zap, Timer, ChefHat, PieChart, Activity, Eye, X,
-  Printer, DollarSign, Gauge, LayoutDashboard, Receipt,
-  Utensils, Boxes, Star, HelpCircle, Award, Target
+  Users, Filter, Search, ShoppingBag, CreditCard, IndianRupee, 
+  Clock, CheckCircle, AlertTriangle, XCircle, FileText, Zap, 
+  Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
+  Printer, X, Gauge, LayoutDashboard, Receipt
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
-import { getAll } from '../db/database';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -20,7 +17,6 @@ const fmt = (n) => {
 };
 
 const fmtNum = (n) => (n || 0).toLocaleString('en-IN');
-
 const fmtPct = (n) => `${(n || 0).toFixed(1)}%`;
 
 const fmtDate = (iso) =>
@@ -47,32 +43,6 @@ const formatHour = (h) => {
 };
 
 const RANGES = ['Today', 'Yesterday', 'This Week', 'This Month', 'This Quarter', 'Custom'];
-
-function getDateRange(range, dateFrom, dateTo) {
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  switch (range) {
-    case 'Today': return { start: today, end: today };
-    case 'Yesterday': {
-      const y = new Date(now); y.setDate(y.getDate() - 1);
-      const ys = y.toISOString().split('T')[0];
-      return { start: ys, end: ys };
-    }
-    case 'This Week': {
-      const w = new Date(now); w.setDate(w.getDate() - 7);
-      return { start: w.toISOString().split('T')[0], end: today };
-    }
-    case 'This Month': {
-      return { start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0], end: today };
-    }
-    case 'This Quarter': {
-      const qm = Math.floor(now.getMonth() / 3) * 3;
-      return { start: new Date(now.getFullYear(), qm, 1).toISOString().split('T')[0], end: today };
-    }
-    case 'Custom': return { start: dateFrom || today, end: dateTo || today };
-    default: return { start: today, end: today };
-  }
-}
 
 function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
   const now = new Date();
@@ -115,7 +85,7 @@ const StatCard = ({ label, value, sub, color = '#7c3aed', icon: Icon }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
       <div>
         <div className="stat-label">{label}</div>
-        <div className="stat-value" style={{ fontSize: '1.55rem', color }}>{value}</div>
+        <div className="stat-value" style={{ fontSize: '1.45rem', color }}>{value}</div>
         {sub && <div className="stat-change up" style={{ marginTop: 4 }}>{sub}</div>}
       </div>
       {Icon && (
@@ -204,8 +174,6 @@ const Empty = ({ text = 'No data for this period.' }) => (
   </div>
 );
 
-// ─── TIME RANGE PICKER ───────────────────────────────────────
-
 const RangePicker = ({ range, setRange, dateFrom, setDateFrom, dateTo, setDateTo }) => (
   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
     <div style={{ display: 'flex', gap: 3, background: 'rgba(255,255,255,0.6)', padding: 4, borderRadius: 10, border: '1px solid var(--border)' }}>
@@ -226,8 +194,6 @@ const RangePicker = ({ range, setRange, dateFrom, setDateFrom, dateTo, setDateTo
     )}
   </div>
 );
-
-// ─── Modal Component ─────────────────────────────────────────
 
 const Modal = ({ open, onClose, title, children, wide }) => {
   if (!open) return null;
@@ -254,8 +220,6 @@ const Modal = ({ open, onClose, title, children, wide }) => {
   );
 };
 
-// ─── Gauge Component ─────────────────────────────────────────
-
 const GaugeChart = ({ value, max = 100, label, color = '#7c3aed', size = 110 }) => {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   const r = (size - 12) / 2;
@@ -279,12 +243,11 @@ const GaugeChart = ({ value, max = 100, label, color = '#7c3aed', size = 110 }) 
   );
 };
 
-
 // =================================================================
-// TAB 1 -- DASHBOARD
+// TAB 1 -- OVERVIEW DASHBOARD
 // =================================================================
 
-const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrders, floorPlans, settings }) => {
+const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
   const [range, setRange]       = useState('Today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -316,7 +279,6 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
     return filtered.reduce((s, o) => s + (o.voidAmount || 0) + (o.compAmount || 0), 0);
   }, [filtered]);
 
-  // Top 5 selling items
   const topItems = useMemo(() => {
     const map = {};
     filtered.forEach(o => (o.items || []).forEach(i => {
@@ -329,7 +291,6 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
   }, [filtered]);
   const topItemMax = topItems[0]?.qty || 1;
 
-  // Revenue by order type
   const orderTypeBreakdown = useMemo(() => {
     const map = { 'Dine-in': 0, 'Takeout': 0, 'Delivery': 0 };
     filtered.forEach(o => {
@@ -343,51 +304,10 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
     });
     const total = Object.values(map).reduce((s, v) => s + v, 0) || 1;
     return Object.entries(map).map(([type, rev], i) => ({
-      type, rev, pct: Math.round((rev / total) * 100), color: COLORS[i]
+      type, rev, pct: Math.round((rev / total) * 100), color: COLORS[i % COLORS.length]
     }));
   }, [filtered]);
 
-  // Hourly sales heatmap
-  const hourlyHeat = useMemo(() => {
-    const hours = Array.from({ length: 24 }, (_, i) => ({ hour: i, revenue: 0 }));
-    filtered.forEach(o => {
-      if (o.createdAt) {
-        const h = new Date(o.createdAt).getHours();
-        hours[h].revenue += o.total || 0;
-      }
-    });
-    const max = Math.max(...hours.map(h => h.revenue), 1);
-    return hours.map(h => ({ ...h, intensity: h.revenue / max }));
-  }, [filtered]);
-
-  // Labor cost
-  const attendance = useMemo(() => getAll('attendance'), []);
-  const laborCost = useMemo(() => {
-    const staffMap = {};
-    staff.forEach(s => { staffMap[s.id] = s; });
-    let totalPay = 0;
-    const today = new Date().toISOString().split('T')[0];
-    const sorted = [...attendance].filter(a => a.timestamp && a.timestamp.startsWith(today)).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    const byStaff = {};
-    sorted.forEach(rec => {
-      if (!byStaff[rec.staffId]) byStaff[rec.staffId] = { ins: [], outs: [] };
-      if (rec.type === 'IN') byStaff[rec.staffId].ins.push(new Date(rec.timestamp));
-      if (rec.type === 'OUT') byStaff[rec.staffId].outs.push(new Date(rec.timestamp));
-    });
-    Object.entries(byStaff).forEach(([id, { ins, outs }]) => {
-      const pairs = Math.min(ins.length, outs.length);
-      let hours = 0;
-      for (let i = 0; i < pairs; i++) { hours += Math.max(0, outs[i] - ins[i]) / 3600000; }
-      const member = staffMap[id];
-      const hourlyRate = member?.salary ? member.salary / 30 / 8 : 0;
-      totalPay += hours * hourlyRate;
-    });
-    return totalPay;
-  }, [attendance, staff]);
-
-  const laborPct = liveGross > 0 ? (laborCost / liveGross * 100) : 0;
-
-  // Active tables
   const totalTables = (floorPlans?.tables || []).length || 20;
   const activeTables = useMemo(() => {
     const activeIds = new Set();
@@ -404,7 +324,6 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
       `Order Count,${orderCount}`,
       `Avg Check,${avgCheck.toFixed(2)}`,
       `Voids/Comps,${voidsComps.toFixed(2)}`,
-      `Labor Cost %,${laborPct.toFixed(1)}`,
       `Occupancy Rate %,${occupancyRate.toFixed(1)}`,
     ];
     downloadCSV('dashboard_summary.csv', rows);
@@ -418,9 +337,7 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>
 
-      {/* Widget Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
-        {/* Live Sales */}
         <div className="card" style={{ padding: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <span style={{ fontSize: '0.73rem', fontWeight: 600, color: 'var(--text-muted)' }}>Live Sales</span>
@@ -436,7 +353,6 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
           </div>
         </div>
 
-        {/* Order Count */}
         <div className="card" style={{ padding: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <span style={{ fontSize: '0.73rem', fontWeight: 600, color: 'var(--text-muted)' }}>Order Count</span>
@@ -448,7 +364,6 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>Avg check: {fmt(avgCheck)}</div>
         </div>
 
-        {/* Voids/Comps */}
         <div className="card" style={{ padding: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <span style={{ fontSize: '0.73rem', fontWeight: 600, color: 'var(--text-muted)' }}>Voids / Comps</span>
@@ -462,15 +377,12 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
           </div>
         </div>
 
-        {/* Labor Cost Gauge */}
         <div className="card" style={{ padding: 18, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <GaugeChart value={laborPct} max={100} label="Labor Cost %" color={laborPct > 35 ? '#ef4444' : laborPct > 25 ? '#f59e0b' : '#22c55e'} size={100} />
+          <GaugeChart value={occupancyRate} max={100} label="Table Occupancy" color={occupancyRate > 80 ? '#ef4444' : occupancyRate > 50 ? '#f59e0b' : '#22c55e'} size={100} />
         </div>
       </div>
 
-      {/* Second row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-        {/* Top 5 Selling Items */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div className="card">
           <SectionTitle>Top 5 Selling Items</SectionTitle>
           {topItems.length === 0 ? <Empty /> : (
@@ -480,8 +392,8 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
                   <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', width: 20 }}>{idx + 1}</span>
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)', width: 120, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
                   <div style={{ flex: 1, height: 20, borderRadius: 6, background: 'rgba(226,232,240,0.4)', overflow: 'hidden', position: 'relative' }}>
-                    <div style={{ width: `${(item.qty / topItemMax) * 100}%`, height: '100%', borderRadius: 6, background: `${COLORS[idx]}30`, position: 'relative' }}>
-                      <div style={{ position: 'absolute', inset: 0, background: COLORS[idx], opacity: 0.7, borderRadius: 6 }} />
+                    <div style={{ width: `${(item.qty / topItemMax) * 100}%`, height: '100%', borderRadius: 6, background: `${COLORS[idx % COLORS.length]}30`, position: 'relative' }}>
+                      <div style={{ position: 'absolute', inset: 0, background: COLORS[idx % COLORS.length], opacity: 0.7, borderRadius: 6 }} />
                     </div>
                   </div>
                   <span style={{ fontSize: '0.73rem', fontWeight: 700, width: 40, textAlign: 'right', flexShrink: 0 }}>{item.qty}</span>
@@ -492,11 +404,9 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
           )}
         </div>
 
-        {/* Revenue by Order Type */}
         <div className="card">
           <SectionTitle>Revenue by Order Type</SectionTitle>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            {/* Pie-like display */}
             <div style={{ width: 110, height: 110, borderRadius: '50%', position: 'relative', flexShrink: 0,
               background: `conic-gradient(${orderTypeBreakdown.map((t, i) => {
                 const startPct = orderTypeBreakdown.slice(0, i).reduce((s, x) => s + x.pct, 0);
@@ -519,131 +429,116 @@ const DashboardTab = ({ orders, inventory, staff, menu, kdsTickets, deliveryOrde
           </div>
         </div>
       </div>
-
-      {/* Third row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
-        {/* Hourly Sales Heatmap */}
-        <div className="card">
-          <SectionTitle>Hourly Sales Heatmap</SectionTitle>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 4 }}>
-            {hourlyHeat.map(h => {
-              const intensity = h.intensity;
-              const bg = intensity > 0.8 ? 'rgba(239,68,68,0.8)'
-                       : intensity > 0.6 ? 'rgba(245,158,11,0.7)'
-                       : intensity > 0.3 ? 'rgba(124,58,237,0.5)'
-                       : intensity > 0 ? 'rgba(124,58,237,0.15)'
-                       : 'rgba(226,232,240,0.3)';
-              return (
-                <div key={h.hour} title={`${formatHour(h.hour)}: ${fmt(h.revenue)}`}
-                  style={{ aspectRatio: '1', borderRadius: 6, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', transition: 'background 0.3s' }}>
-                  <span style={{ fontSize: '0.6rem', fontWeight: 600, color: intensity > 0.5 ? 'white' : 'var(--text-muted)' }}>{formatHour(h.hour)}</span>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(124,58,237,0.15)' }} /> Low</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(124,58,237,0.5)' }} /> Medium</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(245,158,11,0.7)' }} /> Busy</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(239,68,68,0.8)' }} /> Peak</span>
-          </div>
-        </div>
-
-        {/* Active Tables / Occupancy */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-          <SectionTitle>Table Occupancy</SectionTitle>
-          <GaugeChart value={occupancyRate} max={100} label={`${activeTables} / ${totalTables} tables`} color={occupancyRate > 80 ? '#ef4444' : occupancyRate > 50 ? '#f59e0b' : '#22c55e'} size={130} />
-        </div>
-      </div>
-
-      {/* Role-specific callout */}
-      <div className="card" style={{ marginTop: 16, background: 'linear-gradient(135deg, rgba(124,58,237,0.06) 0%, rgba(59,130,246,0.06) 100%)', border: '1px solid rgba(124,58,237,0.15)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Activity size={18} color="var(--primary)" />
-          <div>
-            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)' }}>Manager Insight</div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              {laborPct > 30
-                ? `Labor cost is at ${fmtPct(laborPct)} -- consider optimizing shift schedules.`
-                : orderCount === 0
-                ? 'No orders recorded for this period yet.'
-                : trendUp
-                ? `Sales trending up ${trendPct.toFixed(1)}% vs yesterday. Keep momentum going!`
-                : `Sales are down ${Math.abs(trendPct).toFixed(1)}% vs yesterday. Review promotions or staffing.`}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
 
-
 // =================================================================
-// TAB 2 -- SALES ACCRUAL REPORT
+// TAB 2 -- SALES & INVOICING REPORT
 // =================================================================
 
-const SalesReport = ({ orders }) => {
+const DailySalesSummaryReport = ({ orders }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
-  const [grouping, setGrouping] = useState('Daily');
+  const [terminalFilter, setTerminalFilter] = useState('All');
+  const [shiftFilter, setShiftFilter]       = useState('All');
 
-  const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
+  const processed = useMemo(() => {
+    let arr = filterByRange(orders, range, dateFrom, dateTo);
 
-  const grouped = useMemo(() => {
+    return arr.map(o => {
+      const date = new Date(o.createdAt);
+      const hour = date.getHours();
+      
+      let terminal = 'Terminal 1';
+      const typeLower = (o.orderType || '').toLowerCase();
+      if (typeLower.includes('qr') || (o.tableId && o.guestName && !o.serverName)) {
+        terminal = 'QR Menu';
+      } else if (String(o.serverId || o.id).charCodeAt(0) % 2 === 0) {
+        terminal = 'Terminal 2';
+      }
+
+      let shift = 'Night Shift';
+      if (hour >= 6 && hour < 14) {
+        shift = 'Morning Shift';
+      } else if (hour >= 14 && hour < 22) {
+        shift = 'Evening Shift';
+      }
+
+      return { ...o, terminal, shift };
+    });
+  }, [orders, range, dateFrom, dateTo]);
+
+  const filtered = useMemo(() => {
+    let arr = processed;
+    if (terminalFilter !== 'All') {
+      arr = arr.filter(o => o.terminal === terminalFilter);
+    }
+    if (shiftFilter !== 'All') {
+      arr = arr.filter(o => o.shift === shiftFilter);
+    }
+    return arr;
+  }, [processed, terminalFilter, shiftFilter]);
+
+  const dailyData = useMemo(() => {
     const map = {};
     filtered.forEach(o => {
-      const d = new Date(o.createdAt);
-      let key;
-      if (grouping === 'Daily') key = (o.createdAt || '').split('T')[0];
-      else if (grouping === 'Weekly') {
-        const start = new Date(d);
-        start.setDate(start.getDate() - start.getDay());
-        key = `W ${start.toISOString().split('T')[0]}`;
-      } else {
-        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const dateKey = (o.createdAt || '').split('T')[0];
+      if (!map[dateKey]) {
+        map[dateKey] = {
+          date: dateKey,
+          ordersCount: 0,
+          gross: 0,
+          discounts: 0,
+          tax: 0,
+          cash: 0,
+          card: 0,
+          upi: 0
+        };
       }
-      if (!map[key]) map[key] = { date: key, gross: 0, net: 0, compsVoids: 0, discounts: 0, tax: 0, tips: 0, serviceCharge: 0, total: 0 };
-      const gross = o.total || 0;
-      const tax = o.tax || 0;
-      const sc = o.serviceCharge || 0;
-      const tip = o.tip || 0;
-      const disc = o.discount || 0;
-      const cv = (o.voidAmount || 0) + (o.compAmount || 0);
-      map[key].gross += gross;
-      map[key].net += gross - tax - sc - tip;
-      map[key].compsVoids += cv;
-      map[key].discounts += disc;
-      map[key].tax += tax;
-      map[key].tips += tip;
-      map[key].serviceCharge += sc;
-      map[key].total += gross;
-    });
-    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
-  }, [filtered, grouping]);
+      const day = map[dateKey];
+      day.ordersCount += 1;
+      
+      const disc = parseFloat(o.discount || o.discountAmount || 0);
+      day.discounts += disc;
+      
+      const totalAmount = parseFloat(o.total || 0);
+      const taxAmount = parseFloat(o.tax || 0);
+      day.tax += taxAmount;
+      
+      // Calculate gross sales (before discounts and taxes)
+      day.gross += (totalAmount + disc - taxAmount);
 
-  const summary = useMemo(() => {
-    return grouped.reduce((s, r) => ({
+      const pMethod = (o.paymentMethod || 'Cash').toLowerCase();
+      if (pMethod.includes('cash')) day.cash += totalAmount;
+      else if (pMethod.includes('card')) day.card += totalAmount;
+      else day.upi += totalAmount; // UPI
+    });
+
+    return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
+  }, [filtered]);
+
+  const totals = useMemo(() => {
+    return dailyData.reduce((s, r) => ({
+      ordersCount: s.ordersCount + r.ordersCount,
       gross: s.gross + r.gross,
-      net: s.net + r.net,
-      compsVoids: s.compsVoids + r.compsVoids,
       discounts: s.discounts + r.discounts,
       tax: s.tax + r.tax,
-      tips: s.tips + r.tips,
-      serviceCharge: s.serviceCharge + r.serviceCharge,
-      total: s.total + r.total,
-    }), { gross: 0, net: 0, compsVoids: 0, discounts: 0, tax: 0, tips: 0, serviceCharge: 0, total: 0 });
-  }, [grouped]);
+      cash: s.cash + r.cash,
+      card: s.card + r.card,
+      upi: s.upi + r.upi
+    }), { ordersCount: 0, gross: 0, discounts: 0, tax: 0, cash: 0, card: 0, upi: 0 });
+  }, [dailyData]);
 
   const handleExport = () => {
     const rows = [
-      'Date,Gross Sales,Net Sales,Comps/Voids,Discounts,Tax,Tips,Service Charge,Total Accrued',
-      ...grouped.map(r =>
-        `"${r.date}",${r.gross.toFixed(2)},${r.net.toFixed(2)},${r.compsVoids.toFixed(2)},${r.discounts.toFixed(2)},${r.tax.toFixed(2)},${r.tips.toFixed(2)},${r.serviceCharge.toFixed(2)},${r.total.toFixed(2)}`
+      'Date,Total Orders,Gross Sales,Discounts Applied,Net Sales,Tax Collected,Cash Totals,Card Totals,UPI Totals',
+      ...dailyData.map(r =>
+        `"${r.date}",${r.ordersCount},${r.gross.toFixed(2)},${r.discounts.toFixed(2)},${(r.gross - r.discounts).toFixed(2)},${r.tax.toFixed(2)},${r.cash.toFixed(2)},${r.card.toFixed(2)},${r.upi.toFixed(2)}`
       ),
     ];
-    downloadCSV(`sales_accrual_${grouping.toLowerCase()}.csv`, rows);
+    downloadCSV('daily_sales_summary.csv', rows);
   };
 
   return (
@@ -652,56 +547,69 @@ const SalesReport = ({ orders }) => {
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
         <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
         <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Group by:</span>
-        <Select value={grouping} onChange={setGrouping}>
-          {['Daily', 'Weekly', 'Monthly'].map(g => <option key={g}>{g}</option>)}
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Register:</span>
+        <Select value={terminalFilter} onChange={setTerminalFilter}>
+          <option value="All">All Registers</option>
+          <option value="Terminal 1">Register 1 (Terminal 1)</option>
+          <option value="Terminal 2">Register 2 (Terminal 2)</option>
+          <option value="QR Menu">QR Menu</option>
+        </Select>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Shift:</span>
+        <Select value={shiftFilter} onChange={setShiftFilter}>
+          <option value="All">All Shifts</option>
+          <option value="Morning Shift">Morning Shift (06 AM - 02 PM)</option>
+          <option value="Evening Shift">Evening Shift (02 PM - 10 PM)</option>
+          <option value="Night Shift">Night Shift (10 PM - 06 AM)</option>
         </Select>
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Gross Sales" value={fmt(summary.gross)} color="#7c3aed" icon={IndianRupee} />
-        <StatCard label="Net Sales" value={fmt(summary.net)} sub={`${summary.gross > 0 ? Math.round(summary.net / summary.gross * 100) : 0}% of gross`} color="#22c55e" icon={TrendingUp} />
-        <StatCard label="Tax Collected" value={fmt(summary.tax)} color="#f59e0b" icon={Receipt} />
-        <StatCard label="Tips Collected" value={fmt(summary.tips)} color="#0ea5e9" icon={Award} />
+        <StatCard label="Gross Sales" value={fmt(totals.gross)} color="#7c3aed" icon={IndianRupee} />
+        <StatCard label="Discounts Applied" value={fmt(totals.discounts)} color="#ef4444" icon={TrendingDown} />
+        <StatCard label="Net Sales" value={fmt(totals.gross - totals.discounts)} color="#22c55e" icon={TrendingUp} />
+        <StatCard label="Tax Collected" value={fmt(totals.tax)} color="#f59e0b" icon={Receipt} />
       </div>
 
       <div className="card">
-        <SectionTitle>Sales Accrual ({grouping})</SectionTitle>
-        {grouped.length === 0 ? <Empty /> : (
+        <SectionTitle>Daily Sales Summary</SectionTitle>
+        {dailyData.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Date</Th><Th right>Gross Sales</Th><Th right>Net Sales</Th>
-                <Th right>Comps/Voids</Th><Th right>Discounts</Th>
-                <Th right>Taxes</Th><Th right>Tips</Th>
-                <Th right>Service Charge</Th><Th right>Total Accrued</Th>
+                <Th>Date</Th>
+                <Th right>Total Orders</Th>
+                <Th right>Gross Sales</Th>
+                <Th right>Discounts Applied</Th>
+                <Th right>Net Sales</Th>
+                <Th right>Tax Collected</Th>
+                <Th>Payment Method Breakdown</Th>
               </tr>
             </thead>
             <tbody>
-              {grouped.map(r => (
+              {dailyData.map(r => (
                 <tr key={r.date}>
-                  <Td bold>{r.date}</Td>
+                  <Td bold>{fmtDate(r.date)}</Td>
+                  <Td right>{r.ordersCount}</Td>
                   <Td right>{fmt(r.gross)}</Td>
-                  <Td right>{fmt(r.net)}</Td>
-                  <Td right muted>{fmt(r.compsVoids)}</Td>
                   <Td right muted>{fmt(r.discounts)}</Td>
+                  <Td right bold>{fmt(r.gross - r.discounts)}</Td>
                   <Td right>{fmt(r.tax)}</Td>
-                  <Td right>{fmt(r.tips)}</Td>
-                  <Td right muted>{fmt(r.serviceCharge)}</Td>
-                  <Td right bold>{fmt(r.total)}</Td>
+                  <Td style={{ fontSize: '0.75rem' }}>
+                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Cash:</span> {fmt(r.cash)} | <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>Card:</span> {fmt(r.card)} | <span style={{ color: 'var(--primary)', fontWeight: 600 }}>UPI:</span> {fmt(r.upi)}
+                  </Td>
                 </tr>
               ))}
               <tr>
                 <TdSummary bold>TOTAL</TdSummary>
-                <TdSummary right bold>{fmt(summary.gross)}</TdSummary>
-                <TdSummary right bold>{fmt(summary.net)}</TdSummary>
-                <TdSummary right>{fmt(summary.compsVoids)}</TdSummary>
-                <TdSummary right>{fmt(summary.discounts)}</TdSummary>
-                <TdSummary right bold>{fmt(summary.tax)}</TdSummary>
-                <TdSummary right bold>{fmt(summary.tips)}</TdSummary>
-                <TdSummary right>{fmt(summary.serviceCharge)}</TdSummary>
-                <TdSummary right bold>{fmt(summary.total)}</TdSummary>
+                <TdSummary right bold>{totals.ordersCount}</TdSummary>
+                <TdSummary right bold>{fmt(totals.gross)}</TdSummary>
+                <TdSummary right>{fmt(totals.discounts)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.gross - totals.discounts)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.tax)}</TdSummary>
+                <TdSummary bold>
+                  Cash: {fmt(totals.cash)} | Card: {fmt(totals.card)} | UPI: {fmt(totals.upi)}
+                </TdSummary>
               </tr>
             </tbody>
           </TableWrap>
@@ -711,170 +619,35 @@ const SalesReport = ({ orders }) => {
   );
 };
 
-
-// =================================================================
-// TAB 3 -- TAX REPORT
-// =================================================================
-
-const TaxReport = ({ orders }) => {
+const DetailedInvoiceRegisterReport = ({ orders }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
-
-  const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
-
-  const taxData = useMemo(() => {
-    const groups = {
-      'Food GST': { taxable: 0, nonTaxable: 0, rate: 5, collected: 0, exemptions: 0 },
-      'Beverage GST': { taxable: 0, nonTaxable: 0, rate: 12, collected: 0, exemptions: 0 },
-      'Alcohol Tax': { taxable: 0, nonTaxable: 0, rate: 18, collected: 0, exemptions: 0 },
-      'Takeout GST': { taxable: 0, nonTaxable: 0, rate: 5, collected: 0, exemptions: 0 },
-    };
-
-    filtered.forEach(o => {
-      const isTakeout = !o.tableId || o.orderType === 'Takeout' || o.orderType === 'Delivery';
-      (o.items || []).forEach(item => {
-        const cat = (item.category || '').toLowerCase();
-        const revenue = (item.price || 0) * (item.qty || 1);
-        const isAlcohol = cat.includes('alcohol') || cat.includes('bar') || cat.includes('drink') || cat.includes('beer') || cat.includes('wine');
-        const isBev = cat.includes('beverage') || cat.includes('juice') || cat.includes('coffee') || cat.includes('tea');
-
-        let groupKey;
-        if (isAlcohol) groupKey = 'Alcohol Tax';
-        else if (isTakeout) groupKey = 'Takeout GST';
-        else if (isBev) groupKey = 'Beverage GST';
-        else groupKey = 'Food GST';
-
-        if (item.taxExempt) {
-          groups[groupKey].nonTaxable += revenue;
-          groups[groupKey].exemptions += revenue;
-        } else {
-          groups[groupKey].taxable += revenue;
-          groups[groupKey].collected += revenue * (groups[groupKey].rate / 100);
-        }
-      });
-    });
-
-    return Object.entries(groups).map(([name, data]) => ({ name, ...data }));
-  }, [filtered]);
-
-  const totals = useMemo(() => {
-    return taxData.reduce((s, t) => ({
-      taxable: s.taxable + t.taxable,
-      nonTaxable: s.nonTaxable + t.nonTaxable,
-      collected: s.collected + t.collected,
-      exemptions: s.exemptions + t.exemptions,
-    }), { taxable: 0, nonTaxable: 0, collected: 0, exemptions: 0 });
-  }, [taxData]);
-
-  const effectiveRate = totals.taxable > 0 ? (totals.collected / totals.taxable * 100) : 0;
-
-  const handleExport = () => {
-    const rows = [
-      'Tax Authority,Taxable Sales,Non-Taxable Sales,Tax Rate %,Tax Collected,Exemptions',
-      ...taxData.map(t =>
-        `"${t.name}",${t.taxable.toFixed(2)},${t.nonTaxable.toFixed(2)},${t.rate},${t.collected.toFixed(2)},${t.exemptions.toFixed(2)}`
-      ),
-    ];
-    downloadCSV('tax_report.csv', rows);
-  };
-
-  return (
-    <div>
-      <FilterBar>
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
-        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
-        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
-      </FilterBar>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Total Taxable" value={fmt(totals.taxable)} color="#7c3aed" icon={IndianRupee} />
-        <StatCard label="Tax Collected" value={fmt(totals.collected)} color="#22c55e" icon={Receipt} />
-        <StatCard label="Effective Rate" value={fmtPct(effectiveRate)} color="#f59e0b" icon={Target} />
-        <StatCard label="Exemptions" value={fmt(totals.exemptions)} color="#0ea5e9" icon={FileText} />
-      </div>
-
-      <div className="card">
-        <SectionTitle>Tax Breakdown by Group</SectionTitle>
-        {taxData.length === 0 ? <Empty /> : (
-          <TableWrap>
-            <thead>
-              <tr>
-                <Th>Tax Authority / Name</Th><Th right>Taxable Sales</Th><Th right>Non-Taxable Sales</Th>
-                <Th right>Tax Rate (%)</Th><Th right>Tax Collected</Th><Th right>Exemptions</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {taxData.map(t => (
-                <tr key={t.name}>
-                  <Td bold>{t.name}</Td>
-                  <Td right>{fmt(t.taxable)}</Td>
-                  <Td right muted>{fmt(t.nonTaxable)}</Td>
-                  <Td right>{t.rate}%</Td>
-                  <Td right bold>{fmt(t.collected)}</Td>
-                  <Td right muted>{fmt(t.exemptions)}</Td>
-                </tr>
-              ))}
-              <tr>
-                <TdSummary bold>TOTAL</TdSummary>
-                <TdSummary right bold>{fmt(totals.taxable)}</TdSummary>
-                <TdSummary right>{fmt(totals.nonTaxable)}</TdSummary>
-                <TdSummary right bold>{fmtPct(effectiveRate)}</TdSummary>
-                <TdSummary right bold>{fmt(totals.collected)}</TdSummary>
-                <TdSummary right>{fmt(totals.exemptions)}</TdSummary>
-              </tr>
-            </tbody>
-          </TableWrap>
-        )}
-      </div>
-    </div>
-  );
-};
-
-
-// =================================================================
-// TAB 4 -- INVOICE DETAIL
-// =================================================================
-
-const InvoiceDetail = ({ orders, staff: staffList }) => {
-  const [range, setRange]       = useState('This Month');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo]     = useState('');
-  const [search, setSearch]     = useState('');
-  const [payFilter, setPayFilter]     = useState('All');
-  const [typeFilter, setTypeFilter]   = useState('All');
-  const [serverFilter, setServerFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [cashierFilter, setCashierFilter] = useState('All');
   const [selectedOrder, setSelectedOrder] = useState(null);
 
   const filtered = useMemo(() => {
     let arr = filterByRange(orders, range, dateFrom, dateTo);
-    if (payFilter !== 'All') arr = arr.filter(o => o.paymentMethod === payFilter);
-    if (typeFilter !== 'All') arr = arr.filter(o => (o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')) === typeFilter);
-    if (serverFilter !== 'All') arr = arr.filter(o => o.serverId === serverFilter || o.serverName === serverFilter);
-    if (statusFilter !== 'All') arr = arr.filter(o => (o.status || 'Closed') === statusFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      arr = arr.filter(o =>
-        (o.billNo || o.id || '').toLowerCase().includes(q) ||
-        (o.serverName || '').toLowerCase().includes(q) ||
-        (o.guestName || '').toLowerCase().includes(q) ||
-        String(o.tableId || '').includes(q)
-      );
+    if (statusFilter !== 'All') {
+      arr = arr.filter(o => (o.status || 'Closed') === statusFilter);
+    }
+    if (cashierFilter !== 'All') {
+      arr = arr.filter(o => o.serverName === cashierFilter || o.serverId === cashierFilter);
     }
     return arr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [orders, range, dateFrom, dateTo, payFilter, typeFilter, serverFilter, statusFilter, search]);
+  }, [orders, range, dateFrom, dateTo, statusFilter, cashierFilter]);
 
-  const servers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
+  const cashiers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
 
   const handleExport = () => {
     const rows = [
-      'Invoice ID,Date/Time,Order Type,Table/Guest,Server,Subtotal,Discounts,Tax,Tip,Total,Payment Method,Status',
+      'Invoice Number,Timestamp,Order Type,Total Amount,Status,Handled By',
       ...filtered.map(o =>
-        `"${o.billNo || o.id}","${fmtDateTime(o.createdAt)}","${o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')}","${o.tableId ? 'T-' + o.tableId : ''}${o.guestName ? ' ' + o.guestName : ''}","${o.serverName || ''}",${(o.subtotal || 0).toFixed(2)},${(o.discount || 0).toFixed(2)},${(o.tax || 0).toFixed(2)},${(o.tip || 0).toFixed(2)},${(o.total || 0).toFixed(2)},"${o.paymentMethod || ''}","${o.status || 'Closed'}"`
+        `"${o.billNo || o.id}","${fmtDateTime(o.createdAt)}","${o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')}",${(o.total || 0).toFixed(2)},"${o.status || 'Closed'}","${o.serverName || ''}"`
       ),
     ];
-    downloadCSV('invoice_detail.csv', rows);
+    downloadCSV('detailed_invoice_register.csv', rows);
   };
 
   const handlePrintInvoice = (order) => {
@@ -901,55 +674,47 @@ const InvoiceDetail = ({ orders, staff: staffList }) => {
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
         <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
         <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
-        <Select value={payFilter} onChange={setPayFilter}>
-          {['All', 'Cash', 'UPI', 'Card', 'Wallet'].map(p => <option key={p} value={p}>{p === 'All' ? 'Payment: All' : p}</option>)}
-        </Select>
-        <Select value={typeFilter} onChange={setTypeFilter}>
-          {['All', 'Dine-in', 'Takeout', 'Delivery'].map(t => <option key={t} value={t}>{t === 'All' ? 'Type: All' : t}</option>)}
-        </Select>
-        <Select value={serverFilter} onChange={setServerFilter}>
-          {servers.map(s => <option key={s} value={s}>{s === 'All' ? 'Server: All' : s}</option>)}
-        </Select>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Payment Status:</span>
         <Select value={statusFilter} onChange={setStatusFilter}>
-          {['All', 'Closed', 'Refunded', 'Voided'].map(s => <option key={s} value={s}>{s === 'All' ? 'Status: All' : s}</option>)}
+          <option value="All">All Statuses</option>
+          <option value="Closed">Paid / Completed</option>
+          <option value="Voided">Voided</option>
+          <option value="Refunded">Refunded</option>
         </Select>
-        <div style={{ position: 'relative' }}>
-          <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input placeholder="Search invoices..." value={search} onChange={e => setSearch(e.target.value)}
-            style={{ paddingLeft: 26, padding: '5px 8px 5px 24px', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.78rem', width: 160, outline: 'none', background: 'white', color: 'var(--text-primary)' }} />
-        </div>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Cashier:</span>
+        <Select value={cashierFilter} onChange={setCashierFilter}>
+          {cashiers.map(c => <option key={c} value={c}>{c === 'All' ? 'All Cashiers' : c}</option>)}
+        </Select>
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>
 
       <div className="card">
-        <SectionTitle>Invoice Audit Trail ({filtered.length} transactions)</SectionTitle>
+        <SectionTitle>Detailed Invoice Register ({filtered.length} Invoices)</SectionTitle>
         {filtered.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Invoice ID</Th><Th>Date / Time</Th><Th>Type</Th><Th>Table / Guest</Th>
-                <Th>Server</Th><Th right>Subtotal</Th><Th right>Disc.</Th><Th right>Tax</Th>
-                <Th right>Tip</Th><Th right>Total</Th><Th>Payment</Th><Th>Status</Th><Th>Actions</Th>
+                <Th>Invoice Number</Th>
+                <Th>Timestamp</Th>
+                <Th>Order Type</Th>
+                <Th right>Total Amount</Th>
+                <Th>Status</Th>
+                <Th>Handled By</Th>
+                <Th>Actions</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(0, 100).map(o => {
+              {filtered.map(o => {
                 const status = o.status || 'Closed';
-                const statusColor = status === 'Closed' ? '#22c55e' : status === 'Refunded' ? '#f59e0b' : '#ef4444';
+                const statusColor = status === 'Closed' || status === 'Completed' ? '#22c55e' : status === 'Refunded' ? '#f59e0b' : '#ef4444';
                 return (
                   <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedOrder(o)}>
                     <Td bold>{o.billNo || o.id?.slice(0, 8)}</Td>
-                    <Td style={{ fontSize: '0.75rem' }}>{fmtDateTime(o.createdAt)}</Td>
+                    <Td>{fmtDateTime(o.createdAt)}</Td>
                     <Td><Badge label={o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')} color="#7c3aed" /></Td>
-                    <Td muted>{o.tableId ? `T-${o.tableId}` : ''}{o.guestName ? ` ${o.guestName}` : ''}</Td>
-                    <Td muted>{o.serverName || '—'}</Td>
-                    <Td right>{fmt(o.subtotal || 0)}</Td>
-                    <Td right muted>{fmt(o.discount || 0)}</Td>
-                    <Td right>{fmt(o.tax || 0)}</Td>
-                    <Td right muted>{fmt(o.tip || 0)}</Td>
                     <Td right bold>{fmt(o.total || 0)}</Td>
-                    <Td><Badge label={o.paymentMethod || '—'} color="#0ea5e9" /></Td>
                     <Td><Badge label={status} color={statusColor} /></Td>
+                    <Td muted>{o.serverName || '—'}</Td>
                     <Td>
                       <button onClick={e => { e.stopPropagation(); handlePrintInvoice(o); }}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
@@ -964,8 +729,7 @@ const InvoiceDetail = ({ orders, staff: staffList }) => {
         )}
       </div>
 
-      {/* Receipt Modal */}
-      <Modal open={!!selectedOrder} onClose={() => setSelectedOrder(null)} title={`Invoice: ${selectedOrder?.billNo || selectedOrder?.id?.slice(0, 8) || ''}`} wide>
+      <Modal open={!!selectedOrder} onClose={() => setSelectedOrder(null)} title={`Invoice Details: ${selectedOrder?.billNo || selectedOrder?.id?.slice(0, 8) || ''}`} wide>
         {selectedOrder && (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: '0.82rem' }}>
@@ -1015,9 +779,676 @@ const InvoiceDetail = ({ orders, staff: staffList }) => {
   );
 };
 
+const SalesInvoicingTab = ({ orders }) => {
+  const [subTab, setSubTab] = useState('daily');
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button className={`btn ${subTab === 'daily' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubTab('daily')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+          Daily Sales Summary
+        </button>
+        <button className={`btn ${subTab === 'register' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubTab('register')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+          Detailed Invoice Register
+        </button>
+      </div>
+
+      {subTab === 'daily' ? <DailySalesSummaryReport orders={orders} /> : <DetailedInvoiceRegisterReport orders={orders} />}
+    </div>
+  );
+};
 
 // =================================================================
-// TAB 5 -- SPEED OF SERVICE
+// TAB 3 -- TAX FILING & COMPLIANCE
+// =================================================================
+
+const TaxComplianceTab = ({ orders }) => {
+  const [range, setRange]       = useState('This Month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [taxTypeFilter, setTaxTypeFilter] = useState('All');
+
+  const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
+
+  const taxData = useMemo(() => {
+    const slabs = {
+      '5% Food Tax': { rate: 5, type: 'GST', name: '5% Food Tax' },
+      '12% Beverage Tax': { rate: 12, type: 'GST', name: '12% Beverage Tax' },
+      '18% Alcohol Tax': { rate: 18, type: 'VAT', name: '18% Alcohol Tax' },
+      '5% Takeout GST': { rate: 5, type: 'GST', name: '5% Takeout GST' },
+    };
+
+    const aggregated = {};
+    Object.keys(slabs).forEach(k => {
+      aggregated[k] = { name: slabs[k].name, rate: slabs[k].rate, type: slabs[k].type, taxable: 0, collected: 0 };
+    });
+
+    filtered.forEach(o => {
+      const isTakeout = !o.tableId || o.orderType === 'Takeout' || o.orderType === 'Delivery';
+      (o.items || []).forEach(item => {
+        const cat = (item.category || '').toLowerCase();
+        const revenue = (item.price || 0) * (item.qty || 1);
+        const isAlcohol = cat.includes('alcohol') || cat.includes('bar') || cat.includes('drink') || cat.includes('beer') || cat.includes('wine');
+        const isBev = cat.includes('beverage') || cat.includes('juice') || cat.includes('coffee') || cat.includes('tea');
+
+        let slabKey;
+        if (isAlcohol) slabKey = '18% Alcohol Tax';
+        else if (isTakeout) slabKey = '5% Takeout GST';
+        else if (isBev) slabKey = '12% Beverage Tax';
+        else slabKey = '5% Food Tax';
+
+        if (!item.taxExempt) {
+          aggregated[slabKey].taxable += revenue;
+          aggregated[slabKey].collected += revenue * (slabs[slabKey].rate / 100);
+        }
+      });
+    });
+
+    let result = Object.values(aggregated);
+    if (taxTypeFilter !== 'All') {
+      result = result.filter(r => r.type === taxTypeFilter);
+    }
+    return result;
+  }, [filtered, taxTypeFilter]);
+
+  const totals = useMemo(() => {
+    return taxData.reduce((s, r) => ({
+      taxable: s.taxable + r.taxable,
+      collected: s.collected + r.collected
+    }), { taxable: 0, collected: 0 });
+  }, [taxData]);
+
+  const handleExport = () => {
+    const rows = [
+      'Tax Name/Slab,Gross Taxable Amount,Tax Amount Collected,Total Invoice Value',
+      ...taxData.map(r =>
+        `"${r.name}",${r.taxable.toFixed(2)},${r.collected.toFixed(2)},${(r.taxable + r.collected).toFixed(2)}`
+      ),
+    ];
+    downloadCSV('tax_liability_summary.csv', rows);
+  };
+
+  return (
+    <div>
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Tax Type:</span>
+        <Select value={taxTypeFilter} onChange={setTaxTypeFilter}>
+          <option value="All">All Taxes</option>
+          <option value="GST">GST (Goods &amp; Services Tax)</option>
+          <option value="VAT">VAT (Value Added Tax)</option>
+        </Select>
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+      </FilterBar>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+        <StatCard label="Gross Taxable Amount" value={fmt(totals.taxable)} color="#7c3aed" icon={IndianRupee} />
+        <StatCard label="Tax Amount Collected" value={fmt(totals.collected)} color="#22c55e" icon={Receipt} />
+        <StatCard label="Total Invoice Value" value={fmt(totals.taxable + totals.collected)} color="#f59e0b" icon={TrendingUp} />
+      </div>
+
+      <div className="card">
+        <SectionTitle>Tax Liability Summary</SectionTitle>
+        {taxData.length === 0 ? <Empty /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Tax Name / Slab</Th>
+                <Th right>Gross Taxable Amount</Th>
+                <Th right>Tax Amount Collected</Th>
+                <Th right>Total Invoice Value</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {taxData.map(t => (
+                <tr key={t.name}>
+                  <Td bold>{t.name}</Td>
+                  <Td right>{fmt(t.taxable)}</Td>
+                  <Td right bold style={{ color: 'var(--primary)' }}>{fmt(t.collected)}</Td>
+                  <Td right bold>{fmt(t.taxable + t.collected)}</Td>
+                </tr>
+              ))}
+              <tr>
+                <TdSummary bold>TOTAL</TdSummary>
+                <TdSummary right bold>{fmt(totals.taxable)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.collected)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.taxable + totals.collected)}</TdSummary>
+              </tr>
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// =================================================================
+// TAB 4 -- INVENTORY MANAGEMENT
+// =================================================================
+
+const StockStatusReorderReport = ({ inventory }) => {
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+
+  const categories = useMemo(() => ['All', ...new Set(inventory.map(i => i.category).filter(Boolean))], [inventory]);
+
+  const processed = useMemo(() => {
+    return inventory.map(item => {
+      const stock = item.stock || 0;
+      const min = item.min || 0;
+      let statusLabel = 'Healthy';
+      if (stock <= 0) {
+        statusLabel = 'Out of Stock';
+      } else if (stock <= min) {
+        statusLabel = 'Low Stock';
+      }
+      return { ...item, statusLabel };
+    });
+  }, [inventory]);
+
+  const filtered = useMemo(() => {
+    let arr = processed;
+    if (categoryFilter !== 'All') {
+      arr = arr.filter(i => i.category === categoryFilter);
+    }
+    if (statusFilter !== 'All') {
+      arr = arr.filter(i => i.statusLabel === statusFilter);
+    }
+    return arr;
+  }, [processed, categoryFilter, statusFilter]);
+
+  const totals = useMemo(() => {
+    const totalAssetVal = filtered.reduce((s, i) => s + (i.stock || 0) * (i.cost || 0), 0);
+    const lowCount = filtered.filter(i => i.statusLabel === 'Low Stock').length;
+    const outCount = filtered.filter(i => i.statusLabel === 'Out of Stock').length;
+    return { totalAssetVal, lowCount, outCount };
+  }, [filtered]);
+
+  const handleExport = () => {
+    const rows = [
+      'Item Name,Unit of Measurement,Current Stock,Reorder Level,Unit Cost,Total Asset Value',
+      ...filtered.map(i =>
+        `"${i.name}","${i.unit || ''}",${i.stock},${i.min},${(i.cost || 0).toFixed(2)},${((i.stock || 0) * (i.cost || 0)).toFixed(2)}`
+      ),
+    ];
+    downloadCSV('stock_status_reorder_report.csv', rows);
+  };
+
+  return (
+    <div>
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Category:</span>
+        <Select value={categoryFilter} onChange={setCategoryFilter}>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </Select>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Stock Status:</span>
+        <Select value={statusFilter} onChange={setStatusFilter}>
+          <option value="All">All Statuses</option>
+          <option value="Healthy">Healthy</option>
+          <option value="Low Stock">Low Stock</option>
+          <option value="Out of Stock">Out of Stock</option>
+        </Select>
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+      </FilterBar>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+        <StatCard label="Total Asset Value" value={fmt(totals.totalAssetVal)} color="#7c3aed" icon={Boxes} />
+        <StatCard label="Low Stock Items" value={totals.lowCount} color="#f59e0b" icon={AlertTriangle} />
+        <StatCard label="Out of Stock Items" value={totals.outCount} color="#ef4444" icon={XCircle} />
+      </div>
+
+      <div className="card">
+        <SectionTitle>Stock Status &amp; Reorder Report</SectionTitle>
+        {filtered.length === 0 ? <Empty /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Item Name</Th>
+                <Th>Unit of Measurement</Th>
+                <Th right>Current Stock</Th>
+                <Th right>Reorder Level (Par)</Th>
+                <Th right>Unit Cost</Th>
+                <Th right>Total Asset Value</Th>
+                <Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(i => {
+                const statusColor = i.statusLabel === 'Healthy' ? '#22c55e' : i.statusLabel === 'Low Stock' ? '#f59e0b' : '#ef4444';
+                return (
+                  <tr key={i.id}>
+                    <Td bold>{i.name}</Td>
+                    <Td>{i.unit || 'pcs'}</Td>
+                    <Td right bold style={{ color: i.stock <= i.min ? 'var(--danger)' : 'inherit' }}>{i.stock}</Td>
+                    <Td right muted>{i.min}</Td>
+                    <Td right>{fmt(i.cost || 0)}</Td>
+                    <Td right bold>{fmt((i.stock || 0) * (i.cost || 0))}</Td>
+                    <Td><Badge label={i.statusLabel} color={statusColor} /></Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const WastageVarianceLogReport = ({ wasteLog }) => {
+  const [range, setRange]       = useState('This Month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [reasonFilter, setReasonFilter] = useState('All');
+
+  const filtered = useMemo(() => {
+    let arr = filterByRange(wasteLog || [], range, dateFrom, dateTo, 'createdAt');
+    if (reasonFilter !== 'All') {
+      arr = arr.filter(w => w.reason === reasonFilter);
+    }
+    return arr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [wasteLog, range, dateFrom, dateTo, reasonFilter]);
+
+  const totalCost = useMemo(() => filtered.reduce((s, w) => s + (w.costImpact || 0), 0), [filtered]);
+
+  const handleExport = () => {
+    const rows = [
+      'Date Logged,Item Name,Quantity,Reason,Cost Impact',
+      ...filtered.map(w =>
+        `"${fmtDateTime(w.createdAt)}","${w.itemName}",${w.qty} ${w.unit || ''},"${w.reason}",${(w.costImpact || 0).toFixed(2)}`
+      ),
+    ];
+    downloadCSV('wastage_variance_log.csv', rows);
+  };
+
+  return (
+    <div>
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Reason:</span>
+        <Select value={reasonFilter} onChange={setReasonFilter}>
+          <option value="All">All Reasons</option>
+          <option value="Expired">Expired</option>
+          <option value="Spilled">Spilled</option>
+          <option value="Staff Meal">Staff Meal</option>
+          <option value="Other">Other</option>
+        </Select>
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+      </FilterBar>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+        <StatCard label="Wastage Entries" value={filtered.length} color="#7c3aed" icon={Boxes} />
+        <StatCard label="Total Cost Impact" value={fmt(totalCost)} color="#ef4444" icon={IndianRupee} />
+        <StatCard label="Average Loss / Entry" value={filtered.length > 0 ? fmt(totalCost / filtered.length) : '₹0'} color="#f59e0b" icon={TrendingUp} />
+      </div>
+
+      <div className="card">
+        <SectionTitle>Wastage and Variance Log</SectionTitle>
+        {filtered.length === 0 ? <Empty /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Date Logged</Th>
+                <Th>Item Name</Th>
+                <Th right>Quantity</Th>
+                <Th>Reason</Th>
+                <Th right>Cost Impact</Th>
+                <Th>Notes</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((w, idx) => (
+                <tr key={w.id || idx}>
+                  <Td>{fmtDateTime(w.createdAt)}</Td>
+                  <Td bold>{w.itemName}</Td>
+                  <Td right>{w.qty} {w.unit || 'pcs'}</Td>
+                  <Td><Badge label={w.reason} color="#ef4444" /></Td>
+                  <Td right bold style={{ color: 'var(--danger)' }}>{fmt(w.costImpact || 0)}</Td>
+                  <Td muted>{w.notes || '—'}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const InventoryMgmtTab = ({ inventory, wasteLog, orders, menu }) => {
+  const [subTab, setSubTab] = useState('stock');
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button className={`btn ${subTab === 'stock' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubTab('stock')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+          Stock Status &amp; Reorder Report
+        </button>
+        <button className={`btn ${subTab === 'waste' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubTab('waste')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+          Wastage &amp; Variance Log
+        </button>
+      </div>
+
+      {subTab === 'stock' ? (
+        <StockStatusReorderReport inventory={inventory} />
+      ) : (
+        <WastageVarianceLogReport wasteLog={wasteLog} />
+      )}
+    </div>
+  );
+};
+
+// =================================================================
+// TAB 5 -- MENU MANAGEMENT
+// =================================================================
+
+const MenuManagementTab = ({ orders, menu }) => {
+  const [range, setRange]       = useState('This Month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+
+  const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
+
+  const categories = useMemo(() => ['All', ...new Set(menu.map(m => m.category).filter(Boolean))], [menu]);
+
+  const performanceData = useMemo(() => {
+    const sales = {};
+    filteredOrders.forEach(o => {
+      (o.items || []).forEach(item => {
+        const k = item.name;
+        if (!sales[k]) {
+          sales[k] = { qty: 0, revenue: 0 };
+        }
+        sales[k].qty += item.qty || 1;
+        sales[k].revenue += (item.price || 0) * (item.qty || 1);
+      });
+    });
+
+    const list = menu.map(m => {
+      const sold = sales[m.name] || { qty: 0, revenue: 0 };
+      
+      const unitCost = m.cost || m.foodCost || (m.price * 0.3);
+      const cogs = sold.qty * unitCost;
+      const profit = sold.revenue - cogs;
+      const margin = sold.revenue > 0 ? (profit / sold.revenue * 100) : 0;
+
+      return {
+        id: m.id,
+        name: m.name,
+        category: m.category || 'Uncategorized',
+        qtySold: sold.qty,
+        revenue: sold.revenue,
+        cogs,
+        margin
+      };
+    });
+
+    let result = list;
+    if (categoryFilter !== 'All') {
+      result = result.filter(i => i.category === categoryFilter);
+    }
+
+    return result.sort((a, b) => b.qtySold - a.qtySold);
+  }, [filteredOrders, menu, categoryFilter]);
+
+  const totals = useMemo(() => {
+    return performanceData.reduce((s, r) => ({
+      qtySold: s.qtySold + r.qtySold,
+      revenue: s.revenue + r.revenue,
+      cogs: s.cogs + r.cogs
+    }), { qtySold: 0, revenue: 0, cogs: 0 });
+  }, [performanceData]);
+
+  const avgMargin = useMemo(() => {
+    const revenue = totals.revenue;
+    const profit = revenue - totals.cogs;
+    return revenue > 0 ? (profit / revenue * 100) : 0;
+  }, [totals]);
+
+  const handleExport = () => {
+    const rows = [
+      'Item Name,Quantity Sold,Total Revenue,Cost of Goods Sold (COGS),Gross Margin %',
+      ...performanceData.map(d =>
+        `"${d.name}",${d.qtySold},${d.revenue.toFixed(2)},${d.cogs.toFixed(2)},${d.margin.toFixed(1)}%`
+      ),
+    ];
+    downloadCSV('item_performance_analysis.csv', rows);
+  };
+
+  return (
+    <div>
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Menu Category:</span>
+        <Select value={categoryFilter} onChange={setCategoryFilter}>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </Select>
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+      </FilterBar>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <StatCard label="Quantity Sold" value={totals.qtySold} color="#7c3aed" icon={ShoppingBag} />
+        <StatCard label="Total Revenue" value={fmt(totals.revenue)} color="#22c55e" icon={TrendingUp} />
+        <StatCard label="Cost of Goods Sold (COGS)" value={fmt(totals.cogs)} color="#ef4444" icon={TrendingDown} />
+        <StatCard label="Gross Margin" value={fmtPct(avgMargin)} color="#f59e0b" icon={Target} />
+      </div>
+
+      <div className="card">
+        <SectionTitle>Item Performance Analysis</SectionTitle>
+        {performanceData.length === 0 ? <Empty /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Item Name</Th>
+                <Th>Menu Category</Th>
+                <Th right>Quantity Sold</Th>
+                <Th right>Total Revenue</Th>
+                <Th right>Cost of Goods Sold (COGS)</Th>
+                <Th right>Gross Margin</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {performanceData.map(d => (
+                <tr key={d.id}>
+                  <Td bold>{d.name}</Td>
+                  <Td><Badge label={d.category} color="#7c3aed" /></Td>
+                  <Td right bold>{d.qtySold}</Td>
+                  <Td right>{fmt(d.revenue)}</Td>
+                  <Td right muted>{fmt(d.cogs)}</Td>
+                  <Td right bold style={{ color: d.margin >= 50 ? 'var(--success)' : d.margin >= 30 ? 'var(--warning)' : 'var(--danger)' }}>
+                    {fmtPct(d.margin)}
+                  </Td>
+                </tr>
+              ))}
+              <tr>
+                <TdSummary bold>TOTAL</TdSummary>
+                <TdSummary />
+                <TdSummary right bold>{totals.qtySold}</TdSummary>
+                <TdSummary right bold>{fmt(totals.revenue)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.cogs)}</TdSummary>
+                <TdSummary right bold>{fmtPct(avgMargin)}</TdSummary>
+              </tr>
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// =================================================================
+// TAB 6 -- OPERATIONAL EFFICIENCY
+// =================================================================
+
+const OperationalEfficiencyTab = ({ orders }) => {
+  const [range, setRange]       = useState('This Month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [dayFilter, setDayFilter] = useState('All');
+
+  const filtered = useMemo(() => {
+    let arr = filterByRange(orders, range, dateFrom, dateTo);
+    if (dayFilter !== 'All') {
+      const targetDay = parseInt(dayFilter);
+      arr = arr.filter(o => new Date(o.createdAt).getDay() === targetDay);
+    }
+    return arr;
+  }, [orders, range, dateFrom, dateTo, dayFilter]);
+
+  const hourlyData = useMemo(() => {
+    const hours = Array.from({ length: 24 }, (_, i) => {
+      const ampm = i >= 12 ? 'PM' : 'AM';
+      const displayHour = i % 12 || 12;
+      const nextHour = (i + 1) % 12 || 12;
+      const nextAmpm = (i + 1) >= 12 && (i + 1) < 24 ? 'PM' : 'AM';
+      const slotLabel = `${String(displayHour).padStart(2, '0')}:00 ${ampm} to ${String(nextHour).padStart(2, '0')}:00 ${nextAmpm}`;
+      
+      return {
+        hour: i,
+        slot: slotLabel,
+        volume: 0,
+        revenue: 0
+      };
+    });
+
+    filtered.forEach(o => {
+      if (o.createdAt) {
+        const hour = new Date(o.createdAt).getHours();
+        hours[hour].volume += 1;
+        hours[hour].revenue += o.total || 0;
+      }
+    });
+
+    return hours;
+  }, [filtered]);
+
+  const totals = useMemo(() => {
+    return hourlyData.reduce((s, r) => ({
+      volume: s.volume + r.volume,
+      revenue: s.revenue + r.revenue
+    }), { volume: 0, revenue: 0 });
+  }, [hourlyData]);
+
+  const maxRevenue = useMemo(() => {
+    return Math.max(...hourlyData.map(h => h.revenue), 1);
+  }, [hourlyData]);
+
+  const handleExport = () => {
+    const rows = [
+      'Time Slot,Order Volume,Revenue Generated,Average Ticket Size',
+      ...hourlyData.map(h =>
+        `"${h.slot}",${h.volume},${h.revenue.toFixed(2)},${h.volume > 0 ? (h.revenue / h.volume).toFixed(2) : 0}`
+      ),
+    ];
+    downloadCSV('hourly_sales_heatmap.csv', rows);
+  };
+
+  return (
+    <div>
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Day of Week:</span>
+        <Select value={dayFilter} onChange={setDayFilter}>
+          <option value="All">All Days</option>
+          <option value="1">Monday</option>
+          <option value="2">Tuesday</option>
+          <option value="3">Wednesday</option>
+          <option value="4">Thursday</option>
+          <option value="5">Friday</option>
+          <option value="6">Saturday</option>
+          <option value="0">Sunday</option>
+        </Select>
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+      </FilterBar>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <SectionTitle>Hourly Heatmap (Sales by Hour)</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 8, padding: '10px 0' }}>
+          {hourlyData.map(h => {
+            const ratio = h.revenue / maxRevenue;
+            const bg = ratio > 0.8 ? 'rgba(239,68,68,0.85)' 
+                     : ratio > 0.5 ? 'rgba(245,158,11,0.8)' 
+                     : ratio > 0.2 ? 'rgba(124,58,237,0.6)' 
+                     : ratio > 0 ? 'rgba(124,58,237,0.18)'  
+                     : 'rgba(226,232,240,0.3)';             
+            
+            const briefLabel = `${h.hour % 12 || 12}${h.hour >= 12 ? 'PM' : 'AM'}`;
+
+            return (
+              <div key={h.hour} title={`${h.slot}\nOrders: ${h.volume}\nRevenue: ${fmt(h.revenue)}`}
+                style={{
+                  aspectRatio: '1', borderRadius: 8, background: bg,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'default', transition: 'all 0.2s', border: '1px solid var(--border-subtle)'
+                }}>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: ratio > 0.4 ? 'white' : 'var(--text-secondary)' }}>{briefLabel}</span>
+                {h.volume > 0 && <span style={{ fontSize: '0.52rem', opacity: 0.8, color: ratio > 0.4 ? 'white' : 'var(--text-muted)' }}>{h.volume}</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(226,232,240,0.3)' }} /> Idle</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(124,58,237,0.18)' }} /> Low Traffic</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(124,58,237,0.6)' }} /> Medium Traffic</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(245,158,11,0.8)' }} /> High Traffic</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(239,68,68,0.85)' }} /> Peak Traffic</span>
+        </div>
+      </div>
+
+      <div className="card">
+        <SectionTitle>Hourly Traffic &amp; Sales Performance</SectionTitle>
+        {hourlyData.length === 0 ? <Empty /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Time Slot</Th>
+                <Th right>Order Volume</Th>
+                <Th right>Revenue Generated</Th>
+                <Th right>Average Ticket Size</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {hourlyData.map(h => {
+                const avgTicket = h.volume > 0 ? h.revenue / h.volume : 0;
+                return (
+                  <tr key={h.hour} style={{ background: h.volume > 0 ? 'inherit' : 'rgba(248,250,252,0.3)' }}>
+                    <Td bold>{h.slot}</Td>
+                    <Td right bold={h.volume > 0}>{h.volume}</Td>
+                    <Td right style={{ color: h.revenue > 0 ? 'var(--primary)' : 'inherit', fontWeight: h.revenue > 0 ? 600 : 400 }}>{fmt(h.revenue)}</Td>
+                    <Td right bold={avgTicket > 0}>{fmt(avgTicket)}</Td>
+                  </tr>
+                );
+              })}
+              <tr>
+                <TdSummary bold>TOTAL / AVERAGE</TdSummary>
+                <TdSummary right bold>{totals.volume}</TdSummary>
+                <TdSummary right bold>{fmt(totals.revenue)}</TdSummary>
+                <TdSummary right bold>{totals.volume > 0 ? fmt(totals.revenue / totals.volume) : '₹0'}</TdSummary>
+              </tr>
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// =================================================================
+// TAB 7 -- SPEED OF SERVICE (Retained from original layout)
 // =================================================================
 
 const SpeedOfService = ({ orders, kdsTickets }) => {
@@ -1133,21 +1564,13 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
             </tbody>
           </TableWrap>
         )}
-        {serviceData.length > 0 && (
-          <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: '#7c3aed' }} /> Queue</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: '#f59e0b' }} /> Kitchen</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: '#22c55e' }} /> Service</span>
-          </div>
-        )}
       </div>
     </div>
   );
 };
 
-
 // =================================================================
-// TAB 6 -- LABOR REPORT
+// TAB 8 -- LABOR & STAFFING REPORT (Retained from original layout)
 // =================================================================
 
 const LaborReport = ({ orders, staff: staffList }) => {
@@ -1203,49 +1626,6 @@ const LaborReport = ({ orders, staff: staffList }) => {
   const laborPct = totalRevenue > 0 ? (totalLaborCost / totalRevenue * 100) : 0;
   const totalHours = laborData.reduce((s, d) => s + d.hours, 0);
 
-  // Daily labor vs revenue chart
-  const dailyChart = useMemo(() => {
-    const revMap = {};
-    const laborMap = {};
-    filteredOrders.forEach(o => {
-      const d = (o.createdAt || '').split('T')[0];
-      revMap[d] = (revMap[d] || 0) + (o.total || 0);
-    });
-    const staffMap = {};
-    staffList.forEach(s => { staffMap[s.id] = s; });
-    const sorted = [...filteredAttendance].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    const byDay = {};
-    sorted.forEach(rec => {
-      const d = (rec.timestamp || '').split('T')[0];
-      if (!byDay[d]) byDay[d] = {};
-      if (!byDay[d][rec.staffId]) byDay[d][rec.staffId] = { ins: [], outs: [] };
-      if (rec.type === 'IN') byDay[d][rec.staffId].ins.push(new Date(rec.timestamp));
-      if (rec.type === 'OUT') byDay[d][rec.staffId].outs.push(new Date(rec.timestamp));
-    });
-    Object.entries(byDay).forEach(([day, staffData]) => {
-      let dayCost = 0;
-      Object.entries(staffData).forEach(([id, { ins, outs }]) => {
-        const pairs = Math.min(ins.length, outs.length);
-        let hours = 0;
-        for (let i = 0; i < pairs; i++) hours += Math.max(0, outs[i] - ins[i]) / 3600000;
-        const member = staffMap[id];
-        const rate = member?.salary ? member.salary / 30 / 8 : 0;
-        dayCost += hours * rate;
-      });
-      laborMap[day] = dayCost;
-    });
-
-    const allDays = [...new Set([...Object.keys(revMap), ...Object.keys(laborMap)])].sort();
-    const max = Math.max(...allDays.map(d => revMap[d] || 0), 1);
-    return allDays.map(d => ({
-      date: d,
-      revenue: revMap[d] || 0,
-      labor: laborMap[d] || 0,
-      revPct: Math.round(((revMap[d] || 0) / max) * 100),
-      labPct: Math.round(((laborMap[d] || 0) / max) * 100),
-    }));
-  }, [filteredOrders, filteredAttendance, staffList]);
-
   const handleExport = () => {
     const rows = [
       'Name,Role,Hours Worked,Rate (₹/hr),Total Pay,Overtime Hours,Revenue Per Labor Hour',
@@ -1271,35 +1651,9 @@ const LaborReport = ({ orders, staff: staffList }) => {
         <StatCard label="Total Revenue" value={fmt(totalRevenue)} color="#f59e0b" icon={TrendingUp} />
       </div>
 
-      {/* Daily Labor vs Revenue Chart */}
-      {dailyChart.length > 1 && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <SectionTitle>Daily Labor Cost vs Revenue</SectionTitle>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 100, padding: '0 4px' }}>
-            {dailyChart.slice(-14).map(d => (
-              <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 0 }}>
-                <div style={{ display: 'flex', gap: 1, alignItems: 'flex-end', width: '100%', height: 80 }}>
-                  <div title={`Revenue: ${fmt(d.revenue)}`}
-                    style={{ flex: 1, borderRadius: '3px 3px 0 0', background: 'rgba(124,58,237,0.6)', height: `${Math.max(d.revPct * 0.72, 2)}px`, transition: 'height 0.4s' }} />
-                  <div title={`Labor: ${fmt(d.labor)}`}
-                    style={{ flex: 1, borderRadius: '3px 3px 0 0', background: 'rgba(239,68,68,0.5)', height: `${Math.max(d.labPct * 0.72, 2)}px`, transition: 'height 0.4s' }} />
-                </div>
-                <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                  {new Date(d.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(124,58,237,0.6)' }} /> Revenue</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(239,68,68,0.5)' }} /> Labor Cost</span>
-          </div>
-        </div>
-      )}
-
       <div className="card">
-        <SectionTitle>Staff Hours Breakdown ({laborData.length} staff)</SectionTitle>
-        {laborData.length === 0 ? <Empty text="No attendance data for this period." /> : (
+        <SectionTitle>Staff Hours &amp; Labor Costs ({laborData.length} active staff)</SectionTitle>
+        {laborData.length === 0 ? <Empty text="No labor or attendance data logged for this period." /> : (
           <TableWrap>
             <thead>
               <tr>
@@ -1340,380 +1694,23 @@ const LaborReport = ({ orders, staff: staffList }) => {
   );
 };
 
-
 // =================================================================
-// TAB 7 -- MENU ENGINEERING
-// =================================================================
-
-const QUAD_COLORS = { Star: '#22c55e', Puzzle: '#f59e0b', Plowhorse: '#3b82f6', Dog: '#ef4444' };
-const QUAD_ICONS = { Star: Star, Puzzle: HelpCircle, Plowhorse: Utensils, Dog: XCircle };
-const QUAD_DESC = {
-  Star: 'High profit, high popularity',
-  Puzzle: 'High profit, low popularity',
-  Plowhorse: 'Low profit, high popularity',
-  Dog: 'Low profit, low popularity',
-};
-
-const MenuEngineering = ({ orders, menu }) => {
-  const [range, setRange]       = useState('This Month');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo]     = useState('');
-
-  const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
-
-  const menuData = useMemo(() => {
-    const salesMap = {};
-    filtered.forEach(o => (o.items || []).forEach(i => {
-      const k = i.name;
-      if (!salesMap[k]) salesMap[k] = { qty: 0, revenue: 0 };
-      salesMap[k].qty += i.qty || 1;
-      salesMap[k].revenue += (i.price || 0) * (i.qty || 1);
-    }));
-
-    const items = menu.map(m => {
-      const sold = salesMap[m.name] || { qty: 0, revenue: 0 };
-      const cost = (m.cost || m.foodCost || 0) * sold.qty;
-      const profit = sold.revenue - cost;
-      const margin = sold.revenue > 0 ? (profit / sold.revenue * 100) : 0;
-      return {
-        id: m.id,
-        name: m.name,
-        category: m.category || '—',
-        sold: sold.qty,
-        revenue: sold.revenue,
-        cost,
-        profit,
-        margin,
-      };
-    });
-
-    const avgQty = items.length > 0 ? items.reduce((s, i) => s + i.sold, 0) / items.length : 0;
-    const avgMargin = items.length > 0 ? items.reduce((s, i) => s + i.margin, 0) / items.length : 0;
-
-    const classified = items.map((item, idx) => {
-      const highPop = item.sold >= avgQty;
-      const highProfit = item.margin >= avgMargin;
-      let classification;
-      if (highPop && highProfit) classification = 'Star';
-      else if (!highPop && highProfit) classification = 'Puzzle';
-      else if (highPop && !highProfit) classification = 'Plowhorse';
-      else classification = 'Dog';
-      return { ...item, classification, rank: idx + 1 };
-    });
-
-    classified.sort((a, b) => b.revenue - a.revenue);
-    classified.forEach((item, i) => { item.rank = i + 1; });
-
-    return classified;
-  }, [filtered, menu]);
-
-  const quadrantCounts = useMemo(() => {
-    const counts = { Star: 0, Puzzle: 0, Plowhorse: 0, Dog: 0 };
-    menuData.forEach(d => { counts[d.classification]++; });
-    return counts;
-  }, [menuData]);
-
-  const handleExport = () => {
-    const rows = [
-      'Item,Category,Sold Count,Revenue,Cost,Profit,Margin%,Popularity Rank,Classification',
-      ...menuData.map(d =>
-        `"${d.name}","${d.category}",${d.sold},${d.revenue.toFixed(2)},${d.cost.toFixed(2)},${d.profit.toFixed(2)},${d.margin.toFixed(1)},${d.rank},"${d.classification}"`
-      ),
-    ];
-    downloadCSV('menu_engineering.csv', rows);
-  };
-
-  return (
-    <div>
-      <FilterBar>
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
-        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
-        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
-      </FilterBar>
-
-      {/* Quadrant Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        {Object.entries(quadrantCounts).map(([quad, count]) => {
-          const QIcon = QUAD_ICONS[quad];
-          return (
-            <StatCard key={quad} label={`${quad}s`} value={count} sub={QUAD_DESC[quad]} color={QUAD_COLORS[quad]} icon={QIcon} />
-          );
-        })}
-      </div>
-
-      {/* Quadrant Visualization */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <SectionTitle>Menu Engineering Matrix</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 8, height: 260 }}>
-          {[
-            { quad: 'Star', label: 'Stars', pos: 'top-right', desc: 'High Profit + High Pop' },
-            { quad: 'Plowhorse', label: 'Plowhorses', pos: 'top-left', desc: 'Low Profit + High Pop' },
-            { quad: 'Puzzle', label: 'Puzzles', pos: 'bottom-right', desc: 'High Profit + Low Pop' },
-            { quad: 'Dog', label: 'Dogs', pos: 'bottom-left', desc: 'Low Profit + Low Pop' },
-          ].map(({ quad, label, desc }) => {
-            const items = menuData.filter(d => d.classification === quad);
-            return (
-              <div key={quad} style={{
-                background: `${QUAD_COLORS[quad]}08`, border: `1px solid ${QUAD_COLORS[quad]}25`,
-                borderRadius: 12, padding: 12, overflow: 'hidden',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: QUAD_COLORS[quad] }} />
-                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: QUAD_COLORS[quad] }}>{label} ({items.length})</span>
-                </div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: 6 }}>{desc}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {items.slice(0, 8).map(item => (
-                    <span key={item.id} style={{
-                      padding: '2px 6px', borderRadius: 6, fontSize: '0.65rem', fontWeight: 600,
-                      background: `${QUAD_COLORS[quad]}15`, color: QUAD_COLORS[quad],
-                    }}>{item.name}</span>
-                  ))}
-                  {items.length > 8 && <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>+{items.length - 8} more</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 10, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-          <span>← Low Profit</span>
-          <span style={{ flex: 1, textAlign: 'center' }}>Profit Margin →</span>
-          <span>↑ Popularity</span>
-        </div>
-      </div>
-
-      {/* Full Table */}
-      <div className="card">
-        <SectionTitle>Menu Item Analysis ({menuData.length} items)</SectionTitle>
-        {menuData.length === 0 ? <Empty text="No menu items or order data." /> : (
-          <TableWrap>
-            <thead>
-              <tr>
-                <Th>#</Th><Th>Item</Th><Th>Category</Th><Th right>Sold</Th><Th right>Revenue</Th>
-                <Th right>Cost</Th><Th right>Profit</Th><Th right>Margin %</Th><Th>Classification</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {menuData.map(d => (
-                <tr key={d.id}>
-                  <Td muted>{d.rank}</Td>
-                  <Td bold>{d.name}</Td>
-                  <Td muted>{d.category}</Td>
-                  <Td right>{d.sold}</Td>
-                  <Td right bold>{fmt(d.revenue)}</Td>
-                  <Td right muted>{fmt(d.cost)}</Td>
-                  <Td right>{fmt(d.profit)}</Td>
-                  <Td right>{fmtPct(d.margin)}</Td>
-                  <Td><Badge label={d.classification} color={QUAD_COLORS[d.classification]} /></Td>
-                </tr>
-              ))}
-            </tbody>
-          </TableWrap>
-        )}
-      </div>
-    </div>
-  );
-};
-
-
-// =================================================================
-// TAB 8 -- INVENTORY REPORT
-// =================================================================
-
-const InventoryReport = ({ inventory, wasteLog, orders, menu }) => {
-  const [range, setRange]       = useState('This Month');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo]     = useState('');
-
-  const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
-  const filteredWaste = useMemo(() => filterByRange(wasteLog || [], range, dateFrom, dateTo, 'date'), [wasteLog, range, dateFrom, dateTo]);
-
-  // Stock value summary
-  const stockSummary = useMemo(() => {
-    const totalValue = inventory.reduce((s, i) => s + (i.stock || 0) * (i.cost || 0), 0);
-    const critical = inventory.filter(i => i.status === 'critical').length;
-    const low = inventory.filter(i => i.status === 'low').length;
-    return { totalValue, critical, low, totalItems: inventory.length };
-  }, [inventory]);
-
-  // Waste summary
-  const wasteSummary = useMemo(() => {
-    const totalCost = filteredWaste.reduce((s, w) => s + (w.cost || 0) * (w.qty || 0), 0);
-    const totalItems = filteredWaste.length;
-    return { totalCost, totalItems };
-  }, [filteredWaste]);
-
-  // Top waste items
-  const topWaste = useMemo(() => {
-    const map = {};
-    filteredWaste.forEach(w => {
-      const k = w.item || w.name || 'Unknown';
-      if (!map[k]) map[k] = { name: k, qty: 0, cost: 0 };
-      map[k].qty += w.qty || 0;
-      map[k].cost += (w.cost || 0) * (w.qty || 0);
-    });
-    return Object.values(map).sort((a, b) => b.cost - a.cost).slice(0, 10);
-  }, [filteredWaste]);
-  const maxWasteCost = topWaste[0]?.cost || 1;
-
-  // Actual vs Theoretical variance
-  const varianceData = useMemo(() => {
-    const theoreticalUsage = {};
-    filteredOrders.forEach(o => (o.items || []).forEach(item => {
-      const menuItem = menu.find(m => m.name === item.name);
-      if (menuItem?.ingredients) {
-        menuItem.ingredients.forEach(ing => {
-          const k = ing.name || ing.item;
-          if (!theoreticalUsage[k]) theoreticalUsage[k] = 0;
-          theoreticalUsage[k] += (ing.qty || 0) * (item.qty || 1);
-        });
-      }
-    }));
-
-    return inventory.map(inv => {
-      const theoretical = theoreticalUsage[inv.name] || 0;
-      const actual = Math.max(0, (inv.initialStock || inv.stock + theoretical) - (inv.stock || 0));
-      const variance = actual - theoretical;
-      const variancePct = theoretical > 0 ? (variance / theoretical * 100) : 0;
-      return {
-        id: inv.id,
-        name: inv.name,
-        theoretical: Math.round(theoretical * 10) / 10,
-        actual: Math.round(actual * 10) / 10,
-        currentStock: inv.stock || 0,
-        variance: Math.round(variance * 10) / 10,
-        variancePct: Math.round(variancePct * 10) / 10,
-        unit: inv.unit || '',
-      };
-    }).filter(d => d.theoretical > 0 || d.actual > 0).sort((a, b) => Math.abs(b.variancePct) - Math.abs(a.variancePct));
-  }, [inventory, filteredOrders, menu]);
-
-  const handleExport = () => {
-    const rows = [
-      'Item,Theoretical Usage,Actual Usage,Variance,Variance %,Current Stock,Unit',
-      ...varianceData.map(d =>
-        `"${d.name}",${d.theoretical},${d.actual},${d.variance},${d.variancePct}%,${d.currentStock},"${d.unit}"`
-      ),
-    ];
-    downloadCSV('inventory_report.csv', rows);
-  };
-
-  const statusColor = { good: '#22c55e', low: '#f59e0b', critical: '#ef4444' };
-
-  return (
-    <div>
-      <FilterBar>
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
-        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
-        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
-      </FilterBar>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Total Stock Value" value={fmt(stockSummary.totalValue)} color="#7c3aed" icon={Boxes} />
-        <StatCard label="Low / Critical" value={`${stockSummary.low} / ${stockSummary.critical}`} sub={`of ${stockSummary.totalItems} items`} color="#f59e0b" icon={AlertTriangle} />
-        <StatCard label="Waste Entries" value={wasteSummary.totalItems} color="#ef4444" icon={XCircle} />
-        <StatCard label="Waste Cost" value={fmt(wasteSummary.totalCost)} color="#ef4444" icon={IndianRupee} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-        {/* Stock Value by Status */}
-        <div className="card">
-          <SectionTitle>Stock Status Overview</SectionTitle>
-          {(['good', 'low', 'critical']).map(s => {
-            const items = inventory.filter(i => i.status === s);
-            const value = items.reduce((sum, i) => sum + (i.stock || 0) * (i.cost || 0), 0);
-            const pct = inventory.length > 0 ? Math.round((items.length / inventory.length) * 100) : 0;
-            return (
-              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                <div style={{ width: 34, textAlign: 'center' }}>
-                  {s === 'good' ? <CheckCircle size={18} color={statusColor[s]} /> : s === 'low' ? <AlertTriangle size={18} color={statusColor[s]} /> : <XCircle size={18} color={statusColor[s]} />}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'capitalize' }}>{s}</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{items.length} items ({pct}%) -- {fmt(value)}</span>
-                  </div>
-                  <Bar pct={pct} color={statusColor[s]} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Top Waste Items */}
-        <div className="card">
-          <SectionTitle>Top Waste Items</SectionTitle>
-          {topWaste.length === 0 ? <Empty text="No waste recorded." /> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {topWaste.map((w, i) => (
-                <div key={w.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', width: 90, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
-                  <Bar pct={Math.round((w.cost / maxWasteCost) * 100)} color={COLORS[i % COLORS.length]} />
-                  <span style={{ fontSize: '0.73rem', fontWeight: 700, width: 60, textAlign: 'right', flexShrink: 0 }}>{fmt(w.cost)}</span>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', width: 40, textAlign: 'right', flexShrink: 0 }}>{w.qty} qty</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Actual vs Theoretical Variance */}
-      <div className="card">
-        <SectionTitle>Actual vs Theoretical Usage Variance ({varianceData.length} items)</SectionTitle>
-        {varianceData.length === 0 ? <Empty text="No recipe data to compute theoretical usage. Add recipes to menu items for variance tracking." /> : (
-          <TableWrap>
-            <thead>
-              <tr>
-                <Th>Item</Th><Th right>Theoretical</Th><Th right>Actual</Th>
-                <Th right>Variance</Th><Th right>Variance %</Th><Th right>Current Stock</Th><Th>Unit</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {varianceData.map(d => {
-                const varColor = Math.abs(d.variancePct) > 10 ? '#ef4444' : Math.abs(d.variancePct) > 5 ? '#f59e0b' : '#22c55e';
-                return (
-                  <tr key={d.id}>
-                    <Td bold>{d.name}</Td>
-                    <Td right>{d.theoretical}</Td>
-                    <Td right>{d.actual}</Td>
-                    <Td right style={{ color: varColor, fontWeight: 700 }}>
-                      {d.variance > 0 ? '+' : ''}{d.variance}
-                    </Td>
-                    <Td right>
-                      <Badge label={`${d.variancePct > 0 ? '+' : ''}${d.variancePct}%`} color={varColor} />
-                    </Td>
-                    <Td right bold>{d.currentStock}</Td>
-                    <Td muted>{d.unit}</Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </TableWrap>
-        )}
-      </div>
-    </div>
-  );
-};
-
-
-// =================================================================
-// MAIN REPORTS PAGE
+// MAIN REPORTS COMPONENT
 // =================================================================
 
 const TABS = [
-  { id: 'dashboard',  label: 'Dashboard',        icon: LayoutDashboard },
-  { id: 'sales',      label: 'Sales',             icon: TrendingUp },
-  { id: 'tax',        label: 'Tax Report',        icon: Receipt },
-  { id: 'invoices',   label: 'Invoice Detail',    icon: FileText },
-  { id: 'speed',      label: 'Speed of Service',  icon: Zap },
-  { id: 'labor',      label: 'Labor',             icon: Users },
-  { id: 'menueng',    label: 'Menu Engineering',  icon: Utensils },
-  { id: 'inventory',  label: 'Inventory',         icon: Boxes },
+  { id: 'dashboard',         label: 'Dashboard',            icon: LayoutDashboard },
+  { id: 'sales_invoicing',   label: 'Sales & Invoicing',    icon: TrendingUp },
+  { id: 'tax_compliance',    label: 'Tax & Compliance',     icon: Receipt },
+  { id: 'inventory_mgmt',    label: 'Inventory Mgmt',       icon: Boxes },
+  { id: 'menu_mgmt',         label: 'Menu Management',      icon: Utensils },
+  { id: 'operational_eff',   label: 'Operational Efficiency', icon: Clock },
+  { id: 'speed',             label: 'Speed of Service',     icon: Zap },
+  { id: 'labor',             label: 'Labor & Staffing',     icon: Users },
 ];
 
 const Reports = () => {
-  const { orders, inventory, staff, menu, kdsTickets, deliveryOrders, settings, wasteLog, floorPlans } = useApp();
+  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans } = useApp();
   const [activeTab, setActiveTab] = useState('dashboard');
 
   return (
@@ -1723,7 +1720,7 @@ const Reports = () => {
         <div>
           <h1 className="page-title">Analytics &amp; Reports</h1>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
-            Full business intelligence -- dashboard, sales, tax, invoices, speed, labor, menu engineering &amp; inventory
+            Real-time business intelligence: Sales, Tax compliance, Inventory performance, Menu engineering &amp; Operational efficiency.
           </p>
         </div>
       </div>
@@ -1750,14 +1747,14 @@ const Reports = () => {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'dashboard' && <DashboardTab orders={orders} inventory={inventory} staff={staff} menu={menu} kdsTickets={kdsTickets} deliveryOrders={deliveryOrders} floorPlans={floorPlans} settings={settings} />}
-      {activeTab === 'sales'     && <SalesReport orders={orders} />}
-      {activeTab === 'tax'       && <TaxReport orders={orders} />}
-      {activeTab === 'invoices'  && <InvoiceDetail orders={orders} staff={staff} />}
-      {activeTab === 'speed'     && <SpeedOfService orders={orders} kdsTickets={kdsTickets} />}
-      {activeTab === 'labor'     && <LaborReport orders={orders} staff={staff} />}
-      {activeTab === 'menueng'   && <MenuEngineering orders={orders} menu={menu} />}
-      {activeTab === 'inventory' && <InventoryReport inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}
+      {activeTab === 'dashboard'        && <DashboardTab orders={orders} inventory={inventory} staff={staff} floorPlans={floorPlans} />}
+      {activeTab === 'sales_invoicing'  && <SalesInvoicingTab orders={orders} />}
+      {activeTab === 'tax_compliance'   && <TaxComplianceTab orders={orders} />}
+      {activeTab === 'inventory_mgmt'   && <InventoryMgmtTab inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}
+      {activeTab === 'menu_mgmt'        && <MenuManagementTab orders={orders} menu={menu} />}
+      {activeTab === 'operational_eff'  && <OperationalEfficiencyTab orders={orders} />}
+      {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} />}
+      {activeTab === 'labor'            && <LaborReport orders={orders} staff={staff} />}
     </div>
   );
 };
