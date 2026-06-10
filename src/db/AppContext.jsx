@@ -166,7 +166,39 @@ export function AppProvider({ children }) {
     setRecipes(getAll('recipes'));
     setWasteLog(getAll('waste_log'));
     setLocations(getAll('locations'));
-    setAuditLog(getAll('audit_log'));
+    const isDemo = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+    if (tenant === 'Kitchgoo' && supabase && !isDemo) {
+      try {
+        const { data: allLogsRes } = await supabase
+          .from('tenant_data')
+          .select('*')
+          .eq('collection_name', 'audit_log');
+          
+        if (allLogsRes && allLogsRes.length > 0) {
+          const combinedLogs = [];
+          allLogsRes.forEach(row => {
+            const accId = row.account_id;
+            if (Array.isArray(row.value)) {
+              row.value.forEach(log => {
+                combinedLogs.push({
+                  ...log,
+                  accountId: accId,
+                });
+              });
+            }
+          });
+          combinedLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          setAuditLog(combinedLogs);
+        } else {
+          setAuditLog([]);
+        }
+      } catch (err) {
+        console.error('[DB] Failed to fetch all audit logs:', err);
+        setAuditLog(getAll('audit_log'));
+      }
+    } else {
+      setAuditLog(getAll('audit_log'));
+    }
     const fp = getAll('floor_plans');
     setFloorPlans(fp && fp.tables ? fp : { tables: [], sections: [] });
     setModifiers(getAll('modifiers'));
@@ -223,27 +255,27 @@ export function AppProvider({ children }) {
     const channel = supabase
       .channel(`kitchgoo_realtime_${activeTenant}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
           reload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, (payload) => {
-        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
           reload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, (payload) => {
-        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
           reload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
-        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
           reload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tenant_data' }, (payload) => {
-        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
           reload();
         }
       })

@@ -106,13 +106,13 @@ const COMPLIANCE_ITEMS = [
 // ── Helpers ────────────────────────────────────────────────────
 
 const fmtDate = (iso) =>
-  iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '--';
+  iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '--';
 
 const fmtDateTime = (iso) =>
-  iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--';
+  iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) + ' IST' : '--';
 
 const fmtTime = (iso) =>
-  iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--';
+  iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--';
 
 const maskKey = (key) => key ? key.slice(0, 8) + '****' + key.slice(-4) : '';
 
@@ -590,6 +590,7 @@ const AuditLogsTab = ({ auditLog }) => {
   const [search, setSearch] = useState('');
   const [filterUser, setFilterUser] = useState('');
   const [filterAction, setFilterAction] = useState('');
+  const [filterAccount, setFilterAccount] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -597,16 +598,16 @@ const AuditLogsTab = ({ auditLog }) => {
   const logs = useMemo(() => {
     if (auditLog && auditLog.length > 0) return auditLog;
     const demoActions = [
-      { action: 'login', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Logged in from Chrome/Windows', ip: '192.168.1.100' },
-      { action: 'menu.update', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Updated price of "Butter Chicken" from 350 to 380', ip: '192.168.1.105' },
-      { action: 'order.void', user: 'manager@kitchgoo.com', userName: 'Priya M.', details: 'Voided order #1042 - customer complaint', ip: '192.168.1.102' },
-      { action: 'inventory.create', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Added new item "Truffle Oil" to inventory', ip: '192.168.1.100' },
-      { action: 'settings.update', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Changed GST rate from 5% to 5.5%', ip: '192.168.1.100' },
-      { action: 'staff.create', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Added new staff member "Karan S."', ip: '192.168.1.100' },
-      { action: 'menu.delete', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Removed "Seasonal Salad" from lunch menu', ip: '192.168.1.105' },
-      { action: 'order.comp', user: 'manager@kitchgoo.com', userName: 'Priya M.', details: 'Comp on order #1038 - regular guest courtesy', ip: '192.168.1.102' },
-      { action: 'logout', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Session ended', ip: '192.168.1.105' },
-      { action: 'price.update', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Bulk price update: 12 items adjusted', ip: '192.168.1.100' },
+      { action: 'login', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Logged in from Chrome/Windows', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'menu.update', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Updated price of "Butter Chicken" from 350 to 380', ip: '192.168.1.105', accountId: 'Delhi Cafe' },
+      { action: 'order.void', user: 'manager@kitchgoo.com', userName: 'Priya M.', details: 'Voided order #1042 - customer complaint', ip: '192.168.1.102', accountId: 'Delhi Cafe' },
+      { action: 'inventory.create', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Added new item "Truffle Oil" to inventory', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'settings.update', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Changed GST rate from 5% to 5.5%', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'staff.create', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Added new staff member "Karan S."', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'menu.delete', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Removed "Seasonal Salad" from lunch menu', ip: '192.168.1.105', accountId: 'Delhi Cafe' },
+      { action: 'order.comp', user: 'manager@kitchgoo.com', userName: 'Priya M.', details: 'Comp on order #1038 - regular guest courtesy', ip: '192.168.1.102', accountId: 'Delhi Cafe' },
+      { action: 'logout', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Session ended', ip: '192.168.1.105', accountId: 'Delhi Cafe' },
+      { action: 'price.update', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Bulk price update: 12 items adjusted', ip: '192.168.1.100', accountId: 'Kitchgoo' },
     ];
     return demoActions.map((d, i) => ({
       id: `demo_${i}`,
@@ -617,15 +618,22 @@ const AuditLogsTab = ({ auditLog }) => {
 
   const users = useMemo(() => [...new Set(logs.map(l => l.userName || l.user))], [logs]);
   const actions = useMemo(() => [...new Set(logs.map(l => l.action))], [logs]);
+  const accounts = useMemo(() => [...new Set(logs.map(l => l.accountId || 'Kitchgoo'))], [logs]);
 
   const filtered = useMemo(() => {
     return logs.filter(l => {
       if (search) {
         const s = search.toLowerCase();
-        if (!(l.details || '').toLowerCase().includes(s) && !(l.action || '').toLowerCase().includes(s) && !(l.userName || '').toLowerCase().includes(s)) return false;
+        if (
+          !(l.details || '').toLowerCase().includes(s) &&
+          !(l.action || '').toLowerCase().includes(s) &&
+          !(l.userName || '').toLowerCase().includes(s) &&
+          !(l.accountId || '').toLowerCase().includes(s)
+        ) return false;
       }
       if (filterUser && (l.userName || l.user) !== filterUser) return false;
       if (filterAction && l.action !== filterAction) return false;
+      if (filterAccount && (l.accountId || 'Kitchgoo') !== filterAccount) return false;
       if (dateFrom && l.timestamp < dateFrom) return false;
       if (dateTo && l.timestamp < dateTo + 'T23:59:59') {
         // keep it
@@ -633,12 +641,12 @@ const AuditLogsTab = ({ auditLog }) => {
       if (dateTo && new Date(l.timestamp) > new Date(dateTo + 'T23:59:59')) return false;
       return true;
     });
-  }, [logs, search, filterUser, filterAction, dateFrom, dateTo]);
+  }, [logs, search, filterUser, filterAction, filterAccount, dateFrom, dateTo]);
 
   const exportCSV = useCallback(() => {
-    const header = 'Timestamp,User,Action,Details,IP Address';
+    const header = 'Timestamp,Account,User,Action,Details,IP Address';
     const rows = filtered.map(l =>
-      `"${fmtDateTime(l.timestamp)}","${l.userName || l.user}","${l.action}","${(l.details || '').replace(/"/g, '""')}","${l.ip || ''}"`
+      `"${fmtDateTime(l.timestamp)}","${l.accountId || 'Kitchgoo'}","${l.userName || l.user}","${l.action}","${(l.details || '').replace(/"/g, '""')}","${l.ip || ''}"`
     );
     const csv = [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -659,6 +667,10 @@ const AuditLogsTab = ({ auditLog }) => {
           <input className="input-field" placeholder="Search logs..." value={search} onChange={e => setSearch(e.target.value)}
             style={{ paddingLeft: '32px' }} />
         </div>
+        <select className="input-field" value={filterAccount} onChange={e => setFilterAccount(e.target.value)} style={{ flex: '0 1 160px' }}>
+          <option value="">All Accounts</option>
+          {accounts.map(acc => <option key={acc} value={acc}>{acc}</option>)}
+        </select>
         <select className="input-field" value={filterUser} onChange={e => setFilterUser(e.target.value)} style={{ flex: '0 1 160px' }}>
           <option value="">All Users</option>
           {users.map(u => <option key={u} value={u}>{u}</option>)}
@@ -685,20 +697,21 @@ const AuditLogsTab = ({ auditLog }) => {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
             <thead>
               <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
-                {['Timestamp', 'User', 'Action', 'Details', 'IP Address'].map(h => (
+                {['Timestamp', 'Account', 'User', 'Action', 'Details', 'IP Address'].map(h => (
                   <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No audit log entries found.</td></tr>
+                <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No audit log entries found.</td></tr>
               ) : filtered.slice(0, 100).map(l => {
                 const ac = getActionColor(l.action);
                 return (
                   <tr key={l.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                     <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{fmtDateTime(l.timestamp)}</td>
-                    <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{l.userName || l.user}</td>
+                    <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{l.accountId || 'Kitchgoo'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{l.userName || l.user}</td>
                     <td style={{ padding: '10px 14px' }}>
                       <Badge bg={ac.bg} color={ac.text}>{l.action}</Badge>
                     </td>

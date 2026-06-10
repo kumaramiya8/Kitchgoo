@@ -16,6 +16,18 @@ export function genId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function getSessionUser() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = window.localStorage.getItem('kitchgoo_session');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    }
+  } catch {}
+  return { id: 'system', name: 'System / Guest' };
+}
+
 const NS = 'kitchgoo_';
 
 // Local Storage backup helpers for Demo Mode
@@ -695,6 +707,22 @@ export async function insert(collection, data) {
       console.error(`[DB] Error inserting to ${collection}:`, err);
     }
   }
+
+  if (collection !== 'audit_log') {
+    try {
+      const user = getSessionUser();
+      const displayName = newItem.name || newItem.billNo || newItem.title || newItem.id;
+      logAudit(
+        `${collection}.create`,
+        user.id,
+        user.name,
+        `Added new ${collection}: ${displayName}`
+      ).catch(err => console.error('[DB] Failed to log insert audit:', err));
+    } catch (e) {
+      console.error('[DB] Insert audit logging error:', e);
+    }
+  }
+
   return newItem;
 }
 
@@ -784,6 +812,20 @@ export async function remove(collection, id) {
       }
     } catch (err) {
       console.error(`[DB] Error deleting from ${collection}:`, err);
+    }
+  }
+
+  if (collection !== 'audit_log') {
+    try {
+      const user = getSessionUser();
+      logAudit(
+        `${collection}.delete`,
+        user.id,
+        user.name,
+        `Deleted entry from ${collection} with ID: ${id}`
+      ).catch(err => console.error('[DB] Failed to log delete audit:', err));
+    } catch (e) {
+      console.error('[DB] Delete audit logging error:', e);
     }
   }
 }
@@ -881,6 +923,20 @@ export async function setCollection(collection, data) {
       throw err;
     }
   }
+
+  if (collection !== 'audit_log') {
+    try {
+      const user = getSessionUser();
+      logAudit(
+        `${collection}.update`,
+        user.id,
+        user.name,
+        `Updated collection: ${collection}`
+      ).catch(err => console.error('[DB] Failed to log collection update audit:', err));
+    } catch (e) {
+      console.error('[DB] Collection audit logging error:', e);
+    }
+  }
 }
 
 // ─── Settings ───────────────────────────────────────────────
@@ -916,6 +972,19 @@ export async function updateSettings(section, data) {
       console.error('[DB] Error updating settings row:', err);
     }
   }
+
+  try {
+    const user = getSessionUser();
+    logAudit(
+      'settings.update',
+      user.id,
+      user.name,
+      `Updated settings section: ${section}`
+    ).catch(err => console.error('[DB] Failed to log settings update audit:', err));
+  } catch (e) {
+    console.error('[DB] Settings audit logging error:', e);
+  }
+
   return updated;
 }
 
@@ -1137,13 +1206,29 @@ export async function addToWaitlist(data) {
 
 // ─── Audit Log ───────────────────────────────────────────────
 export async function logAudit(action, userId, userName, details) {
+  let ip = 'local';
+  try {
+    if (typeof window !== 'undefined') {
+      if (!window.__clientIp) {
+        const res = await fetch('https://api.ipify.org?format=json');
+        const data = await res.json();
+        if (data && data.ip) {
+          window.__clientIp = data.ip;
+        }
+      }
+      ip = window.__clientIp || 'local';
+    }
+  } catch (err) {
+    console.warn('[DB] Failed to fetch public IP:', err);
+  }
+
   return insert('audit_log', {
     action,
     userId,
     userName,
     details,
     timestamp: new Date().toISOString(),
-    ip: 'local',
+    ip,
   });
 }
 
