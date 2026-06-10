@@ -146,12 +146,6 @@ const Login = () => {
           </button>
         </form>
 
-        {/* Demo credentials hint */}
-        <div style={{ marginTop: '20px', padding: '12px 14px', background: 'rgba(124,58,237,0.06)', borderRadius: '12px', border: '1px dashed rgba(124,58,237,0.25)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '4px' }}>DEMO CREDENTIALS</div>
-          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Email: <strong>admin@kitchgoo.in</strong></div>
-          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Password: <strong>admin123</strong></div>
-        </div>
       </div>
     </div>
   );

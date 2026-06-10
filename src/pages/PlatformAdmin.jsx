@@ -8,7 +8,7 @@ import {
   ExternalLink, Copy, Play, Pause, Clock, Users, Monitor, Smartphone,
   CheckCircle, XCircle, Filter, Calendar, ArrowUpRight, Settings,
   Database, Mail, MessageSquare, DollarSign, Building2, Hotel,
-  BarChart3, CircleDot, ShieldCheck, ShieldAlert, LogOut, Clipboard
+  BarChart3, CircleDot, ShieldCheck, ShieldAlert, LogOut, Clipboard, User
 } from 'lucide-react';
 import { useAuth } from '../db/AuthContext';
 import { useApp } from '../db/AppContext';
@@ -23,6 +23,7 @@ const TABS = [
   { id: 'api', label: 'API & Webhooks', icon: Webhook },
   { id: 'integrations', label: 'Integrations', icon: Puzzle },
   { id: 'security', label: 'Security', icon: Shield },
+  { id: 'profile', label: 'My Profile', icon: User },
 ];
 
 const PLANS = [
@@ -1276,11 +1277,157 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// ── PROFILE TAB ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const ProfileTab = ({ user, updateProfile, addAuditEntry }) => {
+  const [email, setEmail] = useState(user?.email || '');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      setMessage({ type: 'error', text: 'Email is required.' });
+      return;
+    }
+    if (password && password.length < 6) {
+      setMessage({ type: 'error', text: 'Password must be at least 6 characters.' });
+      return;
+    }
+    if (password !== confirmPassword) {
+      setMessage({ type: 'error', text: 'Passwords do not match.' });
+      return;
+    }
+
+    setLoading(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const payload = { email: email.trim() };
+      if (password) {
+        payload.password = password;
+      }
+      const res = await updateProfile(payload);
+      if (res.success) {
+        setMessage({ type: 'success', text: 'Profile updated successfully!' });
+        setPassword('');
+        setConfirmPassword('');
+        addAuditEntry?.('profile.update', user?.id || 'system', user?.name || 'Admin', 'Updated platform admin profile credentials');
+      } else {
+        setMessage({ type: 'error', text: res.error || 'Failed to update profile.' });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message || 'An error occurred.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="animate-fade-up" style={{ display: 'flex', justifyContent: 'center' }}>
+      <div className="card" style={{ padding: '28px', maxWidth: '480px', width: '100%', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Settings size={18} style={{ color: 'var(--primary)' }} /> Edit Profile
+        </h3>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+          Update your platform administrator email and login password.
+        </p>
+
+        {message.text && (
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: '10px',
+            fontSize: '0.8rem',
+            fontWeight: 500,
+            background: message.type === 'success' ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+            border: `1.5px solid ${message.type === 'success' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
+            color: message.type === 'success' ? '#16a34a' : '#dc2626',
+          }}>
+            {message.text}
+          </div>
+        )}
+
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="input-group">
+            <label className="input-label">Username / Name</label>
+            <input className="input-field" value={user?.name || ''} disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} />
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Email Address</label>
+            <input className="input-field" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">New Password (leave blank to keep current)</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input-field"
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="min. 6 characters"
+                style={{ paddingRight: '40px', width: '100%', boxSizing: 'border-box' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd(!showPwd)}
+                style={{
+                  position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
+                  display: 'flex', alignItems: 'center'
+                }}
+              >
+                {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Confirm New Password</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input-field"
+                type={showConfirmPwd ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                placeholder="Confirm password"
+                style={{ paddingRight: '40px', width: '100%', boxSizing: 'border-box' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPwd(!showConfirmPwd)}
+                style={{
+                  position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
+                  display: 'flex', alignItems: 'center'
+                }}
+              >
+                {showConfirmPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', marginTop: '8px' }}>
+            {loading ? 'Saving...' : 'Save Profile'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
 // ── MAIN PAGE COMPONENT ───────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
 export default function PlatformAdmin() {
   const { settings, auditLog, orders, updateSettingsSection, addAuditEntry } = useApp();
+  const { user, updateProfile } = useAuth();
   const [activeTab, setActiveTab] = useState('accounts');
 
   return (
@@ -1325,6 +1472,7 @@ export default function PlatformAdmin() {
       {activeTab === 'api' && <ApiWebhooksTab addAuditEntry={addAuditEntry} />}
       {activeTab === 'integrations' && <IntegrationsTab addAuditEntry={addAuditEntry} />}
       {activeTab === 'security' && <SecurityTab settings={settings} updateSettingsSection={updateSettingsSection} addAuditEntry={addAuditEntry} />}
+      {activeTab === 'profile' && <ProfileTab user={user} updateProfile={updateProfile} addAuditEntry={addAuditEntry} />}
     </div>
   );
 }
