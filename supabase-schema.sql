@@ -139,3 +139,11 @@ CREATE POLICY "menu_public_access" ON menu FOR ALL USING (true) WITH CHECK (true
 CREATE POLICY "inventory_public_access" ON inventory FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "orders_public_access" ON orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "tenant_data_public_access" ON tenant_data FOR ALL USING (true) WITH CHECK (true);
+
+-- Enable Realtime Replication for tables that require real-time updates
+-- (e.g. KDS ticket alerts, POS table/order updates, QR Menu orders)
+ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+ALTER PUBLICATION supabase_realtime ADD TABLE menu;
+ALTER PUBLICATION supabase_realtime ADD TABLE inventory;
+ALTER PUBLICATION supabase_realtime ADD TABLE settings;
+ALTER PUBLICATION supabase_realtime ADD TABLE tenant_data;

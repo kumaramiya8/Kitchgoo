@@ -279,7 +279,13 @@ export function AppProvider({ children }) {
           reload();
         }
       })
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`[Realtime] Subscribed to changes for tenant: ${activeTenant}`);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error(`[Realtime] Failed to subscribe to changes for tenant: ${activeTenant}`, err);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
