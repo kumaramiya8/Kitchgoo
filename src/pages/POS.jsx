@@ -1099,11 +1099,11 @@ const POS = () => {
   const [mobileTab, setMobileTab] = useState('menu');
   const [showPendingModal, setShowPendingModal] = useState(false);
 
-  // Poll database every 15 seconds to fetch incoming QR Menu orders
+  // Poll database every 60 seconds to fetch incoming QR Menu orders
   useEffect(() => {
     const interval = setInterval(() => {
       reload();
-    }, 15000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [reload]);
 

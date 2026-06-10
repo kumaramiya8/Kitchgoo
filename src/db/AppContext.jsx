@@ -4,6 +4,7 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
+import { supabase } from '../lib/supabase';
 import {
   getAll,
   getSettings,
@@ -71,12 +72,15 @@ export function AppProvider({ children }) {
   const [posSavedOrders, setPosSavedOrders] = useState({});
 
   const [hasLoadedFromDb, setHasLoadedFromDb] = useState(false);
+  const [activeTenant, setActiveTenant] = useState(null);
 
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb) return;
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
     if (tenant) {
+      const cached = getAll('pos_tables');
+      if (JSON.stringify(cached) === JSON.stringify(posTables)) return;
       setCollection('pos_tables', posTables).catch(err => console.error("Error saving pos_tables:", err));
     }
   }, [posTables, authLoading, hasLoadedFromDb]);
@@ -86,6 +90,8 @@ export function AppProvider({ children }) {
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_saved_orders`, JSON.stringify(posSavedOrders));
     if (tenant) {
+      const cached = getAll('pos_saved_orders');
+      if (JSON.stringify(cached) === JSON.stringify(posSavedOrders)) return;
       setCollection('pos_saved_orders', posSavedOrders).catch(err => console.error("Error saving pos_saved_orders:", err));
     }
   }, [posSavedOrders, authLoading, hasLoadedFromDb]);
@@ -111,14 +117,15 @@ export function AppProvider({ children }) {
       const tenant = getCurrentTenant();
       let currentSaved = [];
       
-      const dbTables = getAll('pos_tables');
-      if (dbTables && dbTables.length > 0) {
-        currentSaved = dbTables;
-      } else {
+      const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+      if (!supabase || isDemoMode) {
         try {
           const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
           if (savedStr) currentSaved = JSON.parse(savedStr);
         } catch {}
+      } else {
+        const dbTables = getAll('pos_tables');
+        currentSaved = dbTables || [];
       }
 
       return floorTables.map(t => {
@@ -170,33 +177,82 @@ export function AppProvider({ children }) {
     setGuests(getAll('guests'));
     setCashDrawer(getAll('cash_drawer') || {});
 
-    // Sync posTables and posSavedOrders from DB
-    const dbTables = getAll('pos_tables');
-    if (dbTables && dbTables.length > 0) {
-      setPosTables(dbTables);
-    } else {
+    const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+
+    // Sync posTables and posSavedOrders
+    if (!supabase || isDemoMode) {
       try {
         const savedTables = localStorage.getItem(`${tenant}_pos_tables`);
         setPosTables(savedTables ? JSON.parse(savedTables) : []);
       } catch {
         setPosTables([]);
       }
-    }
-
-    const dbOrders = getAll('pos_saved_orders');
-    if (dbOrders && typeof dbOrders === 'object' && !Array.isArray(dbOrders) && Object.keys(dbOrders).length > 0) {
-      setPosSavedOrders(dbOrders);
-    } else {
       try {
         const savedOrders = localStorage.getItem(`${tenant}_pos_saved_orders`);
         setPosSavedOrders(savedOrders ? JSON.parse(savedOrders) : {});
       } catch {
         setPosSavedOrders({});
       }
+    } else {
+      const dbTables = getAll('pos_tables');
+      setPosTables(dbTables || []);
+      const dbOrders = getAll('pos_saved_orders');
+      setPosSavedOrders(dbOrders || {});
     }
 
+    setActiveTenant(tenant);
     setHasLoadedFromDb(true);
   };
+
+  // Set up realtime updates across all database tables for the active tenant
+  useEffect(() => {
+    if (authLoading || !hasLoadedFromDb || !activeTenant) return;
+    if (!supabase) return;
+
+    const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+    if (isDemoMode) {
+      const handleStorage = (e) => {
+        if (e.key && e.key.includes(`${activeTenant}_`)) {
+          reload();
+        }
+      };
+      window.addEventListener('storage', handleStorage);
+      return () => window.removeEventListener('storage', handleStorage);
+    }
+
+    const channel = supabase
+      .channel(`kitchgoo_realtime_${activeTenant}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+          reload();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, (payload) => {
+        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+          reload();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, (payload) => {
+        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+          reload();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
+        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+          reload();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tenant_data' }, (payload) => {
+        if (payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
+          reload();
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authLoading, hasLoadedFromDb, activeTenant]);
 
   // ── Staff ────────────────────────────────────────────────
   const addStaff = useCallback(async (data) => {

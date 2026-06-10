@@ -80,11 +80,11 @@ const QRMenu = () => {
     load();
   }, [tenantId]);
 
-  // Poll database every 15 seconds to fetch incoming POS table statuses and active orders
+  // Poll database every 60 seconds to fetch incoming POS table statuses and active orders
   useEffect(() => {
     const interval = setInterval(() => {
       reload();
-    }, 15000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [reload]);
 

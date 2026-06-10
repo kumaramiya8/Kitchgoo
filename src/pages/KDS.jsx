@@ -297,11 +297,11 @@ export default function KDS() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll database every 15 seconds to fetch incoming KDS tickets and table statuses
+  // Poll database every 60 seconds to fetch incoming KDS tickets and table statuses
   useEffect(() => {
     const interval = setInterval(() => {
       reload();
-    }, 15000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [reload]);
 
