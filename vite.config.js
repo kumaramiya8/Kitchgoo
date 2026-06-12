@@ -5,7 +5,7 @@ import helpHandler from './api/help.js';
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  process.env.GEMINI_API_KEY = env.GEMINI_API_KEY;
+  process.env.GROQ_API_KEY = env.GROQ_API_KEY;
 
   return {
     plugins: [

@@ -17,9 +17,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Message is required' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'Gemini API key is not configured on the server. Please check your environment variables.' });
+    return res.status(500).json({ error: 'Groq API key is not configured on the server. Please check your environment variables.' });
   }
 
   try {
@@ -81,93 +81,87 @@ The response MUST be a JSON object with the following schema:
 
 Ensure the output is strictly valid JSON matching the above structure, and no other text is returned outside the JSON.`;
 
-    const contents = [];
+    const messagesList = [
+      { role: 'system', content: systemPrompt }
+    ];
+
     if (chatHistory && Array.isArray(chatHistory)) {
       chatHistory.forEach(msg => {
-        contents.push({
-          role: msg.sender === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.text }]
+        messagesList.push({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: msg.text
         });
       });
     }
     
     // Add the new user query with context snapshot
-    contents.push({
+    messagesList.push({
       role: 'user',
-      parts: [
-        {
-          text: `User message: "${message}"\n\nContext Data (current state of the application):\n${JSON.stringify(contextData || {}, null, 2)}`
-        }
-      ]
+      content: `User query: "${message}"\n\nContext Data (current state of the application):\n${JSON.stringify(contextData || {}, null, 2)}`
     });
 
-    // Call Gemini with automatic retry and model fallback
-    const callGeminiWithFallback = async () => {
-      const models = ['gemini-1.5-flash', 'gemini-2.0-flash'];
+    // Call Groq API with retries
+    const callGroqWithRetry = async () => {
+      let retries = 2;
+      let delay = 1000;
       let lastError = null;
 
-      for (const model of models) {
-        let retries = 2;
-        let delay = 1000;
-
-        while (retries >= 0) {
-          try {
-            console.log(`[API] Querying Gemini model: ${model} (retries left: ${retries})`);
-            const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
+      while (retries >= 0) {
+        try {
+          console.log(`[API] Querying Groq model llama-3.3-70b-versatile (retries left: ${retries})`);
+          const response = await fetch(
+            'https://api.groq.com/openai/v1/chat/completions',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages: messagesList,
+                response_format: {
+                  type: 'json_object'
                 },
-                body: JSON.stringify({
-                  contents,
-                  systemInstruction: {
-                    parts: [{ text: systemPrompt }]
-                  },
-                  generationConfig: {
-                    responseMimeType: 'application/json'
-                  }
-                }),
-              }
-            );
-
-            if (response.ok) {
-              const data = await response.json();
-              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (text) return text;
+                temperature: 0.1
+              }),
             }
+          );
 
-            const errText = await response.text();
-            lastError = new Error(`Gemini API error for ${model}: ${response.status} - ${errText}`);
-            
-            // Only retry on rate limits (429) or temp issues (503)
-            if (response.status !== 503 && response.status !== 429) {
-              break; // Try next model immediately
-            }
-          } catch (err) {
-            lastError = err;
+          if (response.ok) {
+            const data = await response.json();
+            const text = data.choices?.[0]?.message?.content;
+            if (text) return text;
           }
 
-          if (retries > 0) {
-            console.log(`[API] Temporary failure on ${model}, retrying in ${delay}ms...`);
-            await new Promise(r => setTimeout(r, delay));
-            delay *= 2;
+          const errText = await response.text();
+          lastError = new Error(`Groq API error: ${response.status} - ${errText}`);
+          
+          if (response.status !== 503 && response.status !== 429) {
+            throw lastError; // Non-retryable error
           }
-          retries--;
+        } catch (err) {
+          lastError = err;
         }
+
+        if (retries > 0) {
+          console.log(`[API] Temporary failure on Groq API, retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+        }
+        retries--;
       }
-      throw lastError || new Error('All Gemini model queries failed');
+      throw lastError || new Error('Groq API completions failed');
     };
 
-    const responseText = await callGeminiWithFallback();
+    const responseText = await callGroqWithRetry();
 
-    // Try parsing JSON response from Gemini
+    // Try parsing JSON response from Groq
     let resultObj;
     try {
       resultObj = JSON.parse(responseText);
     } catch (e) {
-      console.warn('[API] Gemini response was not valid JSON, returning raw text:', responseText);
+      console.warn('[API] Groq response was not valid JSON, returning raw text:', responseText);
       resultObj = {
         text: responseText,
         suggestions: []
@@ -177,7 +171,7 @@ Ensure the output is strictly valid JSON matching the above structure, and no ot
     return res.status(200).json(resultObj);
 
   } catch (err) {
-    console.error('[API] Error calling Gemini API:', err);
+    console.error('[API] Error calling Groq API:', err);
     return res.status(500).json({ error: err.message || 'Internal server error' });
   }
 }
