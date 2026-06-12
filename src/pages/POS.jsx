@@ -11,6 +11,7 @@ import {
   GripVertical, Coffee, ReceiptText
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { useAuth } from '../db/AuthContext';
 import { getAll, insert, update, getById } from '../db/database';
 import { printReceipt } from '../utils/printReceipt';
 
@@ -852,17 +853,21 @@ const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) =
 
 
 // ─── Cash Drawer Panel ──────────────────────────────────────────────────────
-const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose }) => {
+const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) => {
   const [dropAmount, setDropAmount] = useState('');
+  const [actualCash, setActualCash] = useState('');
+  const [closeNotes, setCloseNotes] = useState('');
 
   const balance = (cashDrawer?.openingBalance || 0) +
     (cashDrawer?.cashIn || 0) -
     (cashDrawer?.cashOut || 0) -
     (cashDrawer?.drops || []).reduce((s, d) => s + d.amount, 0);
 
+  const variance = actualCash ? parseFloat(actualCash) - balance : 0;
+
   return (
     <Modal title="Cash Drawer" onClose={onClose}>
-      <div className="modal-body">
+      <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
           <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(124,58,237,0.05)', textAlign: 'center' }}>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Opening</div>
@@ -916,6 +921,57 @@ const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose }) => {
             </div>
           </div>
         )}
+
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Close Register / End Shift</span>
+            {actualCash && (
+              <span style={{ fontSize: '0.75rem', color: variance >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 800 }}>
+                Variance: {variance >= 0 ? '+' : ''}{variance.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                Actual Cash Counted (₹)
+              </label>
+              <input
+                className="input-field"
+                type="number"
+                value={actualCash}
+                onChange={e => setActualCash(e.target.value)}
+                placeholder="Enter total physical cash counted"
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                Closure Notes
+              </label>
+              <textarea
+                className="input-field"
+                rows={2}
+                value={closeNotes}
+                onChange={e => setCloseNotes(e.target.value)}
+                placeholder="Any discrepancies or general notes..."
+                style={{ width: '100%', fontFamily: 'inherit', resize: 'vertical' }}
+              />
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', background: 'var(--danger)', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              disabled={!actualCash || parseFloat(actualCash) < 0}
+              onClick={() => {
+                if (confirm('Are you sure you want to close the register and end this shift? This will log a variance and reset the drawer balance.')) {
+                  onCloseRegister(parseFloat(actualCash) || 0, closeNotes);
+                }
+              }}
+            >
+              <Lock size={15} /> Close Register &amp; End Shift
+            </button>
+          </div>
+        </div>
       </div>
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>Close</button>
@@ -1087,11 +1143,12 @@ const PaymentModal = ({
 // ═══════════════════════════════════════════════════════════════════════════
 
 const POS = () => {
+  const { user } = useAuth();
   const {
     menu, settings, floorPlans, staff, guests, modifiers, cashDrawer,
     placeOrder, fireToKDS, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
-    onlineOrders, editOnlineOrder, reload,
+    onlineOrders, editOnlineOrder, reload, addRegisterClosure,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
@@ -1227,6 +1284,7 @@ const POS = () => {
   const [paymentModal, setPaymentModal] = useState(false);
   const [mergeModal, setMergeModal] = useState(false);
   const [cashDrawerModal, setCashDrawerModal] = useState(false);
+  const [startingFloat, setStartingFloat] = useState('5000');
   const [compModal, setCompModal] = useState(null);    // 'comp' | 'void' | 'discount'
   const [managerPinModal, setManagerPinModal] = useState(null);
 
@@ -1244,6 +1302,111 @@ const POS = () => {
 
   // Party size for auto-gratuity
   const [partySize, setPartySize] = useState(1);
+
+  // ── Shift Open overlay check ────────────────────────────────
+  const isRegisterClosed = cashDrawer?.isClosed || !cashDrawer?.shiftStart;
+  if (isRegisterClosed) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        width: '100vw',
+        background: 'radial-gradient(circle at 10% 20%, rgb(90, 92, 234) 0%, rgb(32, 45, 78) 90%)',
+        fontFamily: "'Outfit', sans-serif",
+        color: 'white',
+        overflow: 'hidden',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 9999
+      }}>
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRadius: 24,
+          padding: '40px 32px',
+          width: '90%',
+          maxWidth: 420,
+          boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
+          border: '1px solid rgba(255, 255, 255, 0.18)',
+          textAlign: 'center'
+        }}>
+          <div style={{
+            background: 'rgba(124, 58, 237, 0.2)',
+            width: 72,
+            height: 72,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 24px',
+            border: '2px solid rgba(124, 58, 237, 0.4)'
+          }}>
+            <Lock size={32} color="#a78bfa" />
+          </div>
+          <h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: 8, letterSpacing: '-0.02em' }}>
+            Cash Register Closed
+          </h2>
+          <p style={{ fontSize: '0.88rem', color: '#cbd5e1', marginBottom: 28, lineHeight: 1.5 }}>
+            To begin POS billing operations, please enter the starting cash float to open the register.
+          </p>
+
+          <form onSubmit={handleOpenRegister} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ textAlign: 'left' }}>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6, letterSpacing: '0.05em' }}>
+                Starting Float (₹)
+              </label>
+              <input
+                type="number"
+                required
+                className="input-field"
+                value={startingFloat}
+                onChange={e => setStartingFloat(e.target.value)}
+                placeholder="Enter starting cash float"
+                style={{
+                  width: '100%',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: 'white',
+                  borderRadius: 12,
+                  padding: '12px 16px',
+                  fontSize: '1rem',
+                  outline: 'none',
+                  transition: 'all 0.3s'
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              className="btn"
+              style={{
+                width: '100%',
+                background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                color: 'white',
+                border: 'none',
+                borderRadius: 12,
+                padding: '14px',
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                boxShadow: '0 4px 14px 0 rgba(124, 58, 237, 0.4)',
+                transition: 'all 0.3s'
+              }}
+            >
+              <Play size={16} fill="white" /> Open Register &amp; Start Shift
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   // ── Derived data ──────────────────────────────────────────
   const menuItems = useMemo(() => {
@@ -1522,6 +1685,80 @@ const POS = () => {
     updateCashDrawer({ ...cashDrawer, drops });
     addAuditEntry('BLIND_DROP', 'cashier', 'Cashier', `Blind drop: ${amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`);
     showSuccess(`Blind drop: ${amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`);
+  };
+
+  // ── Open Register ──────────────────────────────────────────
+  const handleOpenRegister = async (e) => {
+    e.preventDefault();
+    const floatVal = parseFloat(startingFloat);
+    if (isNaN(floatVal) || floatVal < 0) {
+      alert('Please enter a valid starting float.');
+      return;
+    }
+    const updated = {
+      openingBalance: floatVal,
+      currentBalance: floatVal,
+      cashIn: 0,
+      cashOut: 0,
+      drops: [],
+      discrepancies: [],
+      shiftStart: new Date().toISOString(),
+      isClosed: false,
+    };
+    await updateCashDrawer(updated);
+    await addAuditEntry(
+      'cash_register.open',
+      user?.id || 'system',
+      user?.name || 'System / Guest',
+      `Opened register with starting float: ₹${floatVal}`
+    );
+  };
+
+  // ── Close Register ─────────────────────────────────────────
+  const handleCloseRegister = async (actualCash, notes) => {
+    const expectedBalance = (cashDrawer?.openingBalance || 0) +
+      (cashDrawer?.cashIn || 0) -
+      (cashDrawer?.cashOut || 0) -
+      (cashDrawer?.drops || []).reduce((s, d) => s + d.amount, 0);
+    const variance = actualCash - expectedBalance;
+
+    const newClosure = {
+      openingBalance: cashDrawer.openingBalance,
+      cashIn: cashDrawer.cashIn || 0,
+      cashOut: cashDrawer.cashOut || 0,
+      drops: cashDrawer.drops || [],
+      expectedBalance,
+      actualCash,
+      variance,
+      notes: notes || '',
+      shiftStart: cashDrawer.shiftStart,
+      shiftEnd: new Date().toISOString(),
+      closedBy: user?.name || 'Manager',
+    };
+
+    await addRegisterClosure(newClosure);
+
+    const closedDrawer = {
+      openingBalance: 0,
+      currentBalance: 0,
+      cashIn: 0,
+      cashOut: 0,
+      drops: [],
+      discrepancies: [],
+      shiftStart: null,
+      isClosed: true,
+    };
+    await updateCashDrawer(closedDrawer);
+
+    await addAuditEntry(
+      'cash_register.close',
+      user?.id || 'system',
+      user?.name || 'System / Guest',
+      `Closed register. Expected: ₹${expectedBalance}, Actual: ₹${actualCash}, Variance: ₹${variance}`
+    );
+
+    setCashDrawerModal(false);
+    window.location.reload();
   };
 
   // ── Payment ───────────────────────────────────────────────
@@ -2035,7 +2272,7 @@ const POS = () => {
 
         {/* Cash Drawer Modal */}
         {cashDrawerModal && (
-          <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} />
+          <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} onCloseRegister={handleCloseRegister} />
         )}
       </div>
     );
@@ -2481,7 +2718,7 @@ const POS = () => {
       )}
 
       {cashDrawerModal && (
-        <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} />
+        <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} onCloseRegister={handleCloseRegister} />
       )}
 
       {showPendingModal && (

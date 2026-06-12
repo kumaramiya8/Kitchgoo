@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   TrendingUp, TrendingDown, Download, BarChart2, Package,
   Users, Filter, Search, ShoppingBag, CreditCard, IndianRupee, 
@@ -7,6 +8,7 @@ import {
   Printer, X, Gauge, LayoutDashboard, Receipt
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { getAll } from '../db/database';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -117,9 +119,69 @@ const TableWrap = ({ children, style }) => (
   </div>
 );
 
-const Th = ({ children, right }) => (
-  <th style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: 600, fontSize: '0.73rem', color: 'var(--text-muted)', background: 'rgba(248,250,252,0.8)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>{children}</th>
-);
+// ─── Sorting Helpers ────────────────────────────────────────
+const useSort = (initialField, initialDirection = 'asc') => {
+  const [sortField, setSortField] = useState(initialField);
+  const [sortDirection, setSortDirection] = useState(initialDirection);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  return { sortField, sortDirection, handleSort };
+};
+
+const sortData = (data, field, direction, customGetters = {}) => {
+  if (!field) return data;
+  return [...data].sort((a, b) => {
+    let valA = customGetters[field] ? customGetters[field](a) : a[field];
+    let valB = customGetters[field] ? customGetters[field](b) : b[field];
+    if (valA === undefined || valA === null) valA = '';
+    if (valB === undefined || valB === null) valB = '';
+
+    if (typeof valA === 'string' && typeof valB === 'string') {
+      return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+    } else {
+      return direction === 'asc' ? valA - valB : valB - valA;
+    }
+  });
+};
+
+const Th = ({ children, right, sortField, currentField, sortDirection, onSort }) => {
+  const isSorted = sortField && currentField && sortField === currentField;
+  const cursorStyle = onSort && currentField ? 'pointer' : 'default';
+  return (
+    <th
+      onClick={() => onSort && currentField && onSort(currentField)}
+      style={{
+        padding: '10px 14px',
+        textAlign: right ? 'right' : 'left',
+        fontWeight: 600,
+        fontSize: '0.73rem',
+        color: isSorted ? 'var(--primary)' : 'var(--text-muted)',
+        background: 'rgba(248,250,252,0.8)',
+        borderBottom: '1px solid var(--border-subtle)',
+        whiteSpace: 'nowrap',
+        cursor: cursorStyle,
+        userSelect: 'none',
+      }}
+    >
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: right ? 'flex-end' : 'flex-start', width: '100%' }}>
+        {children}
+        {onSort && currentField && (
+          <span style={{ fontSize: '0.62rem', opacity: isSorted ? 1 : 0.35 }}>
+            {isSorted ? (sortDirection === 'asc' ? ' ▲' : ' ▼') : ' ↕'}
+          </span>
+        )}
+      </div>
+    </th>
+  );
+};
 
 const Td = ({ children, right, bold, muted, style: extraStyle }) => (
   <td style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: bold ? 700 : 400, color: muted ? 'var(--text-muted)' : 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap', ...extraStyle }}>{children}</td>
@@ -444,6 +506,8 @@ const DailySalesSummaryReport = ({ orders }) => {
   const [terminalFilter, setTerminalFilter] = useState('All');
   const [shiftFilter, setShiftFilter]       = useState('All');
 
+  const { sortField, sortDirection, handleSort } = useSort('date', 'desc');
+
   const processed = useMemo(() => {
     let arr = filterByRange(orders, range, dateFrom, dateTo);
 
@@ -516,8 +580,14 @@ const DailySalesSummaryReport = ({ orders }) => {
       else day.upi += totalAmount; // UPI
     });
 
-    return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
+    return Object.values(map);
   }, [filtered]);
+
+  const sortedDailyData = useMemo(() => {
+    return sortData(dailyData, sortField, sortDirection, {
+      net: r => r.gross - r.discounts
+    });
+  }, [dailyData, sortField, sortDirection]);
 
   const totals = useMemo(() => {
     return dailyData.reduce((s, r) => ({
@@ -534,7 +604,7 @@ const DailySalesSummaryReport = ({ orders }) => {
   const handleExport = () => {
     const rows = [
       'Date,Total Orders,Gross Sales,Discounts Applied,Net Sales,Tax Collected,Cash Totals,Card Totals,UPI Totals',
-      ...dailyData.map(r =>
+      ...sortedDailyData.map(r =>
         `"${r.date}",${r.ordersCount},${r.gross.toFixed(2)},${r.discounts.toFixed(2)},${(r.gross - r.discounts).toFixed(2)},${r.tax.toFixed(2)},${r.cash.toFixed(2)},${r.card.toFixed(2)},${r.upi.toFixed(2)}`
       ),
     ];
@@ -573,21 +643,21 @@ const DailySalesSummaryReport = ({ orders }) => {
 
       <div className="card">
         <SectionTitle>Daily Sales Summary</SectionTitle>
-        {dailyData.length === 0 ? <Empty /> : (
+        {sortedDailyData.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Date</Th>
-                <Th right>Total Orders</Th>
-                <Th right>Gross Sales</Th>
-                <Th right>Discounts Applied</Th>
-                <Th right>Net Sales</Th>
-                <Th right>Tax Collected</Th>
+                <Th sortField={sortField} currentField="date" sortDirection={sortDirection} onSort={handleSort}>Date</Th>
+                <Th right sortField={sortField} currentField="ordersCount" sortDirection={sortDirection} onSort={handleSort}>Total Orders</Th>
+                <Th right sortField={sortField} currentField="gross" sortDirection={sortDirection} onSort={handleSort}>Gross Sales</Th>
+                <Th right sortField={sortField} currentField="discounts" sortDirection={sortDirection} onSort={handleSort}>Discounts Applied</Th>
+                <Th right sortField={sortField} currentField="net" sortDirection={sortDirection} onSort={handleSort}>Net Sales</Th>
+                <Th right sortField={sortField} currentField="tax" sortDirection={sortDirection} onSort={handleSort}>Tax Collected</Th>
                 <Th>Payment Method Breakdown</Th>
               </tr>
             </thead>
             <tbody>
-              {dailyData.map(r => (
+              {sortedDailyData.map(r => (
                 <tr key={r.date}>
                   <Td bold>{fmtDate(r.date)}</Td>
                   <Td right>{r.ordersCount}</Td>
@@ -627,6 +697,8 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
   const [cashierFilter, setCashierFilter] = useState('All');
   const [selectedOrder, setSelectedOrder] = useState(null);
 
+  const { sortField, sortDirection, handleSort } = useSort('createdAt', 'desc');
+
   const filtered = useMemo(() => {
     let arr = filterByRange(orders, range, dateFrom, dateTo);
     if (statusFilter !== 'All') {
@@ -635,15 +707,22 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
     if (cashierFilter !== 'All') {
       arr = arr.filter(o => o.serverName === cashierFilter || o.serverId === cashierFilter);
     }
-    return arr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return arr;
   }, [orders, range, dateFrom, dateTo, statusFilter, cashierFilter]);
+
+  const sortedInvoices = useMemo(() => {
+    return sortData(filtered, sortField, sortDirection, {
+      billNo: o => o.billNo || o.id,
+      orderType: o => o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')
+    });
+  }, [filtered, sortField, sortDirection]);
 
   const cashiers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
 
   const handleExport = () => {
     const rows = [
       'Invoice Number,Timestamp,Order Type,Total Amount,Status,Handled By',
-      ...filtered.map(o =>
+      ...sortedInvoices.map(o =>
         `"${o.billNo || o.id}","${fmtDateTime(o.createdAt)}","${o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')}",${(o.total || 0).toFixed(2)},"${o.status || 'Closed'}","${o.serverName || ''}"`
       ),
     ];
@@ -689,22 +768,22 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
       </FilterBar>
 
       <div className="card">
-        <SectionTitle>Detailed Invoice Register ({filtered.length} Invoices)</SectionTitle>
-        {filtered.length === 0 ? <Empty /> : (
+        <SectionTitle>Detailed Invoice Register ({sortedInvoices.length} Invoices)</SectionTitle>
+        {sortedInvoices.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Invoice Number</Th>
-                <Th>Timestamp</Th>
-                <Th>Order Type</Th>
-                <Th right>Total Amount</Th>
-                <Th>Status</Th>
-                <Th>Handled By</Th>
+                <Th sortField={sortField} currentField="billNo" sortDirection={sortDirection} onSort={handleSort}>Invoice Number</Th>
+                <Th sortField={sortField} currentField="createdAt" sortDirection={sortDirection} onSort={handleSort}>Timestamp</Th>
+                <Th sortField={sortField} currentField="orderType" sortDirection={sortDirection} onSort={handleSort}>Order Type</Th>
+                <Th right sortField={sortField} currentField="total" sortDirection={sortDirection} onSort={handleSort}>Total Amount</Th>
+                <Th sortField={sortField} currentField="status" sortDirection={sortDirection} onSort={handleSort}>Status</Th>
+                <Th sortField={sortField} currentField="serverName" sortDirection={sortDirection} onSort={handleSort}>Handled By</Th>
                 <Th>Actions</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(o => {
+              {sortedInvoices.map(o => {
                 const status = o.status || 'Closed';
                 const statusColor = status === 'Closed' || status === 'Completed' ? '#22c55e' : status === 'Refunded' ? '#f59e0b' : '#ef4444';
                 return (
@@ -779,6 +858,159 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
   );
 };
 
+const RegisterClosuresReport = () => {
+  const { registerClosures, updateRegisterClosure } = useApp();
+  const [range, setRange]       = useState('This Month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [editClosure, setEditClosure] = useState(null);
+  
+  // Edit Form state
+  const [openingBalance, setOpeningBalance] = useState('');
+  const [actualCash, setActualCash] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const { sortField, sortDirection, handleSort } = useSort('shiftEnd', 'desc');
+
+  const filtered = useMemo(() => {
+    return filterByRange(registerClosures || [], range, dateFrom, dateTo, 'shiftEnd');
+  }, [registerClosures, range, dateFrom, dateTo]);
+
+  const sortedClosures = useMemo(() => {
+    return sortData(filtered, sortField, sortDirection);
+  }, [filtered, sortField, sortDirection]);
+
+  const handleEditClick = (c) => {
+    setEditClosure(c);
+    setOpeningBalance(c.openingBalance || 0);
+    setActualCash(c.actualCash || 0);
+    setNotes(c.notes || '');
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!editClosure) return;
+    await updateRegisterClosure(editClosure.id, {
+      openingBalance: parseFloat(openingBalance) || 0,
+      actualCash: parseFloat(actualCash) || 0,
+      notes
+    });
+    setEditClosure(null);
+  };
+
+  const handleExport = () => {
+    const rows = [
+      'Shift Start,Shift End,Closed By,Opening Float,Expected Cash,Actual Cash,Variance,Notes',
+      ...sortedClosures.map(c =>
+        `"${fmtDateTime(c.shiftStart)}","${fmtDateTime(c.shiftEnd)}","${c.closedBy || ''}",${c.openingBalance},${c.expectedBalance},${c.actualCash},${c.variance},"${c.notes || ''}"`
+      ),
+    ];
+    downloadCSV('register_closures.csv', rows);
+  };
+
+  return (
+    <div>
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+      </FilterBar>
+
+      <div className="card">
+        <SectionTitle>POS Register Closures</SectionTitle>
+        {sortedClosures.length === 0 ? <Empty text="No register closures logged for this period." /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th sortField={sortField} currentField="shiftEnd" sortDirection={sortDirection} onSort={handleSort}>Shift End</Th>
+                <Th sortField={sortField} currentField="closedBy" sortDirection={sortDirection} onSort={handleSort}>Closed By</Th>
+                <Th right sortField={sortField} currentField="openingBalance" sortDirection={sortDirection} onSort={handleSort}>Opening Float</Th>
+                <Th right sortField={sortField} currentField="expectedBalance" sortDirection={sortDirection} onSort={handleSort}>Expected Cash</Th>
+                <Th right sortField={sortField} currentField="actualCash" sortDirection={sortDirection} onSort={handleSort}>Actual Cash</Th>
+                <Th right sortField={sortField} currentField="variance" sortDirection={sortDirection} onSort={handleSort}>Variance</Th>
+                <Th sortField={sortField} currentField="notes" sortDirection={sortDirection} onSort={handleSort}>Notes</Th>
+                <Th>Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedClosures.map(c => {
+                const varColor = c.variance === 0 ? 'var(--text-primary)' : c.variance > 0 ? 'var(--success)' : 'var(--danger)';
+                return (
+                  <tr key={c.id}>
+                    <Td>{fmtDateTime(c.shiftEnd)}</Td>
+                    <Td bold>{c.closedBy || 'Manager'}</Td>
+                    <Td right>{fmt(c.openingBalance)}</Td>
+                    <Td right>{fmt(c.expectedBalance)}</Td>
+                    <Td right bold>{fmt(c.actualCash)}</Td>
+                    <Td right bold style={{ color: varColor }}>
+                      {c.variance > 0 ? '+' : ''}{fmt(c.variance)}
+                    </Td>
+                    <Td muted style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.notes}>{c.notes || '—'}</Td>
+                    <Td>
+                      <button className="btn btn-secondary" onClick={() => handleEditClick(c)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>
+                        Edit
+                      </button>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+
+      <Modal open={!!editClosure} onClose={() => setEditClosure(null)} title="Edit Register Closure">
+        {editClosure && (
+          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                Opening Cash Float (₹)
+              </label>
+              <input
+                className="input-field"
+                type="number"
+                required
+                value={openingBalance}
+                onChange={e => setOpeningBalance(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                Actual Cash Counted (₹)
+              </label>
+              <input
+                className="input-field"
+                type="number"
+                required
+                value={actualCash}
+                onChange={e => setActualCash(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                Closure Notes
+              </label>
+              <textarea
+                className="input-field"
+                rows={3}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                style={{ width: '100%', fontFamily: 'inherit', resize: 'vertical' }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditClosure(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">Save Changes</button>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
 const SalesInvoicingTab = ({ orders }) => {
   const [subTab, setSubTab] = useState('daily');
 
@@ -793,9 +1025,19 @@ const SalesInvoicingTab = ({ orders }) => {
           onClick={() => setSubTab('register')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
           Detailed Invoice Register
         </button>
+        <button className={`btn ${subTab === 'closures' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubTab('closures')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+          Register Closures
+        </button>
       </div>
 
-      {subTab === 'daily' ? <DailySalesSummaryReport orders={orders} /> : <DetailedInvoiceRegisterReport orders={orders} />}
+      {subTab === 'daily' ? (
+        <DailySalesSummaryReport orders={orders} />
+      ) : subTab === 'register' ? (
+        <DetailedInvoiceRegisterReport orders={orders} />
+      ) : (
+        <RegisterClosuresReport />
+      )}
     </div>
   );
 };
@@ -809,6 +1051,8 @@ const TaxComplianceTab = ({ orders }) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
   const [taxTypeFilter, setTaxTypeFilter] = useState('All');
+
+  const { sortField, sortDirection, handleSort } = useSort('name', 'asc');
 
   const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
@@ -853,6 +1097,12 @@ const TaxComplianceTab = ({ orders }) => {
     return result;
   }, [filtered, taxTypeFilter]);
 
+  const sortedTaxData = useMemo(() => {
+    return sortData(taxData, sortField, sortDirection, {
+      totalValue: t => t.taxable + t.collected
+    });
+  }, [taxData, sortField, sortDirection]);
+
   const totals = useMemo(() => {
     return taxData.reduce((s, r) => ({
       taxable: s.taxable + r.taxable,
@@ -863,7 +1113,7 @@ const TaxComplianceTab = ({ orders }) => {
   const handleExport = () => {
     const rows = [
       'Tax Name/Slab,Gross Taxable Amount,Tax Amount Collected,Total Invoice Value',
-      ...taxData.map(r =>
+      ...sortedTaxData.map(r =>
         `"${r.name}",${r.taxable.toFixed(2)},${r.collected.toFixed(2)},${(r.taxable + r.collected).toFixed(2)}`
       ),
     ];
@@ -893,18 +1143,18 @@ const TaxComplianceTab = ({ orders }) => {
 
       <div className="card">
         <SectionTitle>Tax Liability Summary</SectionTitle>
-        {taxData.length === 0 ? <Empty /> : (
+        {sortedTaxData.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Tax Name / Slab</Th>
-                <Th right>Gross Taxable Amount</Th>
-                <Th right>Tax Amount Collected</Th>
-                <Th right>Total Invoice Value</Th>
+                <Th sortField={sortField} currentField="name" sortDirection={sortDirection} onSort={handleSort}>Tax Name / Slab</Th>
+                <Th right sortField={sortField} currentField="taxable" sortDirection={sortDirection} onSort={handleSort}>Gross Taxable Amount</Th>
+                <Th right sortField={sortField} currentField="collected" sortDirection={sortDirection} onSort={handleSort}>Tax Amount Collected</Th>
+                <Th right sortField={sortField} currentField="totalValue" sortDirection={sortDirection} onSort={handleSort}>Total Invoice Value</Th>
               </tr>
             </thead>
             <tbody>
-              {taxData.map(t => (
+              {sortedTaxData.map(t => (
                 <tr key={t.name}>
                   <Td bold>{t.name}</Td>
                   <Td right>{fmt(t.taxable)}</Td>
@@ -934,6 +1184,8 @@ const StockStatusReorderReport = ({ inventory }) => {
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
 
+  const { sortField, sortDirection, handleSort } = useSort('name', 'asc');
+
   const categories = useMemo(() => ['All', ...new Set(inventory.map(i => i.category).filter(Boolean))], [inventory]);
 
   const processed = useMemo(() => {
@@ -961,6 +1213,12 @@ const StockStatusReorderReport = ({ inventory }) => {
     return arr;
   }, [processed, categoryFilter, statusFilter]);
 
+  const sortedInventory = useMemo(() => {
+    return sortData(filtered, sortField, sortDirection, {
+      assetValue: i => (i.stock || 0) * (i.cost || 0)
+    });
+  }, [filtered, sortField, sortDirection]);
+
   const totals = useMemo(() => {
     const totalAssetVal = filtered.reduce((s, i) => s + (i.stock || 0) * (i.cost || 0), 0);
     const lowCount = filtered.filter(i => i.statusLabel === 'Low Stock').length;
@@ -971,7 +1229,7 @@ const StockStatusReorderReport = ({ inventory }) => {
   const handleExport = () => {
     const rows = [
       'Item Name,Unit of Measurement,Current Stock,Reorder Level,Unit Cost,Total Asset Value',
-      ...filtered.map(i =>
+      ...sortedInventory.map(i =>
         `"${i.name}","${i.unit || ''}",${i.stock},${i.min},${(i.cost || 0).toFixed(2)},${((i.stock || 0) * (i.cost || 0)).toFixed(2)}`
       ),
     ];
@@ -1003,21 +1261,21 @@ const StockStatusReorderReport = ({ inventory }) => {
 
       <div className="card">
         <SectionTitle>Stock Status &amp; Reorder Report</SectionTitle>
-        {filtered.length === 0 ? <Empty /> : (
+        {sortedInventory.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Item Name</Th>
-                <Th>Unit of Measurement</Th>
-                <Th right>Current Stock</Th>
-                <Th right>Reorder Level (Par)</Th>
-                <Th right>Unit Cost</Th>
-                <Th right>Total Asset Value</Th>
-                <Th>Status</Th>
+                <Th sortField={sortField} currentField="name" sortDirection={sortDirection} onSort={handleSort}>Item Name</Th>
+                <Th sortField={sortField} currentField="unit" sortDirection={sortDirection} onSort={handleSort}>Unit of Measurement</Th>
+                <Th right sortField={sortField} currentField="stock" sortDirection={sortDirection} onSort={handleSort}>Current Stock</Th>
+                <Th right sortField={sortField} currentField="min" sortDirection={sortDirection} onSort={handleSort}>Reorder Level (Par)</Th>
+                <Th right sortField={sortField} currentField="cost" sortDirection={sortDirection} onSort={handleSort}>Unit Cost</Th>
+                <Th right sortField={sortField} currentField="assetValue" sortDirection={sortDirection} onSort={handleSort}>Total Asset Value</Th>
+                <Th sortField={sortField} currentField="statusLabel" sortDirection={sortDirection} onSort={handleSort}>Status</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(i => {
+              {sortedInventory.map(i => {
                 const statusColor = i.statusLabel === 'Healthy' ? '#22c55e' : i.statusLabel === 'Low Stock' ? '#f59e0b' : '#ef4444';
                 return (
                   <tr key={i.id}>
@@ -1045,20 +1303,26 @@ const WastageVarianceLogReport = ({ wasteLog }) => {
   const [dateTo, setDateTo]     = useState('');
   const [reasonFilter, setReasonFilter] = useState('All');
 
+  const { sortField, sortDirection, handleSort } = useSort('createdAt', 'desc');
+
   const filtered = useMemo(() => {
     let arr = filterByRange(wasteLog || [], range, dateFrom, dateTo, 'createdAt');
     if (reasonFilter !== 'All') {
       arr = arr.filter(w => w.reason === reasonFilter);
     }
-    return arr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return arr;
   }, [wasteLog, range, dateFrom, dateTo, reasonFilter]);
+
+  const sortedWastage = useMemo(() => {
+    return sortData(filtered, sortField, sortDirection);
+  }, [filtered, sortField, sortDirection]);
 
   const totalCost = useMemo(() => filtered.reduce((s, w) => s + (w.costImpact || 0), 0), [filtered]);
 
   const handleExport = () => {
     const rows = [
       'Date Logged,Item Name,Quantity,Reason,Cost Impact',
-      ...filtered.map(w =>
+      ...sortedWastage.map(w =>
         `"${fmtDateTime(w.createdAt)}","${w.itemName}",${w.qty} ${w.unit || ''},"${w.reason}",${(w.costImpact || 0).toFixed(2)}`
       ),
     ];
@@ -1090,20 +1354,20 @@ const WastageVarianceLogReport = ({ wasteLog }) => {
 
       <div className="card">
         <SectionTitle>Wastage and Variance Log</SectionTitle>
-        {filtered.length === 0 ? <Empty /> : (
+        {sortedWastage.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Date Logged</Th>
-                <Th>Item Name</Th>
-                <Th right>Quantity</Th>
-                <Th>Reason</Th>
-                <Th right>Cost Impact</Th>
-                <Th>Notes</Th>
+                <Th sortField={sortField} currentField="createdAt" sortDirection={sortDirection} onSort={handleSort}>Date Logged</Th>
+                <Th sortField={sortField} currentField="itemName" sortDirection={sortDirection} onSort={handleSort}>Item Name</Th>
+                <Th right sortField={sortField} currentField="qty" sortDirection={sortDirection} onSort={handleSort}>Quantity</Th>
+                <Th sortField={sortField} currentField="reason" sortDirection={sortDirection} onSort={handleSort}>Reason</Th>
+                <Th right sortField={sortField} currentField="costImpact" sortDirection={sortDirection} onSort={handleSort}>Cost Impact</Th>
+                <Th sortField={sortField} currentField="notes" sortDirection={sortDirection} onSort={handleSort}>Notes</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((w, idx) => (
+              {sortedWastage.map((w, idx) => (
                 <tr key={w.id || idx}>
                   <Td>{fmtDateTime(w.createdAt)}</Td>
                   <Td bold>{w.itemName}</Td>
@@ -1156,6 +1420,8 @@ const MenuManagementTab = ({ orders, menu }) => {
   const [dateTo, setDateTo]     = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
 
+  const { sortField, sortDirection, handleSort } = useSort('qtySold', 'desc');
+
   const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
   const categories = useMemo(() => ['All', ...new Set(menu.map(m => m.category).filter(Boolean))], [menu]);
@@ -1197,8 +1463,12 @@ const MenuManagementTab = ({ orders, menu }) => {
       result = result.filter(i => i.category === categoryFilter);
     }
 
-    return result.sort((a, b) => b.qtySold - a.qtySold);
+    return result;
   }, [filteredOrders, menu, categoryFilter]);
+
+  const sortedPerformanceData = useMemo(() => {
+    return sortData(performanceData, sortField, sortDirection);
+  }, [performanceData, sortField, sortDirection]);
 
   const totals = useMemo(() => {
     return performanceData.reduce((s, r) => ({
@@ -1217,7 +1487,7 @@ const MenuManagementTab = ({ orders, menu }) => {
   const handleExport = () => {
     const rows = [
       'Item Name,Quantity Sold,Total Revenue,Cost of Goods Sold (COGS),Gross Margin %',
-      ...performanceData.map(d =>
+      ...sortedPerformanceData.map(d =>
         `"${d.name}",${d.qtySold},${d.revenue.toFixed(2)},${d.cogs.toFixed(2)},${d.margin.toFixed(1)}%`
       ),
     ];
@@ -1246,20 +1516,20 @@ const MenuManagementTab = ({ orders, menu }) => {
 
       <div className="card">
         <SectionTitle>Item Performance Analysis</SectionTitle>
-        {performanceData.length === 0 ? <Empty /> : (
+        {sortedPerformanceData.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Item Name</Th>
-                <Th>Menu Category</Th>
-                <Th right>Quantity Sold</Th>
-                <Th right>Total Revenue</Th>
-                <Th right>Cost of Goods Sold (COGS)</Th>
-                <Th right>Gross Margin</Th>
+                <Th sortField={sortField} currentField="name" sortDirection={sortDirection} onSort={handleSort}>Item Name</Th>
+                <Th sortField={sortField} currentField="category" sortDirection={sortDirection} onSort={handleSort}>Menu Category</Th>
+                <Th right sortField={sortField} currentField="qtySold" sortDirection={sortDirection} onSort={handleSort}>Quantity Sold</Th>
+                <Th right sortField={sortField} currentField="revenue" sortDirection={sortDirection} onSort={handleSort}>Total Revenue</Th>
+                <Th right sortField={sortField} currentField="cogs" sortDirection={sortDirection} onSort={handleSort}>Cost of Goods Sold (COGS)</Th>
+                <Th right sortField={sortField} currentField="margin" sortDirection={sortDirection} onSort={handleSort}>Gross Margin</Th>
               </tr>
             </thead>
             <tbody>
-              {performanceData.map(d => (
+              {sortedPerformanceData.map(d => (
                 <tr key={d.id}>
                   <Td bold>{d.name}</Td>
                   <Td><Badge label={d.category} color="#7c3aed" /></Td>
@@ -1297,6 +1567,8 @@ const OperationalEfficiencyTab = ({ orders }) => {
   const [dateTo, setDateTo]     = useState('');
   const [dayFilter, setDayFilter] = useState('All');
 
+  const { sortField, sortDirection, handleSort } = useSort('hour', 'asc');
+
   const filtered = useMemo(() => {
     let arr = filterByRange(orders, range, dateFrom, dateTo);
     if (dayFilter !== 'All') {
@@ -1333,6 +1605,12 @@ const OperationalEfficiencyTab = ({ orders }) => {
     return hours;
   }, [filtered]);
 
+  const sortedHourlyData = useMemo(() => {
+    return sortData(hourlyData, sortField, sortDirection, {
+      avgTicket: h => h.volume > 0 ? h.revenue / h.volume : 0
+    });
+  }, [hourlyData, sortField, sortDirection]);
+
   const totals = useMemo(() => {
     return hourlyData.reduce((s, r) => ({
       volume: s.volume + r.volume,
@@ -1347,7 +1625,7 @@ const OperationalEfficiencyTab = ({ orders }) => {
   const handleExport = () => {
     const rows = [
       'Time Slot,Order Volume,Revenue Generated,Average Ticket Size',
-      ...hourlyData.map(h =>
+      ...sortedHourlyData.map(h =>
         `"${h.slot}",${h.volume},${h.revenue.toFixed(2)},${h.volume > 0 ? (h.revenue / h.volume).toFixed(2) : 0}`
       ),
     ];
@@ -1411,18 +1689,18 @@ const OperationalEfficiencyTab = ({ orders }) => {
 
       <div className="card">
         <SectionTitle>Hourly Traffic &amp; Sales Performance</SectionTitle>
-        {hourlyData.length === 0 ? <Empty /> : (
+        {sortedHourlyData.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Time Slot</Th>
-                <Th right>Order Volume</Th>
-                <Th right>Revenue Generated</Th>
-                <Th right>Average Ticket Size</Th>
+                <Th sortField={sortField} currentField="slot" sortDirection={sortDirection} onSort={handleSort}>Time Slot</Th>
+                <Th right sortField={sortField} currentField="volume" sortDirection={sortDirection} onSort={handleSort}>Order Volume</Th>
+                <Th right sortField={sortField} currentField="revenue" sortDirection={sortDirection} onSort={handleSort}>Revenue Generated</Th>
+                <Th right sortField={sortField} currentField="avgTicket" sortDirection={sortDirection} onSort={handleSort}>Average Ticket Size</Th>
               </tr>
             </thead>
             <tbody>
-              {hourlyData.map(h => {
+              {sortedHourlyData.map(h => {
                 const avgTicket = h.volume > 0 ? h.revenue / h.volume : 0;
                 return (
                   <tr key={h.hour} style={{ background: h.volume > 0 ? 'inherit' : 'rgba(248,250,252,0.3)' }}>
@@ -1456,6 +1734,8 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
 
+  const { sortField, sortDirection, handleSort } = useSort('orderPlaced', 'desc');
+
   const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
   const serviceData = useMemo(() => {
@@ -1487,6 +1767,10 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
     }).filter(d => d.orderPlaced);
   }, [filteredOrders, kdsTickets]);
 
+  const sortedServiceData = useMemo(() => {
+    return sortData(serviceData, sortField, sortDirection);
+  }, [serviceData, sortField, sortDirection]);
+
   const averages = useMemo(() => {
     const valid = (arr) => arr.filter(v => v !== null && v > 0);
     const avg = (arr) => { const v = valid(arr); return v.length > 0 ? v.reduce((s, x) => s + x, 0) / v.length : 0; };
@@ -1501,7 +1785,7 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
   const handleExport = () => {
     const rows = [
       'Order ID,Table,Order Placed,Ticket Printed,Food Bumped,Check Paid,Total Time (s)',
-      ...serviceData.map(d =>
+      ...sortedServiceData.map(d =>
         `"${d.id}","${d.table}","${fmtDateTime(d.orderPlaced)}","${fmtDateTime(d.ticketPrinted)}","${d.foodBumped ? fmtDateTime(d.foodBumped) : ''}","${d.checkPaid ? fmtDateTime(d.checkPaid) : ''}",${d.totalTime ? Math.round(d.totalTime / 1000) : ''}`
       ),
     ];
@@ -1524,17 +1808,23 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
       </div>
 
       <div className="card">
-        <SectionTitle>Order Speed Timeline ({serviceData.length} orders)</SectionTitle>
-        {serviceData.length === 0 ? <Empty /> : (
+        <SectionTitle>Order Speed Timeline ({sortedServiceData.length} orders)</SectionTitle>
+        {sortedServiceData.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Order ID</Th><Th>Table</Th><Th>Order Placed</Th><Th>Ticket Printed</Th>
-                <Th>Food Bumped</Th><Th>Check Paid</Th><Th right>Total Time</Th><Th>Timeline</Th>
+                <Th sortField={sortField} currentField="id" sortDirection={sortDirection} onSort={handleSort}>Order ID</Th>
+                <Th sortField={sortField} currentField="table" sortDirection={sortDirection} onSort={handleSort}>Table</Th>
+                <Th sortField={sortField} currentField="orderPlaced" sortDirection={sortDirection} onSort={handleSort}>Order Placed</Th>
+                <Th sortField={sortField} currentField="ticketPrinted" sortDirection={sortDirection} onSort={handleSort}>Ticket Printed</Th>
+                <Th sortField={sortField} currentField="foodBumped" sortDirection={sortDirection} onSort={handleSort}>Food Bumped</Th>
+                <Th sortField={sortField} currentField="checkPaid" sortDirection={sortDirection} onSort={handleSort}>Check Paid</Th>
+                <Th right sortField={sortField} currentField="totalTime" sortDirection={sortDirection} onSort={handleSort}>Total Time</Th>
+                <Th>Timeline</Th>
               </tr>
             </thead>
             <tbody>
-              {serviceData.slice(0, 50).map(d => {
+              {sortedServiceData.slice(0, 50).map(d => {
                 const maxTime = averages.totalTime * 2 || 600000;
                 const phases = [];
                 if (d.orderToTicket > 0) phases.push({ pct: Math.min((d.orderToTicket / maxTime) * 100, 33), color: '#7c3aed', label: 'Queue' });
@@ -1578,6 +1868,8 @@ const LaborReport = ({ orders, staff: staffList }) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
 
+  const { sortField, sortDirection, handleSort } = useSort('totalPay', 'desc');
+
   const attendance = useMemo(() => getAll('attendance'), []);
   const filteredAttendance = useMemo(() => filterByRange(attendance, range, dateFrom, dateTo, 'timestamp'), [attendance, range, dateFrom, dateTo]);
   const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
@@ -1619,8 +1911,12 @@ const LaborReport = ({ orders, staff: staffList }) => {
         overtime,
         revenuePerHour,
       };
-    }).filter(d => d.hours > 0).sort((a, b) => b.totalPay - a.totalPay);
+    }).filter(d => d.hours > 0);
   }, [staffList, filteredAttendance, totalRevenue]);
+
+  const sortedLaborData = useMemo(() => {
+    return sortData(laborData, sortField, sortDirection);
+  }, [laborData, sortField, sortDirection]);
 
   const totalLaborCost = useMemo(() => laborData.reduce((s, d) => s + d.totalPay, 0), [laborData]);
   const laborPct = totalRevenue > 0 ? (totalLaborCost / totalRevenue * 100) : 0;
@@ -1629,7 +1925,7 @@ const LaborReport = ({ orders, staff: staffList }) => {
   const handleExport = () => {
     const rows = [
       'Name,Role,Hours Worked,Rate (₹/hr),Total Pay,Overtime Hours,Revenue Per Labor Hour',
-      ...laborData.map(d =>
+      ...sortedLaborData.map(d =>
         `"${d.name}","${d.role}",${d.hours},${d.rate},${d.totalPay.toFixed(2)},${d.overtime.toFixed(1)},${d.revenuePerHour.toFixed(2)}`
       ),
     ];
@@ -1652,17 +1948,22 @@ const LaborReport = ({ orders, staff: staffList }) => {
       </div>
 
       <div className="card">
-        <SectionTitle>Staff Hours &amp; Labor Costs ({laborData.length} active staff)</SectionTitle>
-        {laborData.length === 0 ? <Empty text="No labor or attendance data logged for this period." /> : (
+        <SectionTitle>Staff Hours &amp; Labor Costs ({sortedLaborData.length} active staff)</SectionTitle>
+        {sortedLaborData.length === 0 ? <Empty text="No labor or attendance data logged for this period." /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>Name</Th><Th>Role</Th><Th right>Hours Worked</Th><Th right>Rate (₹/hr)</Th>
-                <Th right>Total Pay</Th><Th right>Overtime</Th><Th right>Rev / Labor Hour</Th>
+                <Th sortField={sortField} currentField="name" sortDirection={sortDirection} onSort={handleSort}>Name</Th>
+                <Th sortField={sortField} currentField="role" sortDirection={sortDirection} onSort={handleSort}>Role</Th>
+                <Th right sortField={sortField} currentField="hours" sortDirection={sortDirection} onSort={handleSort}>Hours Worked</Th>
+                <Th right sortField={sortField} currentField="rate" sortDirection={sortDirection} onSort={handleSort}>Rate (₹/hr)</Th>
+                <Th right sortField={sortField} currentField="totalPay" sortDirection={sortDirection} onSort={handleSort}>Total Pay</Th>
+                <Th right sortField={sortField} currentField="overtime" sortDirection={sortDirection} onSort={handleSort}>Overtime</Th>
+                <Th right sortField={sortField} currentField="revenuePerHour" sortDirection={sortDirection} onSort={handleSort}>Rev / Labor Hour</Th>
               </tr>
             </thead>
             <tbody>
-              {laborData.map(d => (
+              {sortedLaborData.map(d => (
                 <tr key={d.id}>
                   <Td bold>{d.name}</Td>
                   <Td><Badge label={d.role} color="#7c3aed" /></Td>
@@ -1711,7 +2012,14 @@ const TABS = [
 
 const Reports = () => {
   const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans } = useApp();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  
+  const activeTab = tabParam || 'dashboard';
+  
+  const setActiveTab = (newTab) => {
+    setSearchParams({ tab: newTab });
+  };
 
   return (
     <div className="animate-fade-up">

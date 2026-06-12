@@ -1,0 +1,608 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Sparkles, X, Send, Compass, Settings, AlertCircle, Check, ArrowRight } from 'lucide-react';
+import { useApp } from '../../db/AppContext';
+import { useNavigate } from 'react-router-dom';
+
+const QuickPrompts = [
+  { text: "📊 Analyze today's sales and performance", icon: "📊" },
+  { text: "⚙️ Set service charge to 5% and enable it", icon: "⚙️" },
+  { text: "📦 Show inventory low stock items", icon: "📦" },
+  { text: "❓ How do I log a wastage entry?", icon: "❓" }
+];
+
+const parseMarkdown = (text) => {
+  if (!text) return '';
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Bold **text**
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // Italic *text*
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Inline code `code`
+  html = html.replace(/`(.*?)`/g, '<code style="background: rgba(124,58,237,0.08); color: #7c3aed; padding: 2px 5px; borderRadius: 4px; font-family: monospace; font-size: 0.88em;">$1</code>');
+  
+  // Line breaks
+  html = html.replace(/\n/g, '<br />');
+  
+  // Bullet lists
+  html = html.replace(/^- (.*?)(?:<br \/>|$)/gm, '<li style="margin-left: 16px; margin-bottom: 4px; list-style-type: disc;">$1</li>');
+  // Headers
+  html = html.replace(/^### (.*?)(?:<br \/>|$)/gm, '<h5 style="font-size: 0.92rem; font-weight: 700; margin-top: 10px; margin-bottom: 6px; color: var(--primary);">$1</h5>');
+  html = html.replace(/^## (.*?)(?:<br \/>|$)/gm, '<h4 style="font-size: 1.02rem; font-weight: 700; margin-top: 12px; margin-bottom: 8px; color: var(--primary);">$1</h4>');
+
+  return html;
+};
+
+const HelpDrawer = ({ isOpen, onClose }) => {
+  const { orders, inventory, staff, settings, wasteLog, updateSettingsSection } = useApp();
+  const navigate = useNavigate();
+  const [messages, setMessages] = useState([
+    {
+      sender: "ai",
+      text: "Hello! I am your Kitchgoo AI Assistant. I can help you answer questions about how to use the app, change your settings using natural language, or analyze your sales, inventory, and staff data.\n\nWhat would you like to do today?",
+      suggestions: []
+    }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  const messagesEndRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+
+  // Auto scroll to bottom
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
+  }, [messages, loading]);
+
+  // Summarize current context to pass to Gemini
+  const contextDataSnapshot = useMemo(() => {
+    const currentPath = window.location.pathname + window.location.search;
+
+    const settingsSummary = settings ? {
+      restaurant: settings.restaurant ? {
+        name: settings.restaurant.name,
+        currency: settings.restaurant.currency,
+        timezone: settings.restaurant.timezone,
+        address: settings.restaurant.address,
+      } : null,
+      billing: settings.billing ? {
+        gstRate: settings.billing.gstRate,
+        serviceCharge: settings.billing.serviceCharge,
+        enableServiceCharge: settings.billing.enableServiceCharge,
+      } : null,
+      payments: settings.payments ? {
+        cash: settings.payments.cash,
+        upi: settings.payments.upi,
+        card: settings.payments.card,
+      } : null,
+      operations: settings.operations ? {
+        tables: settings.operations.tables,
+        openingTime: settings.operations.openingTime,
+        closingTime: settings.operations.closingTime,
+      } : null,
+    } : null;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayOrders = (orders || []).filter(o => o.createdAt && o.createdAt.startsWith(todayStr));
+    const totalRevenue = todayOrders.reduce((s, o) => s + (o.total || 0), 0);
+    const salesSummary = {
+      todayOrdersCount: todayOrders.length,
+      todayTotalRevenue: totalRevenue,
+      averageOrderValue: todayOrders.length > 0 ? (totalRevenue / todayOrders.length) : 0,
+      paymentMethodsBreakdown: todayOrders.reduce((acc, o) => {
+        const method = (o.paymentMethod || 'Cash').toLowerCase();
+        if (method.includes('cash')) acc.cash += (o.total || 0);
+        else if (method.includes('card')) acc.card += (o.total || 0);
+        else acc.upi += (o.total || 0);
+        return acc;
+      }, { cash: 0, card: 0, upi: 0 })
+    };
+
+    const lowStockCount = (inventory || []).filter(i => (i.stock || 0) <= (i.min || 0)).length;
+    const outOfStockCount = (inventory || []).filter(i => (i.stock || 0) <= 0).length;
+    const lowStockItems = (inventory || []).filter(i => (i.stock || 0) <= (i.min || 0)).slice(0, 5).map(i => `${i.name} (${i.stock} ${i.unit || 'pcs'} left)`);
+    const inventorySummary = {
+      totalItemsCount: (inventory || []).length,
+      lowStockCount,
+      outOfStockCount,
+      lowStockItemsExample: lowStockItems
+    };
+
+    const staffSummary = {
+      activeStaffCount: (staff || []).length,
+      rolesCount: (staff || []).reduce((acc, s) => {
+        const role = s.role || 'Staff';
+        acc[role] = (acc[role] || 0) + 1;
+        return acc;
+      }, {})
+    };
+
+    return {
+      currentPath,
+      settings: settingsSummary,
+      salesSummary,
+      inventorySummary,
+      staffSummary
+    };
+  }, [orders, inventory, staff, settings, wasteLog]);
+
+  const handleSendMessage = async (textToSend) => {
+    const query = textToSend.trim();
+    if (!query) return;
+
+    // Append user message
+    const userMsg = { sender: "user", text: query };
+    setMessages(prev => [...prev, userMsg]);
+    setInput("");
+    setLoading(true);
+    setError(null);
+
+    // Prepare history to send to Gemini
+    const chatHistory = messages.slice(1).map(m => ({
+      sender: m.sender,
+      text: m.text
+    }));
+
+    try {
+      const response = await fetch('/api/help', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: query,
+          chatHistory,
+          contextData: contextDataSnapshot
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || 'Failed to get answer');
+      }
+
+      const reply = await response.json();
+      
+      setMessages(prev => [...prev, {
+        sender: "ai",
+        text: reply.text,
+        suggestions: reply.suggestions || []
+      }]);
+    } catch (err) {
+      console.error('[CO-PILOT] error sending query:', err);
+      setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const executeAction = async (action, index, suggestionIndex) => {
+    if (action.type === 'navigate') {
+      navigate(action.path);
+      onClose();
+    } else if (action.type === 'update_setting') {
+      try {
+        const section = action.section;
+        const data = action.data;
+        
+        await updateSettingsSection(section, data);
+        
+        // Show inline feedback in the chat message
+        setMessages(prev => {
+          const next = [...prev];
+          const targetMsg = { ...next[index] };
+          const targetSuggestions = [...targetMsg.suggestions];
+          targetSuggestions[suggestionIndex] = {
+            ...targetSuggestions[suggestionIndex],
+            executed: true,
+            statusText: "Applied!"
+          };
+          targetMsg.suggestions = targetSuggestions;
+          next[index] = targetMsg;
+          return next;
+        });
+
+      } catch (err) {
+        console.error('[HELP DRAWER] Failed to apply settings update:', err);
+        alert('Failed to apply settings change: ' + err.message);
+      }
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div 
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.15)',
+          backdropFilter: 'blur(3px)',
+          zIndex: 9998,
+          transition: 'all 0.25s ease'
+        }}
+      />
+
+      {/* Drawer */}
+      <div 
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 'min(420px, 100vw)',
+          background: 'rgba(255, 255, 255, 0.94)',
+          backdropFilter: 'blur(20px)',
+          borderLeft: '1px solid var(--border-subtle)',
+          boxShadow: '-10px 0 40px rgba(0,0,0,0.08)',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          fontFamily: 'inherit',
+          animation: 'slideIn 0.25s ease-out'
+        }}
+      >
+        {/* CSS Animation rule */}
+        <style dangerouslySetInnerHTML={{__html: `
+          @keyframes slideIn {
+            from { transform: translateX(100%); }
+            to { transform: translateX(0); }
+          }
+          .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.1);
+            border-radius: 4px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(0,0,0,0.2);
+          }
+        `}} />
+
+        {/* Drawer Header */}
+        <div style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'rgba(255,255,255,0.7)',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: 32,
+              height: 32,
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(124,58,237,0.2)'
+            }}>
+              <Sparkles size={16} color="white" />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary)' }}>Kitchgoo Copilot</div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>AI-powered help &amp; automation</div>
+            </div>
+          </div>
+          <button 
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              padding: 4,
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.2s'
+            }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
+            onMouseOut={e => e.currentTarget.style.background = 'none'}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Chat Thread */}
+        <div 
+          ref={scrollContainerRef}
+          className="custom-scrollbar"
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}
+        >
+          {messages.map((msg, index) => {
+            const isUser = msg.sender === 'user';
+            return (
+              <div 
+                key={index}
+                style={{
+                  alignSelf: isUser ? 'flex-end' : 'flex-start',
+                  maxWidth: '85%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: isUser ? 'flex-end' : 'flex-start'
+                }}
+              >
+                {/* Bubble */}
+                <div 
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                    background: isUser ? 'var(--primary)' : 'rgba(255,255,255,0.85)',
+                    color: isUser ? 'white' : 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                    lineHeight: 1.45,
+                    border: isUser ? 'none' : '1px solid var(--border-subtle)',
+                    boxShadow: isUser ? '0 4px 12px rgba(124,58,237,0.15)' : '0 2px 8px rgba(0,0,0,0.03)',
+                  }}
+                  dangerouslySetInnerHTML={{ __html: isUser ? msg.text : parseMarkdown(msg.text) }}
+                />
+
+                {/* Suggestions Cards */}
+                {!isUser && msg.suggestions && msg.suggestions.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px', width: '100%' }}>
+                    {msg.suggestions.map((sug, sugIdx) => {
+                      const isNav = sug.action.type === 'navigate';
+                      const Icon = isNav ? Compass : Settings;
+                      return (
+                        <div 
+                          key={sugIdx}
+                          style={{
+                            background: 'rgba(255,255,255,0.7)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '12px',
+                            padding: '10px 12px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.02)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                            animation: 'slideIn 0.2s ease-out'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: '6px',
+                              background: isNav ? 'rgba(14,165,233,0.1)' : 'rgba(124,58,237,0.1)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <Icon size={13} color={isNav ? '#0ea5e9' : '#7c3aed'} />
+                            </div>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              {isNav ? "AI Suggests Navigating" : "AI Suggests Setting Update"}
+                            </span>
+                          </div>
+                          
+                          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                            {sug.label}
+                          </div>
+
+                          {/* Action details for settings update preview */}
+                          {sug.action.type === 'update_setting' && !sug.executed && (
+                            <div style={{ 
+                              background: 'rgba(0,0,0,0.03)', 
+                              padding: '6px 10px', 
+                              borderRadius: '6px', 
+                              fontSize: '0.7rem', 
+                              fontFamily: 'monospace',
+                              color: 'var(--text-muted)'
+                            }}>
+                              {JSON.stringify(sug.action.data, null, 1)}
+                            </div>
+                          )}
+
+                          {sug.executed ? (
+                            <div style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '4px', 
+                              color: '#22c55e', 
+                              fontSize: '0.75rem', 
+                              fontWeight: 700, 
+                              padding: '4px 0' 
+                            }}>
+                              <Check size={14} /> {sug.statusText || "Applied!"}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => executeAction(sug.action, index, sugIdx)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                                width: '100%',
+                                padding: '6px 10px',
+                                background: isNav ? '#0ea5e9' : '#7c3aed',
+                                border: 'none',
+                                borderRadius: '8px',
+                                color: 'white',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                transition: 'opacity 0.2s'
+                              }}
+                              onMouseOver={e => e.currentTarget.style.opacity = 0.9}
+                              onMouseOut={e => e.currentTarget.style.opacity = 1}
+                            >
+                              <span>{isNav ? "Go Now" : "Apply Changes"}</span>
+                              <ArrowRight size={12} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {loading && (
+            <div style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.85)', padding: '10px 16px', borderRadius: '16px 16px 16px 4px', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', animation: 'bounce 1.4s infinite ease-in-out both' }} />
+                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', animation: 'bounce 1.4s infinite ease-in-out both', animationDelay: '0.2s' }} />
+                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', animation: 'bounce 1.4s infinite ease-in-out both', animationDelay: '0.4s' }} />
+              </div>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Thinking...</span>
+              <style dangerouslySetInnerHTML={{__html: `
+                @keyframes bounce {
+                  0%, 80%, 100% { transform: scale(0); }
+                  40% { transform: scale(1.0); }
+                }
+              `}} />
+            </div>
+          )}
+
+          {error && (
+            <div style={{ alignSelf: 'stretch', display: 'flex', alignItems: 'flex-start', gap: '8px', background: 'rgba(239,68,68,0.08)', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <AlertCircle size={16} color="#ef4444" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#dc2626' }}>Error calling Copilot</span>
+                <span style={{ fontSize: '0.75rem', color: '#b91c1c' }}>{error}</span>
+              </div>
+            </div>
+          )}
+          
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Quick Actions Panel */}
+        <div style={{
+          padding: '8px 12px 0 12px',
+          display: 'flex',
+          gap: '8px',
+          overflowX: 'auto',
+          whiteSpace: 'nowrap',
+          background: 'rgba(255,255,255,0.7)',
+          flexShrink: 0
+        }} className="custom-scrollbar">
+          {QuickPrompts.map((p, i) => (
+            <button
+              key={i}
+              onClick={() => handleSendMessage(p.text)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 12px',
+                background: 'white',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '20px',
+                fontSize: '0.75rem',
+                color: 'var(--text-secondary)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                transition: 'all 0.2s',
+                flexShrink: 0
+              }}
+              onMouseOver={e => {
+                e.currentTarget.style.borderColor = 'var(--primary)';
+                e.currentTarget.style.color = 'var(--primary)';
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              <span>{p.icon}</span>
+              <span>{p.text.slice(p.text.indexOf(" ") + 1)}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Input Bar */}
+        <div style={{
+          padding: '16px',
+          borderTop: '1px solid var(--border-subtle)',
+          background: 'rgba(255,255,255,0.85)',
+          backdropFilter: 'blur(10px)',
+          flexShrink: 0
+        }}>
+          <form 
+            onSubmit={e => { e.preventDefault(); handleSendMessage(input); }}
+            style={{
+              display: 'flex',
+              background: 'white',
+              border: '1.5px solid var(--border-subtle)',
+              borderRadius: '14px',
+              padding: '4px 6px 4px 14px',
+              alignItems: 'center',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+              transition: 'border-color 0.2s'
+            }}
+            onFocusWithin={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+          >
+            <input 
+              type="text" 
+              placeholder="Ask copilot or command change..." 
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              disabled={loading}
+              style={{
+                flex: 1,
+                border: 'none',
+                outline: 'none',
+                fontSize: '0.82rem',
+                color: 'var(--text-primary)',
+                background: 'transparent',
+                padding: '8px 0'
+              }}
+            />
+            <button 
+              type="submit"
+              disabled={!input.trim() || loading}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '10px',
+                background: input.trim() && !loading ? 'var(--primary)' : 'rgba(0,0,0,0.05)',
+                color: input.trim() && !loading ? 'white' : 'var(--text-muted)',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: input.trim() && !loading ? 'pointer' : 'default',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Send size={14} />
+            </button>
+          </form>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default HelpDrawer;

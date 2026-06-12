@@ -65,6 +65,7 @@ export function AppProvider({ children }) {
   const [campaigns, setCampaigns] = useState([]);
   const [guests, setGuests] = useState([]);
   const [cashDrawer, setCashDrawer] = useState({});
+  const [registerClosures, setRegisterClosures] = useState([]);
 
   const { user, loading: authLoading } = useAuth();
 
@@ -208,6 +209,7 @@ export function AppProvider({ children }) {
     setCampaigns(getAll('campaigns'));
     setGuests(getAll('guests'));
     setCashDrawer(getAll('cash_drawer') || {});
+    setRegisterClosures(getAll('register_closures') || []);
 
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
 
@@ -672,6 +674,35 @@ export function AppProvider({ children }) {
     setCashDrawer(updated);
   }, []);
 
+  const addRegisterClosureAction = useCallback(async (data) => {
+    const newItem = await insert('register_closures', data);
+    setRegisterClosures(getAll('register_closures'));
+    return newItem;
+  }, []);
+
+  const updateRegisterClosureAction = useCallback(async (id, data) => {
+    const closures = getAll('register_closures') || [];
+    const target = closures.find(c => c.id === id);
+    if (!target) return;
+
+    const openingBalance = parseFloat(data.openingBalance) || 0;
+    const actualCash = parseFloat(data.actualCash) || 0;
+    const notes = data.notes || '';
+
+    const dropsSum = (target.drops || []).reduce((s, d) => s + d.amount, 0);
+    const expectedBalance = openingBalance + (target.cashIn || 0) - (target.cashOut || 0) - dropsSum;
+    const variance = actualCash - expectedBalance;
+
+    await update('register_closures', id, {
+      openingBalance,
+      actualCash,
+      notes,
+      expectedBalance,
+      variance
+    });
+    setRegisterClosures(getAll('register_closures'));
+  }, []);
+
   // ── Audit ──────────────────────────────────────────────
   const addAuditEntry = useCallback(async (action, userId, userName, details) => {
     await logAudit(action, userId, userName, details);
@@ -740,7 +771,7 @@ export function AppProvider({ children }) {
     staff, inventory, menu, orders, deliveryOrders, settings, todayStats,
     kdsTickets, reservations, waitlist, onlineOrders, suppliers, purchaseOrders,
     recipes, wasteLog, locations, auditLog, floorPlans, modifiers, schedules,
-    tipPools, loyalty, campaigns, guests, cashDrawer,
+    tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     // Staff
     addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,
@@ -781,6 +812,8 @@ export function AppProvider({ children }) {
     addGuest, editGuest, deleteGuest,
     // Cash Drawer
     updateCashDrawer: updateCashDrawerAction,
+    addRegisterClosure: addRegisterClosureAction,
+    updateRegisterClosure: updateRegisterClosureAction,
     // Audit
     addAuditEntry,
     // Online Orders

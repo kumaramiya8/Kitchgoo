@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { Bell, Search, ChevronLeft, LogOut, Settings, Users, Menu } from 'lucide-react';
+import { Bell, Search, ChevronLeft, LogOut, Settings, Users, Menu, Sparkles } from 'lucide-react';
 import { useAuth } from '../../db/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import HelpDrawer from '../ui/HelpDrawer';
 
 const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const btnRef = useRef(null);
   const dropRef = useRef(null);
   const [dropPos, setDropPos] = useState({ top: 0, right: 0 });
@@ -103,6 +105,39 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
       <div className="header-spacer" />
 
       <div className="header-actions">
+        {/* Help / AI Copilot Button */}
+        <button 
+          className="header-icon-btn animate-pulse" 
+          onClick={() => setHelpOpen(true)}
+          title="Kitchgoo Copilot Help"
+          style={{
+            position: 'relative',
+            background: 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(168,85,247,0.06))',
+            border: '1px solid rgba(124,58,237,0.15)',
+            color: '#7c3aed',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+          }}
+          onMouseOver={e => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(124,58,237,0.12), rgba(168,85,247,0.12))';
+            e.currentTarget.style.borderColor = 'rgba(124,58,237,0.25)';
+            e.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseOut={e => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(168,85,247,0.06))';
+            e.currentTarget.style.borderColor = 'rgba(124,58,237,0.15)';
+            e.currentTarget.style.transform = 'none';
+          }}
+        >
+          <Sparkles size={16} />
+        </button>
+
         <button className="header-icon-btn">
           <Bell size={18} />
         </button>
@@ -123,6 +158,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
       </div>
 
       {dropdown}
+      <HelpDrawer isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
     </header>
   );
 };

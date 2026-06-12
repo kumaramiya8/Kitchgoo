@@ -322,12 +322,14 @@ const SEEDS = {
   },
   campaigns: [],
   cash_drawer: {
-    openingBalance: 5000,
-    currentBalance: 5000,
+    openingBalance: 0,
+    currentBalance: 0,
     drops: [],
     discrepancies: [],
-    shiftStart: new Date().toISOString(),
+    shiftStart: null,
+    isClosed: true,
   },
+  register_closures: [],
   pos_tables: [],
   pos_saved_orders: {},
 };
@@ -339,7 +341,7 @@ async function loadTenantDataFromSupabase(tenantName) {
     'reservations', 'waitlist', 'online_orders', 'suppliers', 'purchase_orders',
     'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
     'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
-    'pos_tables', 'pos_saved_orders'
+    'pos_tables', 'pos_saved_orders', 'register_closures'
   ];
 
   // Core tables queries
@@ -388,7 +390,7 @@ export async function syncTenantDataFromSupabase(tenantName) {
       'reservations', 'waitlist', 'online_orders', 'suppliers', 'purchase_orders',
       'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
       'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
-      'pos_tables', 'pos_saved_orders'
+      'pos_tables', 'pos_saved_orders', 'register_closures'
     ];
 
     const [menuRes, inventoryRes, ordersRes, settingsRes, flexRes] = await Promise.all([
@@ -474,7 +476,7 @@ export async function initDB() {
       'attendance', 'users', 'guests', 'kds_tickets', 'reservations', 'waitlist',
       'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
       'locations', 'audit_log', 'floor_plans', 'modifiers', 'schedules',
-      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
+      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer', 'register_closures'
     ];
     for (const col of collections) {
       const key = `Kitchgoo_${col}`;
@@ -566,7 +568,7 @@ export async function initTenantDB(tenantName) {
       'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
       'locations', 'floor_plans', 'modifiers', 'schedules',
       'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
-      'pos_tables', 'pos_saved_orders'
+      'pos_tables', 'pos_saved_orders', 'register_closures'
     ];
     for (const col of collections) {
       const key = `${tenantName}_${col}`;
@@ -619,7 +621,7 @@ export async function initTenantDB(tenantName) {
       };
       
       const settingsPromises = Object.entries(settingsObj).map(([section, val]) =>
-        supabase.from('settings').insert({ account_id: tenantName, section_name: section, value: val })
+         supabase.from('settings').insert({ account_id: tenantName, section_name: section, value: val })
       );
       await Promise.all(settingsPromises);
 
@@ -636,7 +638,7 @@ export async function initTenantDB(tenantName) {
       await Promise.all(invPromises);
 
       // Seed flex data
-      const flexCollections = ['staff', 'suppliers', 'recipes', 'floor_plans', 'modifiers', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer'];
+      const flexCollections = ['staff', 'suppliers', 'recipes', 'floor_plans', 'modifiers', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer', 'register_closures'];
       const flexPromises = flexCollections.map(col =>
         supabase.from('tenant_data').insert({ account_id: tenantName, collection_name: col, value: SEEDS[col] })
       );

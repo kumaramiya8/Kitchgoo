@@ -183,9 +183,10 @@ const SEEDS = {
   },
 
   cash_drawer: {
-    openingBalance: 5000, currentBalance: 5000,
-    drops: [], discrepancies: [], shiftStart: new Date().toISOString(),
+    openingBalance: 0, currentBalance: 0,
+    drops: [], discrepancies: [], shiftStart: null, isClosed: true,
   },
+  register_closures: [],
 
   // Reset empty collections
   orders: [],
@@ -304,7 +305,7 @@ async function migrate() {
     'staff', 'guests', 'suppliers', 'recipes', 'floor_plans',
     'modifiers', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
     'kds_tickets', 'reservations', 'waitlist', 'online_orders', 'purchase_orders',
-    'waste_log', 'audit_log', 'schedules', 'orders', 'delivery_orders', 'attendance'
+    'waste_log', 'audit_log', 'schedules', 'orders', 'delivery_orders', 'attendance', 'register_closures'
   ];
   const flexPromises = flexCollections.map(col =>
     supabase.from('tenant_data').insert({
