@@ -101,36 +101,66 @@ Ensure the output is strictly valid JSON matching the above structure, and no ot
       ]
     });
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: {
-            parts: [{ text: systemPrompt }]
-          },
-          generationConfig: {
-            responseMimeType: 'application/json'
+    // Call Gemini with automatic retry and model fallback
+    const callGeminiWithFallback = async () => {
+      const models = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+      let lastError = null;
+
+      for (const model of models) {
+        let retries = 2;
+        let delay = 1000;
+
+        while (retries >= 0) {
+          try {
+            console.log(`[API] Querying Gemini model: ${model} (retries left: ${retries})`);
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  contents,
+                  systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                  },
+                  generationConfig: {
+                    responseMimeType: 'application/json'
+                  }
+                }),
+              }
+            );
+
+            if (response.ok) {
+              const data = await response.json();
+              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) return text;
+            }
+
+            const errText = await response.text();
+            lastError = new Error(`Gemini API error for ${model}: ${response.status} - ${errText}`);
+            
+            // Only retry on rate limits (429) or temp issues (503)
+            if (response.status !== 503 && response.status !== 429) {
+              break; // Try next model immediately
+            }
+          } catch (err) {
+            lastError = err;
           }
-        }),
+
+          if (retries > 0) {
+            console.log(`[API] Temporary failure on ${model}, retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            delay *= 2;
+          }
+          retries--;
+        }
       }
-    );
+      throw lastError || new Error('All Gemini model queries failed');
+    };
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API error: ${response.status} - ${errText}`);
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    if (!responseText) {
-      throw new Error('No content returned from Gemini');
-    }
+    const responseText = await callGeminiWithFallback();
 
     // Try parsing JSON response from Gemini
     let resultObj;
