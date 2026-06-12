@@ -103,7 +103,7 @@ Ensure the output is strictly valid JSON matching the above structure, and no ot
 
     // Call Gemini with automatic retry and model fallback
     const callGeminiWithFallback = async () => {
-      const models = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+      const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
       let lastError = null;
 
       for (const model of models) {
