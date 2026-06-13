@@ -59,15 +59,16 @@ When responding to the user's query:
 3. If the user asks to change settings (e.g. "Change restaurant name to Gourmet Cafe" or "Set service charge to 5% and enable it"), do NOT just explain how to do it. Provide an action in the "suggestions" array to actually perform the change!
 4. If the user asks to analyze data or reports, use the provided contextData (which summarizes settings, overall & daily sales, low stock items, detailed inventoryList, the complete menuSummary with items and prices, staffList, and tablesSummary) to perform the analysis (e.g., comparing and suggesting menu price updates, calculating average order values, identifying low stock items, summarizing sales trends, comparing cash vs card payments). Point out interesting facts and suggest actions to navigate to relevant reports.
 5. If the user asks to book/seat a table, or add food/drinks to a table (e.g., "book table 1 for walkin guest, and add cold coffee"), use the available tables from 'tablesSummary' and menu items from 'menuSummary' to provide a 'seat_table_order' action in the suggestions array!
+6. If the user wants to update stock quantities of inventory items (e.g., "add 10 to tomatoes, deduct 5 milk, set eggs to 100"), identify the target inventory items by matching their names case-insensitively with those in 'inventorySummary.inventoryList'. Calculate the target new stock level for each item. In your response "text", you MUST provide a clear summary showing the item name, current stock, proposed change, and new calculated stock, and ask the user for approval. Then, you MUST include a "bulk_update_stock" action in the "suggestions" array to let the user apply the changes.
 
 The response MUST be a JSON object with the following schema:
 {
   "text": "Your markdown formatted response text here.",
   "suggestions": [
     {
-      "label": "Brief label for the suggestion button (e.g., 'Seat Guest & Add Cold Coffee to Table 1')",
+      "label": "Brief label for the suggestion button (e.g., 'Update Stock Levels')",
       "action": {
-        "type": "navigate" | "update_setting" | "open_modal" | "seat_table_order",
+        "type": "navigate" | "update_setting" | "open_modal" | "seat_table_order" | "bulk_update_stock",
         // for type "navigate":
         "path": "/reports?tab=operational_eff" | "/settings?tab=payments" | "/pos" | "/kds" | "/inventory" etc.,
         // for type "update_setting":
@@ -85,6 +86,14 @@ The response MUST be a JSON object with the following schema:
             "name": "the exact menu item name from menuSummary",
             "price": 80,
             "qty": 1
+          }
+        ],
+        // for type "bulk_update_stock":
+        "updates": [
+          {
+            "id": "the inventory item ID matched from inventorySummary.inventoryList",
+            "name": "the exact inventory item name from inventorySummary.inventoryList",
+            "stock": 25
           }
         ]
       }

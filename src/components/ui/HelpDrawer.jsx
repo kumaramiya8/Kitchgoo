@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Sparkles, X, Send, Compass, Settings, AlertCircle, Check, ArrowRight } from 'lucide-react';
+import { Sparkles, X, Send, Compass, Settings, AlertCircle, Check, ArrowRight, Package } from 'lucide-react';
 import { useApp } from '../../db/AppContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -37,7 +37,7 @@ const parseMarkdown = (text) => {
 };
 
 const HelpDrawer = ({ isOpen, onClose }) => {
-  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection } = useApp();
+  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem } = useApp();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
@@ -392,6 +392,39 @@ const HelpDrawer = ({ isOpen, onClose }) => {
         console.error('[HELP DRAWER] Failed to seat table or add items:', err);
         alert('Failed to seat table: ' + err.message);
       }
+    } else if (action.type === 'bulk_update_stock') {
+      try {
+        const updates = action.updates || [];
+        for (const updateItem of updates) {
+          const invItem = (inventory || []).find(i => i.id === updateItem.id || i.name.toLowerCase() === updateItem.name.toLowerCase());
+          if (invItem) {
+            await editInventoryItem(invItem.id, {
+              ...invItem,
+              stock: Number(updateItem.stock),
+              lastUpdated: new Date().toISOString()
+            });
+          }
+        }
+
+        // Show inline feedback in the chat message
+        setMessages(prev => {
+          const next = [...prev];
+          const targetMsg = { ...next[index] };
+          const targetSuggestions = [...targetMsg.suggestions];
+          targetSuggestions[suggestionIndex] = {
+            ...targetSuggestions[suggestionIndex],
+            executed: true,
+            statusText: `Stock Updated!`
+          };
+          targetMsg.suggestions = targetSuggestions;
+          next[index] = targetMsg;
+          return next;
+        });
+
+      } catch (err) {
+        console.error('[HELP DRAWER] Failed to bulk update stock:', err);
+        alert('Failed to update stock: ' + err.message);
+      }
     }
   };
 
@@ -542,7 +575,8 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px', width: '100%' }}>
                     {msg.suggestions.map((sug, sugIdx) => {
                       const isNav = sug.action.type === 'navigate';
-                      const Icon = isNav ? Compass : Settings;
+                      const isStock = sug.action.type === 'bulk_update_stock';
+                      const Icon = isNav ? Compass : (isStock ? Package : Settings);
                       return (
                         <div 
                           key={sugIdx}
@@ -572,7 +606,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                               <Icon size={13} color={isNav ? '#0ea5e9' : '#7c3aed'} />
                             </div>
                             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              {isNav ? "AI Suggests Navigating" : "AI Suggests Setting Update"}
+                              {isNav ? "AI Suggests Navigating" : (isStock ? "AI Suggests Stock Update" : "AI Suggests Setting Update")}
                             </span>
                           </div>
                           
@@ -591,6 +625,32 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                               color: 'var(--text-muted)'
                             }}>
                               {JSON.stringify(sug.action.data, null, 1)}
+                            </div>
+                          )}
+
+                          {sug.action.type === 'bulk_update_stock' && !sug.executed && (
+                            <div style={{ 
+                              background: 'rgba(0,0,0,0.03)', 
+                              padding: '8px 12px', 
+                              borderRadius: '8px', 
+                              fontSize: '0.74rem', 
+                              color: 'var(--text-secondary)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px'
+                            }}>
+                              {sug.action.updates.map((upd, idx) => {
+                                const currentItem = (inventory || []).find(i => i.id === upd.id || i.name.toLowerCase() === upd.name.toLowerCase());
+                                return (
+                                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontWeight: 600 }}>{upd.name}</span>
+                                    <span style={{ fontSize: '0.7rem' }}>
+                                      {currentItem ? `${currentItem.stock} → ` : ''}
+                                      <strong style={{ color: 'var(--primary)', fontSize: '0.74rem' }}>{upd.stock} {currentItem?.unit || ''}</strong>
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
 
