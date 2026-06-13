@@ -5,6 +5,37 @@ import { useAuth } from '../../db/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import HelpDrawer from '../ui/HelpDrawer';
 
+const SEARCHABLE_ITEMS = [
+  // Pages
+  { name: 'Dashboard', type: 'page', path: '/', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'] },
+  { name: 'POS & Billing', type: 'page', path: '/pos', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Waiter'] },
+  { name: 'Kitchen Display System', type: 'page', path: '/kds', allowedRoles: ['Owner', 'Manager', 'Chef'] },
+  { name: 'Menu Management', type: 'page', path: '/menu', allowedRoles: ['Owner', 'Manager', 'Chef'] },
+  { name: 'Inventory & Supply Chain', type: 'page', path: '/inventory', allowedRoles: ['Owner', 'Manager', 'Chef'] },
+  { name: 'Delivery & Online Ordering', type: 'page', path: '/delivery', allowedRoles: ['Owner', 'Manager', 'Cashier'] },
+  { name: 'Staff & Workforce', type: 'page', path: '/staff', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Guests & CRM', type: 'page', path: '/guests', allowedRoles: ['Owner', 'Manager', 'Cashier'] },
+  { name: 'Reservations & Waitlist', type: 'page', path: '/reservations', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Waiter'] },
+  { name: 'Reports & Analytics', type: 'page', path: '/reports', allowedRoles: ['Owner', 'Manager'] },
+  
+  // Settings Sections
+  { name: 'Settings: Restaurant Profile', type: 'setting', path: '/settings?tab=restaurant', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Billing & Taxes', type: 'setting', path: '/settings?tab=billing', allowedRoles: ['Owner'] },
+  { name: 'Settings: Payment Methods', type: 'setting', path: '/settings?tab=payments', allowedRoles: ['Owner'] },
+  { name: 'Settings: Operations', type: 'setting', path: '/settings?tab=operations', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'] },
+  { name: 'Settings: Menu Categories', type: 'setting', path: '/settings?tab=menuConfig', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Delivery Platforms', type: 'setting', path: '/settings?tab=delivery', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Notifications', type: 'setting', path: '/settings?tab=notifications', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Printer & Receipt', type: 'setting', path: '/settings?tab=printer', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef'] },
+  { name: 'Settings: Module Toggles', type: 'setting', path: '/settings?tab=modules', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Custom Naming', type: 'setting', path: '/settings?tab=naming', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Workflow Rules', type: 'setting', path: '/settings?tab=workflow', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Receipt Builder', type: 'setting', path: '/settings?tab=receipt', allowedRoles: ['Owner', 'Manager', 'Cashier'] },
+  { name: 'Settings: Roles & Permissions', type: 'setting', path: '/settings?tab=roles', allowedRoles: ['Owner'] },
+  { name: 'Settings: Team Members', type: 'setting', path: '/settings?tab=team', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Appearance', type: 'setting', path: '/settings?tab=appearance', allowedRoles: ['Owner', 'Manager'] },
+];
+
 const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -13,6 +44,44 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const btnRef = useRef(null);
   const dropRef = useRef(null);
   const [dropPos, setDropPos] = useState({ top: 0, right: 0 });
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchWrapperRef = useRef(null);
+
+  // Close search dropdown on clicking outside
+  useEffect(() => {
+    const clickHandler = (e) => {
+      if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target)) {
+        setSearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', clickHandler);
+    return () => document.removeEventListener('mousedown', clickHandler);
+  }, []);
+
+  // Update search results when query or user changes
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    const userRole = (user?.role || 'Owner').toLowerCase();
+
+    const filtered = SEARCHABLE_ITEMS.filter(item => {
+      // 1. Match search query
+      const nameMatches = item.name.toLowerCase().includes(query);
+      if (!nameMatches) return false;
+
+      // 2. Match role permission
+      return item.allowedRoles.some(r => r.toLowerCase() === userRole);
+    });
+
+    setSearchResults(filtered);
+  }, [searchQuery, user]);
 
   // Position dropdown relative to button
   const openDropdown = () => {
@@ -97,9 +166,90 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
         <ChevronLeft size={16} />
       </button>
 
-      <div className="header-search-wrapper">
+      <div className="header-search-wrapper" ref={searchWrapperRef}>
         <Search size={15} className="header-search-icon" />
-        <input type="text" placeholder="Search..." className="header-search" />
+        <input 
+          type="text" 
+          placeholder="Search pages & settings..." 
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onFocus={() => setSearchFocused(true)}
+          className="header-search" 
+        />
+        {searchFocused && searchResults.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 8px)',
+              left: 0,
+              right: 0,
+              background: 'rgba(255,255,255,0.96)',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(226, 232, 240, 0.9)',
+              borderRadius: '16px',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(124,58,237,0.04)',
+              maxHeight: '300px',
+              overflowY: 'auto',
+              padding: '6px',
+              zIndex: 10000
+            }}
+          >
+            {searchResults.map((item, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  navigate(item.path);
+                  setSearchQuery('');
+                  setSearchFocused(false);
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'background 0.2s',
+                }}
+                onMouseOver={e => e.currentTarget.style.background = 'rgba(124,58,237,0.06)'}
+                onMouseOut={e => e.currentTarget.style.background = 'none'}
+              >
+                <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {item.name}
+                </span>
+                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: '2px', letterSpacing: '0.5px' }}>
+                  {item.type === 'setting' ? '⚙️ Settings Section' : '📱 View / Page'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {searchFocused && searchQuery.trim() && searchResults.length === 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 8px)',
+              left: 0,
+              right: 0,
+              background: 'rgba(255,255,255,0.96)',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(226, 232, 240, 0.9)',
+              borderRadius: '16px',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.12)',
+              padding: '16px',
+              textAlign: 'center',
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              zIndex: 10000
+            }}
+          >
+            No results found for "{searchQuery}"
+          </div>
+        )}
       </div>
 
       <div className="header-spacer" />
@@ -136,10 +286,6 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
           }}
         >
           <Sparkles size={16} />
-        </button>
-
-        <button className="header-icon-btn">
-          <Bell size={18} />
         </button>
 
         {/* User avatar button */}

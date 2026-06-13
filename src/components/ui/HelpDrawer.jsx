@@ -37,7 +37,7 @@ const parseMarkdown = (text) => {
 };
 
 const HelpDrawer = ({ isOpen, onClose }) => {
-  const { orders, inventory, staff, settings, wasteLog, updateSettingsSection } = useApp();
+  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection } = useApp();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
     {
@@ -88,30 +88,130 @@ const HelpDrawer = ({ isOpen, onClose }) => {
       } : null,
     } : null;
 
+    // Menu summary containing all items, categories, status, prices, and cost prices
+    const menuSummary = (menu || []).map(m => ({
+      name: m.name,
+      price: m.price,
+      costPrice: m.costPrice,
+      category: m.category,
+      active: m.active
+    }));
+
     const todayStr = new Date().toISOString().split('T')[0];
     const todayOrders = (orders || []).filter(o => o.createdAt && o.createdAt.startsWith(todayStr));
-    const totalRevenue = todayOrders.reduce((s, o) => s + (o.total || 0), 0);
+    const todayRevenue = todayOrders.reduce((s, o) => s + (o.total || 0), 0);
+    
+    // Overall metrics & Item performance analytics
+    const allOrders = orders || [];
+    const overallRevenue = allOrders.reduce((s, o) => s + (o.total || 0), 0);
+    const overallOrdersCount = allOrders.length;
+    
+    const itemSalesCount = {};
+    const itemRevenue = {};
+    const monthlySales = {};
+    const paymentMethodsAll = { cash: 0, card: 0, upi: 0 };
+    const orderTypesAll = {};
+
+    allOrders.forEach(o => {
+      // 1. Item sales counts
+      if (Array.isArray(o.items)) {
+        o.items.forEach(item => {
+          const name = item.name;
+          const qty = item.quantity || 1;
+          const price = item.price || 0;
+          itemSalesCount[name] = (itemSalesCount[name] || 0) + qty;
+          itemRevenue[name] = (itemRevenue[name] || 0) + (qty * price);
+        });
+      }
+
+      // 2. Historical sales aggregation
+      const dateStr = o.createdAt ? o.createdAt.split('T')[0] : null;
+      if (dateStr) {
+        const month = dateStr.slice(0, 7); // YYYY-MM
+        if (!monthlySales[month]) {
+          monthlySales[month] = { revenue: 0, count: 0 };
+        }
+        monthlySales[month].revenue += (o.total || 0);
+        monthlySales[month].count += 1;
+      }
+
+      // 3. Payment methods overall
+      const pm = (o.paymentMethod || 'Cash').toLowerCase();
+      if (pm.includes('cash')) paymentMethodsAll.cash += (o.total || 0);
+      else if (pm.includes('card')) paymentMethodsAll.card += (o.total || 0);
+      else paymentMethodsAll.upi += (o.total || 0);
+
+      // 4. Order types overall
+      const type = o.orderType || 'Dine-In';
+      orderTypesAll[type] = (orderTypesAll[type] || 0) + (o.total || 0);
+    });
+
+    const topSellingItems = Object.entries(itemSalesCount)
+      .map(([name, count]) => ({ name, count, revenue: itemRevenue[name] }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    // Build compact recent orders list (last 300 orders)
+    const maxCompactOrders = 300;
+    const sortedOrders = [...allOrders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const compactRecentOrders = sortedOrders.slice(0, maxCompactOrders).map(o => {
+      const item = {
+        bill: o.billNo,
+        date: o.createdAt ? o.createdAt.split('T')[0] : null,
+        total: o.total,
+        type: o.orderType,
+        pm: o.paymentMethod,
+        status: o.status,
+        items: (o.items || []).map(i => `${i.name}x${i.quantity}`)
+      };
+      if (o.discount) item.disc = o.discount;
+      if (o.comp) item.comp = o.comp;
+      if (o.voidReason) item.voidR = o.voidReason;
+      if (o.compReason) item.compR = o.compReason;
+      return item;
+    });
+
     const salesSummary = {
       todayOrdersCount: todayOrders.length,
-      todayTotalRevenue: totalRevenue,
-      averageOrderValue: todayOrders.length > 0 ? (totalRevenue / todayOrders.length) : 0,
+      todayTotalRevenue: todayRevenue,
+      todayAverageOrderValue: todayOrders.length > 0 ? (todayRevenue / todayOrders.length) : 0,
+      overallOrdersCount,
+      overallTotalRevenue: overallRevenue,
+      overallAverageOrderValue: overallOrdersCount > 0 ? (overallRevenue / overallOrdersCount) : 0,
+      topSellingItems,
       paymentMethodsBreakdown: todayOrders.reduce((acc, o) => {
         const method = (o.paymentMethod || 'Cash').toLowerCase();
         if (method.includes('cash')) acc.cash += (o.total || 0);
         else if (method.includes('card')) acc.card += (o.total || 0);
         else acc.upi += (o.total || 0);
         return acc;
-      }, { cash: 0, card: 0, upi: 0 })
+      }, { cash: 0, card: 0, upi: 0 }),
+      monthlySales,
+      paymentMethodsAll,
+      orderTypesAll,
+      recentOrdersList: compactRecentOrders
     };
 
     const lowStockCount = (inventory || []).filter(i => (i.stock || 0) <= (i.min || 0)).length;
     const outOfStockCount = (inventory || []).filter(i => (i.stock || 0) <= 0).length;
     const lowStockItems = (inventory || []).filter(i => (i.stock || 0) <= (i.min || 0)).slice(0, 5).map(i => `${i.name} (${i.stock} ${i.unit || 'pcs'} left)`);
+    
+    const inventoryList = (inventory || []).map(i => ({
+      name: i.name,
+      category: i.category,
+      stock: i.stock,
+      unit: i.unit,
+      min: i.min,
+      cost: i.cost,
+      supplier: i.supplier
+    }));
+
     const inventorySummary = {
       totalItemsCount: (inventory || []).length,
       lowStockCount,
       outOfStockCount,
-      lowStockItemsExample: lowStockItems
+      lowStockItemsExample: lowStockItems,
+      inventoryList
     };
 
     const staffSummary = {
@@ -120,17 +220,34 @@ const HelpDrawer = ({ isOpen, onClose }) => {
         const role = s.role || 'Staff';
         acc[role] = (acc[role] || 0) + 1;
         return acc;
-      }, {})
+      }, {}),
+      staffList: (staff || []).map(s => ({
+        name: s.name,
+        role: s.role,
+        status: s.status
+      }))
+    };
+
+    const tablesSummary = {
+      tablesList: (posTables || []).map(t => ({
+        id: t.id,
+        number: t.number,
+        status: t.status,
+        guestName: t.guestName,
+        seatedAt: t.seatedAt
+      }))
     };
 
     return {
       currentPath,
       settings: settingsSummary,
+      menuSummary,
       salesSummary,
       inventorySummary,
-      staffSummary
+      staffSummary,
+      tablesSummary
     };
-  }, [orders, inventory, staff, settings, wasteLog]);
+  }, [orders, inventory, staff, settings, wasteLog, menu, posTables]);
 
   const handleSendMessage = async (textToSend) => {
     const query = textToSend.trim();
@@ -212,6 +329,69 @@ const HelpDrawer = ({ isOpen, onClose }) => {
         console.error('[HELP DRAWER] Failed to apply settings update:', err);
         alert('Failed to apply settings change: ' + err.message);
       }
+    } else if (action.type === 'seat_table_order') {
+      try {
+        const tableId = action.tableId;
+        const guestName = action.guestName || 'Walk-in Guest';
+        const itemsToAdd = action.items || [];
+        
+        // 1. Update the table seating status
+        setPosTables(prev => prev.map(t => String(t.id) === String(tableId)
+          ? {
+              ...t,
+              status: 'seated',
+              guestName: guestName,
+              seatedAt: new Date().toISOString(),
+            }
+          : t
+        ));
+
+        // 2. Add the items to the table's saved order (cart)
+        if (itemsToAdd.length > 0) {
+          const posItems = itemsToAdd.map(item => {
+            const menuMatch = (menu || []).find(m => m.id === item.id || m.name.toLowerCase() === item.name.toLowerCase());
+            return {
+              id: item.id || menuMatch?.id || `menu_${Date.now()}`,
+              name: item.name,
+              price: Number(item.price || menuMatch?.price || 0),
+              qty: Number(item.qty || 1),
+              _cartKey: `${item.id || 'item'}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              modifiers: [],
+              specialInstructions: '',
+              modifierGroups: menuMatch?.modifierGroups || [],
+              course: 1,
+              seat: 1
+            };
+          });
+
+          setPosSavedOrders(prev => {
+            const currentCart = prev[tableId] || [];
+            return {
+              ...prev,
+              [tableId]: [...currentCart, ...posItems]
+            };
+          });
+        }
+
+        // Show inline feedback in the chat message
+        setMessages(prev => {
+          const next = [...prev];
+          const targetMsg = { ...next[index] };
+          const targetSuggestions = [...targetMsg.suggestions];
+          targetSuggestions[suggestionIndex] = {
+            ...targetSuggestions[suggestionIndex],
+            executed: true,
+            statusText: `Table Seated & Items Added!`
+          };
+          targetMsg.suggestions = targetSuggestions;
+          next[index] = targetMsg;
+          return next;
+        });
+
+      } catch (err) {
+        console.error('[HELP DRAWER] Failed to seat table or add items:', err);
+        alert('Failed to seat table: ' + err.message);
+      }
     }
   };
 
@@ -236,18 +416,22 @@ const HelpDrawer = ({ isOpen, onClose }) => {
       <div 
         style={{
           position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 'min(420px, 100vw)',
-          background: 'rgba(255, 255, 255, 0.94)',
-          backdropFilter: 'blur(20px)',
-          borderLeft: '1px solid var(--border-subtle)',
-          boxShadow: '-10px 0 40px rgba(0,0,0,0.08)',
+          top: '12px',
+          bottom: '12px',
+          right: '12px',
+          width: 'min(380px, calc(100vw - 24px))',
+          height: 'calc(100vh - 24px)',
+          background: 'var(--sidebar-bg)',
+          backdropFilter: 'var(--blur-heavy)',
+          WebkitBackdropFilter: 'var(--blur-heavy)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-2xl)',
+          boxShadow: 'var(--shadow-sidebar)',
           zIndex: 9999,
           display: 'flex',
           flexDirection: 'column',
           fontFamily: 'inherit',
+          overflow: 'hidden',
           animation: 'slideIn 0.25s ease-out'
         }}
       >
@@ -272,53 +456,44 @@ const HelpDrawer = ({ isOpen, onClose }) => {
           }
         `}} />
 
-        {/* Drawer Header */}
-        <div style={{
-          padding: '16px 20px',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(255,255,255,0.7)',
-          backdropFilter: 'blur(10px)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{
-              width: 32,
-              height: 32,
-              borderRadius: '8px',
-              background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(124,58,237,0.2)'
-            }}>
-              <Sparkles size={16} color="white" />
+        {/* Drawer Header (aligned with sidebar logo style) */}
+        <div 
+          className="sidebar-logo"
+          style={{
+            padding: '22px 20px 18px',
+            borderBottom: '1px solid var(--border-subtle)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: '4px',
+            background: 'none'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="sidebar-logo-icon">
+                <Sparkles size={18} />
+              </div>
+              <span className="sidebar-logo-text" style={{ fontSize: '1.05rem', fontWeight: 800 }}>Copilot Help</span>
             </div>
-            <div>
-              <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary)' }}>Kitchgoo Copilot</div>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>AI-powered help &amp; automation</div>
-            </div>
+            <button className="sidebar-close-btn" onClick={onClose}>
+              <X size={18} />
+            </button>
           </div>
-          <button 
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--text-muted)',
-              padding: 4,
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background 0.2s'
+          <span 
+            className="sidebar-logo-text" 
+            style={{ 
+              fontSize: '0.62rem', 
+              color: 'var(--text-muted)', 
+              fontWeight: 600, 
+              letterSpacing: '0.05em', 
+              paddingLeft: '46px', 
+              textTransform: 'uppercase', 
+              marginTop: '-4px' 
             }}
-            onMouseOver={e => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
-            onMouseOut={e => e.currentTarget.style.background = 'none'}
           >
-            <X size={18} />
-          </button>
+            AI Help &amp; Automation
+          </span>
         </div>
 
         {/* Chat Thread */}
