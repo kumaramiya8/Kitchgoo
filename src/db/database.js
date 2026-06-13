@@ -683,7 +683,10 @@ export function getById(collection, id) {
 }
 
 export async function insert(collection, data) {
-  const newItem = { id: genId(), createdAt: new Date().toISOString(), ...data };
+  const newItem = { createdAt: new Date().toISOString(), ...data };
+  if (!newItem.id || String(newItem.id).trim() === '') {
+    newItem.id = genId();
+  }
   
   if (collection === 'users') {
     newItem.accountId = newItem.restaurantName || 'Kitchgoo';

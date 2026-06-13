@@ -351,87 +351,91 @@ const MenuScreen = () => {
           const isDelete = itemData.delete === 'true' || itemData.delete === '1' || itemData.delete?.toLowerCase() === 'yes';
           const id = itemData.id;
 
+          let existing = null;
           if (id) {
-            const existing = menu.find(item => item.id === id);
-            if (existing) {
-              if (isDelete) {
-                await deleteMenuItem(id);
-                deleted++;
-              } else {
-                // Parse ingredients
-                const parsedIngredients = [];
-                const rawIngredients = itemData.ingredients || '';
-                if (rawIngredients) {
-                  const parts = rawIngredients.split(';');
-                  for (const part of parts) {
-                    const trimmedPart = part.trim();
-                    if (!trimmedPart) continue;
-                    const subparts = trimmedPart.split(':');
-                    if (subparts.length >= 2) {
-                      const ingName = subparts[0].trim();
-                      const ingQty = parseFloat(subparts[1]) || 0;
-                      const ingUnit = subparts[2] ? subparts[2].trim() : '';
-                      if (!ingName) continue;
+            existing = menu.find(item => item.id === id);
+          } else {
+            existing = menu.find(item => item.name.toLowerCase() === itemData.name.toLowerCase());
+          }
 
-                      let invItem = inventory.find(inv => inv.name.toLowerCase() === ingName.toLowerCase());
-                      let itemId = '';
-                      let finalUnit = ingUnit;
+          if (existing) {
+            if (isDelete) {
+              await deleteMenuItem(existing.id);
+              deleted++;
+            } else {
+              // Parse ingredients
+              const parsedIngredients = [];
+              const rawIngredients = itemData.ingredients || '';
+              if (rawIngredients) {
+                const parts = rawIngredients.split(';');
+                for (const part of parts) {
+                  const trimmedPart = part.trim();
+                  if (!trimmedPart) continue;
+                  const subparts = trimmedPart.split(':');
+                  if (subparts.length >= 2) {
+                    const ingName = subparts[0].trim();
+                    const ingQty = parseFloat(subparts[1]) || 0;
+                    const ingUnit = subparts[2] ? subparts[2].trim() : '';
+                    if (!ingName) continue;
 
-                      if (invItem) {
-                        itemId = invItem.id;
-                        if (!finalUnit) finalUnit = invItem.unit;
-                      } else if (newlyAddedIngredients[ingName.toLowerCase()]) {
-                        itemId = newlyAddedIngredients[ingName.toLowerCase()].id;
-                        if (!finalUnit) finalUnit = newlyAddedIngredients[ingName.toLowerCase()].unit;
-                      } else {
-                        // Create it!
-                        const createdItem = await addInventoryItem({
-                          name: ingName,
-                          unit: ingUnit || 'kg',
-                          stock: 0,
-                          min: 5,
-                          cost: 0,
-                          category: 'Ingredients'
-                        });
-                        if (createdItem && createdItem.id) {
-                          itemId = createdItem.id;
-                          newlyAddedIngredients[ingName.toLowerCase()] = createdItem;
-                          if (!finalUnit) finalUnit = createdItem.unit;
-                        }
+                    let invItem = inventory.find(inv => inv.name.toLowerCase() === ingName.toLowerCase());
+                    let itemId = '';
+                    let finalUnit = ingUnit;
+
+                    if (invItem) {
+                      itemId = invItem.id;
+                      if (!finalUnit) finalUnit = invItem.unit;
+                    } else if (newlyAddedIngredients[ingName.toLowerCase()]) {
+                      itemId = newlyAddedIngredients[ingName.toLowerCase()].id;
+                      if (!finalUnit) finalUnit = newlyAddedIngredients[ingName.toLowerCase()].unit;
+                    } else {
+                      // Create it!
+                      const createdItem = await addInventoryItem({
+                        name: ingName,
+                        unit: ingUnit || 'kg',
+                        stock: 0,
+                        min: 5,
+                        cost: 0,
+                        category: 'Ingredients'
+                      });
+                      if (createdItem && createdItem.id) {
+                        itemId = createdItem.id;
+                        newlyAddedIngredients[ingName.toLowerCase()] = createdItem;
+                        if (!finalUnit) finalUnit = createdItem.unit;
                       }
+                    }
 
-                      if (itemId) {
-                        parsedIngredients.push({
-                          itemId,
-                          qty: ingQty,
-                          unit: finalUnit
-                        });
-                      }
+                    if (itemId) {
+                      parsedIngredients.push({
+                        itemId,
+                        qty: ingQty,
+                        unit: finalUnit
+                      });
                     }
                   }
                 }
-
-                await editMenuItem(id, {
-                  name: itemData.name,
-                  description: itemData.description || '',
-                  price: parseFloat(itemData.price) || 0,
-                  costPrice: parseFloat(itemData.costprice || itemData.costPrice) || 0,
-                  category: itemData.category || 'Starters',
-                  subcategory: itemData.subcategory || '',
-                  reportingGroup: itemData.reportinggroup || itemData.reportingGroup || 'Food',
-                  type: itemData.type || 'Veg',
-                  station: itemData.station || 'Grill',
-                  preparationTime: parseInt(itemData.preparationtime || itemData.preparationTime) || 15,
-                  calories: parseInt(itemData.calories) || 0,
-                  taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
-                  active: itemData.active !== 'false',
-                  sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
-                  ingredients: parsedIngredients,
-                });
-                updated++;
               }
-              continue;
+
+              await editMenuItem(existing.id, {
+                name: itemData.name,
+                description: itemData.description || '',
+                price: parseFloat(itemData.price) || 0,
+                costPrice: parseFloat(itemData.costprice || itemData.costPrice) || 0,
+                category: itemData.category || 'Starters',
+                subcategory: itemData.subcategory || '',
+                reportingGroup: itemData.reportinggroup || itemData.reportingGroup || 'Food',
+                type: itemData.type || 'Veg',
+                station: itemData.station || 'Grill',
+                preparationTime: parseInt(itemData.preparationtime || itemData.preparationTime) || 15,
+                calories: parseInt(itemData.calories) || 0,
+                taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
+                active: itemData.active !== 'false',
+                sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
+                ingredients: parsedIngredients,
+              });
+              updated++;
             }
+            continue;
           }
 
           if (!isDelete) {
