@@ -103,7 +103,11 @@ const thStyle = { ...cellStyle, fontWeight: 600, color: 'var(--text-secondary)',
 // STOCK TAB
 // ═══════════════════════════════════════════════════════════
 const StockTab = () => {
-  const { menu, inventory, suppliers, addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem, clearInventory } = useApp();
+  const {
+    menu, inventory, suppliers,
+    addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem, clearInventory,
+    addMenuItem, editMenuItem
+  } = useApp();
   const { user } = useAuth();
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [search, setSearch] = useState('');
@@ -147,22 +151,33 @@ const StockTab = () => {
   };
 
   const INVENTORY_HEADERS = [
-    'id', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'delete'
+    'id', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'menuItems', 'delete'
   ];
 
   const handleExportCSV = () => {
     try {
-      const csvContent = arrayToCSV(INVENTORY_HEADERS, inventory.map(item => ({
-        id: item.id || '',
-        name: item.name || '',
-        category: item.category || '',
-        stock: item.stock || '',
-        unit: item.unit || '',
-        min: item.min || '',
-        cost: item.cost || '',
-        supplier: item.supplier || '',
-        delete: 'false'
-      })));
+      const csvContent = arrayToCSV(INVENTORY_HEADERS, inventory.map(item => {
+        const linkedMenuItems = menu.filter(m => 
+          m.ingredients && m.ingredients.some(ing => ing.itemId === item.id)
+        );
+        const menuItemsStr = linkedMenuItems.map(m => {
+          const ing = m.ingredients.find(ing => ing.itemId === item.id);
+          return `${m.name}:${ing.qty}:${ing.unit || ''}`;
+        }).join('; ');
+
+        return {
+          id: item.id || '',
+          name: item.name || '',
+          category: item.category || '',
+          stock: item.stock || '',
+          unit: item.unit || '',
+          min: item.min || '',
+          cost: item.cost || '',
+          supplier: item.supplier || '',
+          menuItems: menuItemsStr,
+          delete: 'false'
+        };
+      }));
       downloadCSV('kitchgoo_inventory.csv', csvContent);
       setCsvSuccess('Inventory exported successfully.');
       setCsvError('');
@@ -184,6 +199,7 @@ const StockTab = () => {
           min: '10',
           cost: '30',
           supplier: 'Raj Suppliers',
+          menuItems: 'Paneer Tikka:0.05:kg; Butter Chicken:0.1:kg',
           delete: 'false'
         },
         {
@@ -195,6 +211,7 @@ const StockTab = () => {
           min: '20',
           cost: '80',
           supplier: 'Grain House',
+          menuItems: 'Veg Biryani:0.25:kg; Jeera Rice:0.15:kg',
           delete: 'false'
         }
       ];
@@ -234,6 +251,12 @@ const StockTab = () => {
         let created = 0;
         let deleted = 0;
 
+        // Clone all menu items into a local cache map for editing/tracking
+        const menuCache = {};
+        menu.forEach(item => {
+          menuCache[item.name.toLowerCase()] = { ...item, ingredients: [...(item.ingredients || [])] };
+        });
+
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i];
           if (row.length < headers.length) continue;
@@ -255,10 +278,16 @@ const StockTab = () => {
             existing = inventory.find(item => item.name.toLowerCase() === itemData.name.toLowerCase());
           }
 
+          let itemId = '';
           if (existing) {
             if (isDelete) {
               await deleteInventoryItem(existing.id);
               deleted++;
+              // Remove this ingredient from all menu items in our cache
+              Object.keys(menuCache).forEach(k => {
+                menuCache[k].ingredients = menuCache[k].ingredients.filter(ing => ing.itemId !== existing.id);
+              });
+              continue;
             } else {
               await editInventoryItem(existing.id, {
                 name: itemData.name,
@@ -269,10 +298,11 @@ const StockTab = () => {
                 cost: itemData.cost !== undefined ? (parseFloat(itemData.cost) || 0) : existing.cost,
                 supplier: itemData.supplier || existing.supplier,
               });
+              itemId = existing.id;
               updated++;
             }
           } else if (!isDelete) {
-            await addInventoryItem({
+            const createdItem = await addInventoryItem({
               name: itemData.name,
               category: itemData.category || 'Vegetables',
               stock: parseFloat(itemData.stock) || 0,
@@ -281,7 +311,78 @@ const StockTab = () => {
               cost: parseFloat(itemData.cost) || 0,
               supplier: itemData.supplier || '',
             });
-            created++;
+            if (createdItem && createdItem.id) {
+              itemId = createdItem.id;
+              created++;
+            }
+          }
+
+          if (itemId && !isDelete) {
+            // Parse and sync linked menu items
+            const rawMenuItems = itemData.menuitems || itemData.menuItems || '';
+            const parsedMenuLinks = [];
+            if (rawMenuItems) {
+              const parts = rawMenuItems.split(';');
+              for (const part of parts) {
+                const trimmedPart = part.trim();
+                if (!trimmedPart) continue;
+                const subparts = trimmedPart.split(':');
+                if (subparts.length >= 2) {
+                  const mName = subparts[0].trim();
+                  const mQty = parseFloat(subparts[1]) || 0;
+                  const mUnit = subparts[2] ? subparts[2].trim() : (itemData.unit || 'kg');
+                  if (!mName) continue;
+
+                  parsedMenuLinks.push({ name: mName, qty: mQty, unit: mUnit });
+                }
+              }
+            }
+
+            // Update the menuCache
+            // First, remove the current itemId from all menu items' ingredients list
+            // because we will explicitly add them back if they are in parsedMenuLinks.
+            // This allows the user to remove a link by removing it from the CSV!
+            Object.keys(menuCache).forEach(k => {
+              menuCache[k].ingredients = menuCache[k].ingredients.filter(ing => ing.itemId !== itemId);
+            });
+
+            // Now add/update them for the specified menu items
+            for (const link of parsedMenuLinks) {
+              const key = link.name.toLowerCase();
+              if (!menuCache[key]) {
+                // Not in database or cache yet, create local object
+                menuCache[key] = {
+                  name: link.name,
+                  price: 0,
+                  category: 'Starters',
+                  active: true,
+                  ingredients: []
+                };
+              }
+
+              // Add/update ingredient link
+              menuCache[key].ingredients.push({
+                itemId,
+                qty: link.qty,
+                unit: link.unit
+              });
+            }
+          }
+        }
+
+        // Save all changes in the menuCache back to the database
+        for (const key of Object.keys(menuCache)) {
+          const mItem = menuCache[key];
+          if (mItem.id) {
+            // Check if ingredients actually changed before updating
+            const orig = menu.find(m => m.id === mItem.id);
+            const origIngs = orig ? orig.ingredients || [] : [];
+            if (JSON.stringify(origIngs) !== JSON.stringify(mItem.ingredients)) {
+              await editMenuItem(mItem.id, mItem);
+            }
+          } else {
+            // New menu item created automatically
+            await addMenuItem(mItem);
           }
         }
 
@@ -587,6 +688,32 @@ const StockTab = () => {
                 </select>
               </div>
             </div>
+            {modal !== 'add' && (
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16, marginTop: 16 }}>
+                <h4 style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>Linked Menu Items (where this ingredient is used)</h4>
+                {menu.filter(m => m.ingredients && m.ingredients.some(ing => ing.itemId === modal.id)).length === 0 ? (
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Not used in any menu items yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {menu.filter(m => m.ingredients && m.ingredients.some(ing => ing.itemId === modal.id)).map(m => {
+                      const ing = m.ingredients.find(ing => ing.itemId === modal.id);
+                      return (
+                        <span key={m.id} style={{
+                          fontSize: '0.78rem',
+                          background: 'rgba(124,58,237,0.08)',
+                          color: 'var(--primary)',
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          fontWeight: 500
+                        }}>
+                          {m.name} ({ing.qty} {ing.unit || modal.unit})
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
