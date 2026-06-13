@@ -433,12 +433,13 @@ export function AppProvider({ children }) {
     
     // If it becomes delivered, add to completed orders!
     if (nextStatus === 'delivered') {
-      const dummyItems = [
-        { name: `${order.platform || 'Third Party'} Delivery`, price: order.total, qty: 1 }
-      ];
+      const orderItems = (order.itemsList && order.itemsList.length > 0)
+        ? order.itemsList.map(item => ({ name: item.name, price: item.price, qty: item.qty }))
+        : [{ name: `${order.platform || 'Third Party'} Delivery`, price: order.total, qty: 1 }];
+
       await insert('orders', {
         billNo: order.externalId || `DEL-${getTenantCode(getCurrentTenant())}-${order.id.slice(0, 5)}`,
-        items: dummyItems,
+        items: orderItems,
         subtotal: order.total,
         tax: 0,
         total: order.total,
@@ -451,6 +452,8 @@ export function AppProvider({ children }) {
         status: 'paid',
         createdAt: new Date().toISOString(),
       });
+      await depleteInventoryForOrder(orderItems);
+      setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
     }
     setDeliveryOrders(getAll('delivery_orders'));
     setOrders(getAll('orders')); // Sync orders!
@@ -746,6 +749,8 @@ export function AppProvider({ children }) {
           status: 'paid',
           createdAt: new Date().toISOString(),
         });
+        await depleteInventoryForOrder(orderItems);
+        setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
       }
     }
     setOnlineOrders(getAll('online_orders'));

@@ -1156,7 +1156,7 @@ const SuppliersTab = () => {
 // PURCHASE ORDERS TAB
 // ═══════════════════════════════════════════════════════════
 const PurchaseOrdersTab = () => {
-  const { purchaseOrders, inventory, suppliers, addPurchaseOrder, editPurchaseOrder } = useApp();
+  const { purchaseOrders, inventory, suppliers, addPurchaseOrder, editPurchaseOrder, editInventoryItem } = useApp();
   const [detail, setDetail] = useState(null);
 
   const autoGenerate = () => {
@@ -1188,14 +1188,30 @@ const PurchaseOrdersTab = () => {
     });
   };
 
-  const advanceStatus = (po) => {
+  const advanceStatus = async (po) => {
     const flow = { draft: 'sent', sent: 'received' };
     if (!flow[po.status]) return;
-    const updates = { status: flow[po.status] };
-    if (flow[po.status] === 'received') {
+    const nextStatus = flow[po.status];
+    const updates = { status: nextStatus };
+    if (nextStatus === 'received') {
       updates.receivedAt = new Date().toISOString();
+      
+      // Increment stock for received items
+      if (po.items && po.items.length > 0) {
+        for (const poItem of po.items) {
+          const invItem = inventory.find(i => i.id === poItem.itemId || i.name.toLowerCase() === poItem.name.toLowerCase());
+          if (invItem) {
+            const newStock = (parseFloat(invItem.stock) || 0) + (parseFloat(poItem.qty) || 0);
+            await editInventoryItem(invItem.id, {
+              ...invItem,
+              stock: newStock,
+              lastUpdated: new Date().toISOString()
+            });
+          }
+        }
+      }
     }
-    editPurchaseOrder(po.id, updates);
+    await editPurchaseOrder(po.id, updates);
   };
 
   const statusIcon = (s) => {
