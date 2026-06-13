@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Sparkles, X, Send, Compass, Settings, AlertCircle, Check, ArrowRight, Package } from 'lucide-react';
+import { Sparkles, X, Send, Compass, Settings, AlertCircle, Check, ArrowRight, Package, Trash2 } from 'lucide-react';
 import { useApp } from '../../db/AppContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -39,14 +39,50 @@ const parseMarkdown = (text) => {
 const HelpDrawer = ({ isOpen, onClose }) => {
   const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem } = useApp();
   const navigate = useNavigate();
-  const [messages, setMessages] = useState([
-    {
-      sender: "ai",
-      text: "Hello! I am your Kitchgoo AI Assistant. I can help you answer questions about how to use the app, change your settings using natural language, or analyze your sales, inventory, and staff data.\n\nWhat would you like to do today?",
-      suggestions: []
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kitchgoo_copilot_messages');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('[CO-PILOT] failed to restore messages:', e);
     }
-  ]);
+    return [
+      {
+        sender: "ai",
+        text: "Hello! I am your Kitchgoo AI Assistant. I can help you answer questions about how to use the app, change your settings using natural language, or analyze your sales, inventory, and staff data.\n\nWhat would you like to do today?",
+        suggestions: []
+      }
+    ];
+  });
   const [input, setInput] = useState("");
+
+  useEffect(() => {
+    try {
+      // Keep last 50 messages
+      const last50 = messages.slice(-50);
+      localStorage.setItem('kitchgoo_copilot_messages', JSON.stringify(last50));
+    } catch (e) {
+      console.error('[CO-PILOT] failed to save messages:', e);
+    }
+  }, [messages]);
+
+  const clearChat = () => {
+    if (window.confirm("Are you sure you want to clear the chat history?")) {
+      localStorage.removeItem('kitchgoo_copilot_messages');
+      setMessages([
+        {
+          sender: "ai",
+          text: "Hello! I am your Kitchgoo AI Assistant. I can help you answer questions about how to use the app, change your settings using natural language, or analyze your sales, inventory, and staff data.\n\nWhat would you like to do today?",
+          suggestions: []
+        }
+      ]);
+    }
+  };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
@@ -509,9 +545,33 @@ const HelpDrawer = ({ isOpen, onClose }) => {
               </div>
               <span className="sidebar-logo-text" style={{ fontSize: '1.05rem', fontWeight: 800 }}>Copilot Help</span>
             </div>
-            <button className="sidebar-close-btn" onClick={onClose}>
-              <X size={18} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {messages.length > 1 && (
+                <button 
+                  onClick={clearChat}
+                  title="Clear Chat History"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '6px',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+              <button className="sidebar-close-btn" onClick={onClose}>
+                <X size={18} />
+              </button>
+            </div>
           </div>
           <span 
             className="sidebar-logo-text" 
