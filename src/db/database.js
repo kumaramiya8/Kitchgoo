@@ -85,6 +85,24 @@ export function getCurrentTenant() {
   return _currentTenant;
 }
 
+export function getTenantCode(tenant) {
+  if (!tenant) return 'KIT';
+  const cleaned = tenant.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (cleaned.length >= 3) {
+    let hash = 0;
+    for (let i = 0; i < tenant.length; i++) {
+      hash = (hash << 5) - hash + tenant.charCodeAt(i);
+      hash |= 0;
+    }
+    const hashStr = Math.abs(hash).toString(36).toUpperCase();
+    const prefix = cleaned.substring(0, 3);
+    const suffix = hashStr.substring(0, 2);
+    return `${prefix}${suffix}`;
+  }
+  return cleaned.padEnd(3, 'X');
+}
+
+
 // Generic Mapper helpers: CamelCase <--> snake_case
 function toSnakeCase(obj) {
   if (obj === null || obj === undefined) return obj;
@@ -430,7 +448,7 @@ export async function syncTenantDataFromSupabase(tenantName) {
 function sanitizeInsertPayload(table, data) {
   const tableColumns = {
     users: ['id', 'accountId', 'name', 'email', 'password', 'role', 'avatar', 'phone', 'createdAt'],
-    menu: ['id', 'accountId', 'name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'image', 'createdAt'],
+    menu: ['id', 'accountId', 'name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'image', 'ingredients', 'createdAt'],
     inventory: ['id', 'accountId', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'lastUpdated'],
     orders: ['id', 'accountId', 'billNo', 'tableId', 'items', 'subtotal', 'tax', 'taxRate', 'serviceCharge', 'autoGratuity', 'discount', 'comp', 'tip', 'total', 'paymentMethod', 'orderType', 'guestId', 'guestName', 'serverId', 'serverName', 'partySize', 'status', 'voidReason', 'compReason', 'discountReason', 'courseFiring', 'timestamps', 'createdAt']
   };
@@ -450,10 +468,11 @@ function sanitizeInsertPayload(table, data) {
 function sanitizeUpdatePayload(table, data) {
   const tableColumns = {
     users: ['name', 'email', 'password', 'role', 'avatar', 'phone', 'accountId'],
-    menu: ['name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'image'],
+    menu: ['name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'image', 'ingredients'],
     inventory: ['name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'lastUpdated'],
     orders: ['billNo', 'tableId', 'items', 'subtotal', 'tax', 'taxRate', 'serviceCharge', 'autoGratuity', 'discount', 'comp', 'tip', 'total', 'paymentMethod', 'orderType', 'guestId', 'guestName', 'serverId', 'serverName', 'partySize', 'status', 'voidReason', 'compReason', 'discountReason', 'courseFiring', 'timestamps']
   };
+
 
   const allowed = tableColumns[table];
   if (!allowed) return toSnakeCase(data);
@@ -1014,7 +1033,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
 
   const order = {
     id: genId(),
-    billNo: `${settings.billing.billPrefix}-${counter}`,
+    billNo: `${settings.billing.billPrefix}-${getTenantCode(_currentTenant)}-${counter}`,
     tableId,
     items,
     subtotal,
@@ -1108,13 +1127,14 @@ export async function receiveStock(id, quantity) {
 }
 
 export async function depleteInventoryForOrder(orderItems) {
-  const recipes = getAll('recipes');
+  const menu = getAll('menu');
   const inventory = getAll('inventory');
+  const recipes = getAll('recipes');
   for (const orderItem of orderItems) {
-    const recipe = recipes.find(r => r.menuItemName === orderItem.name);
-    if (recipe) {
-      for (const ing of recipe.ingredients) {
-        const invItem = inventory.find(i => i.name === ing.inventoryItem);
+    const menuItem = menu.find(m => m.name === orderItem.name);
+    if (menuItem && menuItem.ingredients && menuItem.ingredients.length > 0) {
+      for (const ing of menuItem.ingredients) {
+        const invItem = inventory.find(i => i.id === ing.itemId);
         if (invItem) {
           const newStock = Math.max(0, invItem.stock - ing.qty * orderItem.qty);
           await update('inventory', invItem.id, {
@@ -1122,6 +1142,21 @@ export async function depleteInventoryForOrder(orderItems) {
             status: computeStockStatus(newStock, invItem.min),
             lastUpdated: new Date().toISOString(),
           });
+        }
+      }
+    } else {
+      const recipe = recipes.find(r => r.menuItemName === orderItem.name);
+      if (recipe) {
+        for (const ing of recipe.ingredients) {
+          const invItem = inventory.find(i => i.name === ing.inventoryItem);
+          if (invItem) {
+            const newStock = Math.max(0, invItem.stock - ing.qty * orderItem.qty);
+            await update('inventory', invItem.id, {
+              stock: newStock,
+              status: computeStockStatus(newStock, invItem.min),
+              lastUpdated: new Date().toISOString(),
+            });
+          }
         }
       }
     }

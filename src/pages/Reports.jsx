@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import {
   TrendingUp, TrendingDown, Download, BarChart2, Package,
@@ -259,7 +260,7 @@ const RangePicker = ({ range, setRange, dateFrom, setDateFrom, dateTo, setDateTo
 
 const Modal = ({ open, onClose, title, children, wide }) => {
   if (!open) return null;
-  return (
+  return ReactDOM.createPortal(
     <div style={{
       position: 'fixed', inset: 0, zIndex: 9999,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -278,7 +279,8 @@ const Modal = ({ open, onClose, title, children, wide }) => {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

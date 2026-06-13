@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import {
   Plus, Edit2, Trash2, X, Save, Search, ToggleLeft, ToggleRight,
   QrCode, AlertOctagon, ChevronDown, ChevronUp, Filter, Star,
@@ -43,6 +44,7 @@ const emptyForm = (defaultCategory = 'Starters') => ({
   costPrice: '', calories: '', allergens: [], dietaryLabels: [], taxGroup: 'food',
   modifierGroups: [], priceTiers: { regular: '', happyHour: '', delivery: '' },
   active: true, sold86: false, image: '',
+  ingredients: [],
 });
 
 const emptyModifierForm = () => ({
@@ -50,7 +52,7 @@ const emptyModifierForm = () => ({
 });
 
 /* ── Reusable Modal ────────────────────────────────────────────── */
-const Modal = ({ title, onClose, children, wide }) => (
+const Modal = ({ title, onClose, children, wide }) => ReactDOM.createPortal(
   <div className="modal-backdrop" onClick={onClose}>
     <div className="modal" onClick={e => e.stopPropagation()}
       style={wide ? { maxWidth: 720, width: '95%' } : undefined}>
@@ -62,7 +64,8 @@ const Modal = ({ title, onClose, children, wide }) => (
       </div>
       {children}
     </div>
-  </div>
+  </div>,
+  document.body
 );
 
 /* ── Small helpers ─────────────────────────────────────────────── */
@@ -463,6 +466,7 @@ const MenuScreen = () => {
       priceTiers: item.priceTiers || { regular: item.price || '', happyHour: '', delivery: '' },
       active: item.active !== false, sold86: item.sold86 || false,
       image: item.image || '',
+      ingredients: item.ingredients || [],
     });
     setEditModal(item);
   };
@@ -750,6 +754,68 @@ const MenuScreen = () => {
             </div>
           </div>
         )}
+
+        {/* Linked Ingredients */}
+        <div className="input-group" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16, marginTop: 16 }}>
+          <h4 style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>Linked Ingredients (for Inventory depletion)</h4>
+          {form.ingredients && form.ingredients.map((ing, idx) => {
+            const inventoryItem = inventory.find(i => i.id === ing.itemId);
+            return (
+              <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                <select 
+                  className="input-field" 
+                  value={ing.itemId} 
+                  onChange={e => {
+                    const selectedId = e.target.value;
+                    const item = inventory.find(i => i.id === selectedId);
+                    const newIngs = [...form.ingredients];
+                    newIngs[idx] = { itemId: selectedId, qty: ing.qty, unit: item ? item.unit : '' };
+                    setForm(f => ({ ...f, ingredients: newIngs }));
+                  }}
+                  style={{ flex: 3, margin: 0 }}
+                >
+                  <option value="">-- Select Ingredient --</option>
+                  {inventory.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                  ))}
+                </select>
+                <input 
+                  className="input-field" 
+                  type="number" 
+                  min="0" 
+                  step="any"
+                  value={ing.qty} 
+                  onChange={e => {
+                    const newIngs = [...form.ingredients];
+                    newIngs[idx] = { ...newIngs[idx], qty: parseFloat(e.target.value) || 0 };
+                    setForm(f => ({ ...f, ingredients: newIngs }));
+                  }}
+                  placeholder="Qty" 
+                  style={{ flex: 1, margin: 0 }}
+                />
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', minWidth: 40 }}>{ing.unit || 'unit'}</span>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setForm(f => ({ ...f, ingredients: f.ingredients.filter((_, i) => i !== idx) }));
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 4 }}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            );
+          })}
+          <button 
+            type="button" 
+            className="btn btn-secondary btn-sm" 
+            onClick={() => {
+              setForm(f => ({ ...f, ingredients: [...(f.ingredients || []), { itemId: '', qty: '', unit: '' }] }));
+            }}
+          >
+            <Plus size={14} /> Add Ingredient
+          </button>
+        </div>
       </div>
       <div className="modal-footer">
         <button className="btn btn-primary" onClick={onSave}><Save size={15} /> {saveLabel}</button>

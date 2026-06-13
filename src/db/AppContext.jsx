@@ -33,6 +33,7 @@ import {
   updateCashDrawer,
   genId,
   getCurrentTenant,
+  getTenantCode,
   syncTenantDataFromSupabase,
 } from './database';
 
@@ -432,7 +433,7 @@ export function AppProvider({ children }) {
         { name: `${order.platform || 'Third Party'} Delivery`, price: order.total, qty: 1 }
       ];
       await insert('orders', {
-        billNo: order.externalId || `DEL-${order.id.slice(0, 5)}`,
+        billNo: order.externalId || `DEL-${getTenantCode(getCurrentTenant())}-${order.id.slice(0, 5)}`,
         items: dummyItems,
         subtotal: order.total,
         tax: 0,
@@ -727,7 +728,7 @@ export function AppProvider({ children }) {
           : [{ name: 'Direct Online Delivery', price: order.total, qty: 1 }];
 
         await insert('orders', {
-          billNo: `ONL-${order.id.slice(0, 5)}`,
+          billNo: `ONL-${getTenantCode(getCurrentTenant())}-${order.id.slice(0, 5)}`,
           items: orderItems,
           subtotal: order.total,
           tax: 0,

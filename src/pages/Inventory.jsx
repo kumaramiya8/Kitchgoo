@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import {
   Package, AlertTriangle, Plus, X, Edit2, Save, Download, Trash2,
   Search, Filter, ShoppingCart, ChefHat, Truck, FileText, BarChart3,
@@ -35,7 +36,7 @@ const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { d
 const genLocalId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 // ─── Shared Components ──────────────────────────────────────
-const Modal = ({ title, onClose, children, wide }) => (
+const Modal = ({ title, onClose, children, wide }) => ReactDOM.createPortal(
   <div className="modal-backdrop" onClick={onClose}>
     <div className="modal" onClick={e => e.stopPropagation()} style={wide ? { maxWidth: 720, width: '95vw' } : {}}>
       <div className="modal-header">
@@ -46,7 +47,8 @@ const Modal = ({ title, onClose, children, wide }) => (
       </div>
       {children}
     </div>
-  </div>
+  </div>,
+  document.body
 );
 
 const StatusBadge = ({ status }) => {
