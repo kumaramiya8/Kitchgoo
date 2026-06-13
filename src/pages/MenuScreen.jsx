@@ -186,6 +186,7 @@ const MenuScreen = () => {
     addMenuItem, editMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggle86, clearMenu,
     addModifier, editModifier, deleteModifier,
     updateSettingsSection,
+    addInventoryItem,
   } = useApp();
   const { user } = useAuth();
 
@@ -218,28 +219,37 @@ const MenuScreen = () => {
   const MENU_HEADERS = [
     'id', 'name', 'description', 'price', 'costPrice', 'category',
     'subcategory', 'type', 'station', 'preparationTime', 'calories',
-    'taxGroup', 'active', 'sold86', 'delete'
+    'taxGroup', 'active', 'sold86', 'ingredients', 'delete'
   ];
 
   const handleExportCSV = () => {
     try {
-      const csvContent = arrayToCSV(MENU_HEADERS, menu.map(item => ({
-        id: item.id || '',
-        name: item.name || '',
-        description: item.description || '',
-        price: item.price || '',
-        costPrice: item.costPrice || '',
-        category: item.category || '',
-        subcategory: item.subcategory || '',
-        type: item.type || '',
-        station: item.station || '',
-        preparationTime: item.preparationTime || '',
-        calories: item.calories || '',
-        taxGroup: item.taxGroup || '',
-        active: String(item.active !== false),
-        sold86: String(item.sold86 || false),
-        delete: 'false'
-      })));
+      const csvContent = arrayToCSV(MENU_HEADERS, menu.map(item => {
+        const ingredientStr = (item.ingredients || []).map(ing => {
+          const invItem = inventory.find(i => i.id === ing.itemId);
+          const name = invItem ? invItem.name : 'Unknown';
+          return `${name}:${ing.qty}:${ing.unit || ''}`;
+        }).join('; ');
+
+        return {
+          id: item.id || '',
+          name: item.name || '',
+          description: item.description || '',
+          price: item.price || '',
+          costPrice: item.costPrice || '',
+          category: item.category || '',
+          subcategory: item.subcategory || '',
+          type: item.type || '',
+          station: item.station || '',
+          preparationTime: item.preparationTime || '',
+          calories: item.calories || '',
+          taxGroup: item.taxGroup || '',
+          active: String(item.active !== false),
+          sold86: String(item.sold86 || false),
+          ingredients: ingredientStr,
+          delete: 'false'
+        };
+      }));
       downloadCSV('kitchgoo_menu.csv', csvContent);
       setCsvSuccess('Menu exported successfully.');
       setCsvError('');
@@ -267,6 +277,7 @@ const MenuScreen = () => {
           taxGroup: 'food',
           active: 'true',
           sold86: 'false',
+          ingredients: 'Chicken:0.25:kg; Cream:0.05:L; Butter:0.03:kg',
           delete: 'false'
         },
         {
@@ -284,6 +295,7 @@ const MenuScreen = () => {
           taxGroup: 'food',
           active: 'true',
           sold86: 'false',
+          ingredients: 'Paneer:0.2:kg; Yogurt:0.05:kg',
           delete: 'false'
         }
       ];
@@ -323,6 +335,7 @@ const MenuScreen = () => {
         let updated = 0;
         let created = 0;
         let deleted = 0;
+        const newlyAddedIngredients = {};
 
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i];
@@ -345,6 +358,59 @@ const MenuScreen = () => {
                 await deleteMenuItem(id);
                 deleted++;
               } else {
+                // Parse ingredients
+                const parsedIngredients = [];
+                const rawIngredients = itemData.ingredients || '';
+                if (rawIngredients) {
+                  const parts = rawIngredients.split(';');
+                  for (const part of parts) {
+                    const trimmedPart = part.trim();
+                    if (!trimmedPart) continue;
+                    const subparts = trimmedPart.split(':');
+                    if (subparts.length >= 2) {
+                      const ingName = subparts[0].trim();
+                      const ingQty = parseFloat(subparts[1]) || 0;
+                      const ingUnit = subparts[2] ? subparts[2].trim() : '';
+                      if (!ingName) continue;
+
+                      let invItem = inventory.find(inv => inv.name.toLowerCase() === ingName.toLowerCase());
+                      let itemId = '';
+                      let finalUnit = ingUnit;
+
+                      if (invItem) {
+                        itemId = invItem.id;
+                        if (!finalUnit) finalUnit = invItem.unit;
+                      } else if (newlyAddedIngredients[ingName.toLowerCase()]) {
+                        itemId = newlyAddedIngredients[ingName.toLowerCase()].id;
+                        if (!finalUnit) finalUnit = newlyAddedIngredients[ingName.toLowerCase()].unit;
+                      } else {
+                        // Create it!
+                        const createdItem = await addInventoryItem({
+                          name: ingName,
+                          unit: ingUnit || 'kg',
+                          stock: 0,
+                          min: 5,
+                          cost: 0,
+                          category: 'Ingredients'
+                        });
+                        if (createdItem && createdItem.id) {
+                          itemId = createdItem.id;
+                          newlyAddedIngredients[ingName.toLowerCase()] = createdItem;
+                          if (!finalUnit) finalUnit = createdItem.unit;
+                        }
+                      }
+
+                      if (itemId) {
+                        parsedIngredients.push({
+                          itemId,
+                          qty: ingQty,
+                          unit: finalUnit
+                        });
+                      }
+                    }
+                  }
+                }
+
                 await editMenuItem(id, {
                   name: itemData.name,
                   description: itemData.description || '',
@@ -360,6 +426,7 @@ const MenuScreen = () => {
                   taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
                   active: itemData.active !== 'false',
                   sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
+                  ingredients: parsedIngredients,
                 });
                 updated++;
               }
@@ -368,6 +435,59 @@ const MenuScreen = () => {
           }
 
           if (!isDelete) {
+            // Parse ingredients
+            const parsedIngredients = [];
+            const rawIngredients = itemData.ingredients || '';
+            if (rawIngredients) {
+              const parts = rawIngredients.split(';');
+              for (const part of parts) {
+                const trimmedPart = part.trim();
+                if (!trimmedPart) continue;
+                const subparts = trimmedPart.split(':');
+                if (subparts.length >= 2) {
+                  const ingName = subparts[0].trim();
+                  const ingQty = parseFloat(subparts[1]) || 0;
+                  const ingUnit = subparts[2] ? subparts[2].trim() : '';
+                  if (!ingName) continue;
+
+                  let invItem = inventory.find(inv => inv.name.toLowerCase() === ingName.toLowerCase());
+                  let itemId = '';
+                  let finalUnit = ingUnit;
+
+                  if (invItem) {
+                    itemId = invItem.id;
+                    if (!finalUnit) finalUnit = invItem.unit;
+                  } else if (newlyAddedIngredients[ingName.toLowerCase()]) {
+                    itemId = newlyAddedIngredients[ingName.toLowerCase()].id;
+                    if (!finalUnit) finalUnit = newlyAddedIngredients[ingName.toLowerCase()].unit;
+                  } else {
+                    // Create it!
+                    const createdItem = await addInventoryItem({
+                      name: ingName,
+                      unit: ingUnit || 'kg',
+                      stock: 0,
+                      min: 5,
+                      cost: 0,
+                      category: 'Ingredients'
+                    });
+                    if (createdItem && createdItem.id) {
+                      itemId = createdItem.id;
+                      newlyAddedIngredients[ingName.toLowerCase()] = createdItem;
+                      if (!finalUnit) finalUnit = createdItem.unit;
+                    }
+                  }
+
+                  if (itemId) {
+                    parsedIngredients.push({
+                      itemId,
+                      qty: ingQty,
+                      unit: finalUnit
+                    });
+                  }
+                }
+              }
+            }
+
             await addMenuItem({
               name: itemData.name,
               description: itemData.description || '',
@@ -383,6 +503,7 @@ const MenuScreen = () => {
               taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
               active: itemData.active !== 'false',
               sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
+              ingredients: parsedIngredients,
             });
             created++;
           }

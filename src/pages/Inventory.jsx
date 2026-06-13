@@ -103,7 +103,7 @@ const thStyle = { ...cellStyle, fontWeight: 600, color: 'var(--text-secondary)',
 // STOCK TAB
 // ═══════════════════════════════════════════════════════════
 const StockTab = () => {
-  const { inventory, suppliers, addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem, clearInventory } = useApp();
+  const { menu, inventory, suppliers, addInventoryItem, editInventoryItem, orderMoreInventory, deleteInventoryItem, clearInventory } = useApp();
   const { user } = useAuth();
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [search, setSearch] = useState('');
@@ -248,29 +248,30 @@ const StockTab = () => {
           const isDelete = itemData.delete === 'true' || itemData.delete === '1' || itemData.delete?.toLowerCase() === 'yes';
           const id = itemData.id;
 
+          let existing = null;
           if (id) {
-            const existing = inventory.find(item => item.id === id);
-            if (existing) {
-              if (isDelete) {
-                await deleteInventoryItem(id);
-                deleted++;
-              } else {
-                await editInventoryItem(id, {
-                  name: itemData.name,
-                  category: itemData.category || 'Vegetables',
-                  stock: parseFloat(itemData.stock) || 0,
-                  unit: itemData.unit || 'kg',
-                  min: parseFloat(itemData.min) || 5,
-                  cost: parseFloat(itemData.cost) || 0,
-                  supplier: itemData.supplier || '',
-                });
-                updated++;
-              }
-              continue;
-            }
+            existing = inventory.find(item => item.id === id);
+          } else {
+            existing = inventory.find(item => item.name.toLowerCase() === itemData.name.toLowerCase());
           }
 
-          if (!isDelete) {
+          if (existing) {
+            if (isDelete) {
+              await deleteInventoryItem(existing.id);
+              deleted++;
+            } else {
+              await editInventoryItem(existing.id, {
+                name: itemData.name,
+                category: itemData.category || existing.category,
+                stock: itemData.stock !== undefined ? (parseFloat(itemData.stock) || 0) : existing.stock,
+                unit: itemData.unit || existing.unit,
+                min: itemData.min !== undefined ? (parseFloat(itemData.min) || 5) : existing.min,
+                cost: itemData.cost !== undefined ? (parseFloat(itemData.cost) || 0) : existing.cost,
+                supplier: itemData.supplier || existing.supplier,
+              });
+              updated++;
+            }
+          } else if (!isDelete) {
             await addInventoryItem({
               name: itemData.name,
               category: itemData.category || 'Vegetables',
@@ -472,33 +473,55 @@ const StockTab = () => {
             {filtered.length === 0 && (
               <tr><td colSpan={isOwnerOrAdmin ? 11 : 10} style={{ ...cellStyle, textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No items found</td></tr>
             )}
-            {filtered.map(item => (
-              <tr key={item.id} style={{
-                transition: 'background 0.15s',
-                background: selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : 'transparent'
-              }} onMouseEnter={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.06)' : 'rgba(124,58,237,0.04)'} onMouseLeave={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : ''}>
-                {isOwnerOrAdmin && (
-                  <td style={{ ...cellStyle, textAlign: 'center', width: 40 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(item.id)}
-                      onChange={(e) => {
-                        const newSelected = new Set(selectedIds);
-                        if (e.target.checked) {
-                          newSelected.add(item.id);
-                        } else {
-                          newSelected.delete(item.id);
-                        }
-                        setSelectedIds(newSelected);
-                      }}
-                      style={{ cursor: 'pointer' }}
-                    />
+            {filtered.map(item => {
+              const linkedMenuItems = menu.filter(m => 
+                m.ingredients && m.ingredients.some(ing => ing.itemId === item.id)
+              );
+              return (
+                <tr key={item.id} style={{
+                  transition: 'background 0.15s',
+                  background: selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : 'transparent'
+                }} onMouseEnter={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.06)' : 'rgba(124,58,237,0.04)'} onMouseLeave={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : ''}>
+                  {isOwnerOrAdmin && (
+                    <td style={{ ...cellStyle, textAlign: 'center', width: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedIds);
+                          if (e.target.checked) {
+                            newSelected.add(item.id);
+                          } else {
+                            newSelected.delete(item.id);
+                          }
+                          setSelectedIds(newSelected);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                  )}
+                  <td style={{ ...cellStyle, fontWeight: 600 }}>
+                    <div>{item.name}</div>
+                    {linkedMenuItems.length > 0 && (
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                        {linkedMenuItems.map(m => (
+                          <span key={m.id} style={{
+                            fontSize: '9px',
+                            background: 'rgba(124,58,237,0.08)',
+                            color: 'var(--primary)',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            fontWeight: 500
+                          }}>
+                            {m.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
-                )}
-                <td style={{ ...cellStyle, fontWeight: 600 }}>{item.name}</td>
-                <td style={cellStyle}>{item.category}</td>
-                <td style={{ ...cellStyle, fontWeight: 600 }}>{item.stock}</td>
-                <td style={cellStyle}>{item.unit}</td>
+                  <td style={cellStyle}>{item.category}</td>
+                  <td style={{ ...cellStyle, fontWeight: 600 }}>{item.stock}</td>
+                  <td style={cellStyle}>{item.unit}</td>
                 <td style={{ ...cellStyle, minWidth: 120 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Min: {item.min}</div>
                   <ParLevelBar stock={item.stock} min={item.min} />
@@ -517,7 +540,8 @@ const StockTab = () => {
                   </div>
                 </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
       </div>

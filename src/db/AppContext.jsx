@@ -329,18 +329,22 @@ export function AppProvider({ children }) {
   // ── Inventory ────────────────────────────────────────────
   const addInventoryItem = useCallback(async (data) => {
     const existing = getAll('inventory').find(i => i.name.toLowerCase() === data.name.toLowerCase());
+    let result;
     if (existing) {
-      const newStock = existing.stock + parseFloat(data.stock);
-      await update('inventory', existing.id, {
+      const newStock = existing.stock + parseFloat(data.stock || 0);
+      const updated = {
         stock: newStock, status: computeStockStatus(newStock, existing.min),
         lastUpdated: new Date().toISOString(),
-      });
+      };
+      await update('inventory', existing.id, updated);
+      result = { ...existing, ...updated };
     } else {
-      const stock = parseFloat(data.stock);
+      const stock = parseFloat(data.stock || 0);
       const min = parseFloat(data.min) || 5;
-      await insert('inventory', { ...data, stock, min, status: computeStockStatus(stock, min), lastUpdated: new Date().toISOString() });
+      result = await insert('inventory', { ...data, stock, min, status: computeStockStatus(stock, min), lastUpdated: new Date().toISOString() });
     }
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
+    return result;
   }, []);
 
   const editInventoryItem = useCallback(async (id, data) => {
