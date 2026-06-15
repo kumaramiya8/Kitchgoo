@@ -2,7 +2,7 @@
  * AppContext — Global React state backed by the database layer.
  * All pages can access and mutate shared data from here.
  */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import {
@@ -75,6 +75,7 @@ export function AppProvider({ children }) {
 
   const [hasLoadedFromDb, setHasLoadedFromDb] = useState(false);
   const [activeTenant, setActiveTenant] = useState(null);
+  const channelRef = useRef(null);
 
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb) return;
@@ -282,6 +283,11 @@ export function AppProvider({ children }) {
           reload();
         }
       })
+      .on('broadcast', { event: 'order_created' }, (payload) => {
+        console.log('[Realtime] Received order_created broadcast:', payload);
+        const event = new CustomEvent('kitchgoo_order_created', { detail: payload.payload });
+        window.dispatchEvent(event);
+      })
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
           console.log(`[Realtime] Subscribed to changes for tenant: ${activeTenant}`);
@@ -289,6 +295,8 @@ export function AppProvider({ children }) {
           console.error(`[Realtime] Failed to subscribe to changes for tenant: ${activeTenant}`, err);
         }
       });
+
+    channelRef.current = channel;
 
     return () => {
       supabase.removeChannel(channel);
@@ -775,6 +783,16 @@ export function AppProvider({ children }) {
     setTipPools(data);
   }, []);
 
+  const broadcastOrderCreated = useCallback(async (tableId, kdsOrderId) => {
+    if (channelRef.current) {
+      await channelRef.current.send({
+        type: 'broadcast',
+        event: 'order_created',
+        payload: { tableId, kdsOrderId },
+      });
+    }
+  }, []);
+
   const value = {
     ready,
     // Data
@@ -832,6 +850,8 @@ export function AppProvider({ children }) {
     updateSettingsSection,
     // Tip Pools
     updateTipPools,
+    // Realtime Broadcasts
+    broadcastOrderCreated,
     // Utility
     reload,
   };

@@ -291,19 +291,30 @@ export default function KDS() {
   const prevTicketCountRef = useRef(0);
   const [bumpedToday, setBumpedToday] = useState(0);
 
+  // Listen for real-time broadcast events
+  useEffect(() => {
+    const handleOrderCreated = (e) => {
+      console.log('[KDS] New order received via broadcast!', e.detail);
+      // Play a short alert chime
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+      audio.play().catch(err => console.error('Audio play blocked:', err));
+      
+      // The postgres_changes might already trigger a reload, but to be sure we fetch the ticket immediately
+      reload();
+    };
+
+    window.addEventListener('kitchgoo_order_created', handleOrderCreated);
+    return () => window.removeEventListener('kitchgoo_order_created', handleOrderCreated);
+  }, [reload]);
+
   // Auto-refresh every second
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Poll database every 60 seconds to fetch incoming KDS tickets and table statuses
-  useEffect(() => {
-    const interval = setInterval(() => {
-      reload();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [reload]);
+  // No longer polling every 60 seconds since we have realtime websockets
+  // The database triggers postgres_changes and broadcast events.
 
   // Track new tickets
   useEffect(() => {

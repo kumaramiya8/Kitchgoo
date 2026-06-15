@@ -11,7 +11,7 @@ const QRMenu = () => {
   const [searchParams] = useSearchParams();
   const tableParam = searchParams.get('table') || '';
 
-  const { menu, settings, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS } = useApp();
+  const { menu, settings, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
@@ -80,13 +80,8 @@ const QRMenu = () => {
     load();
   }, [tenantId]);
 
-  // Poll database every 60 seconds to fetch incoming POS table statuses and active orders
-  useEffect(() => {
-    const interval = setInterval(() => {
-      reload();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [reload]);
+  // No longer polling every 60 seconds since we have realtime websockets
+  // The database triggers postgres_changes and broadcast events.
 
   // Prefill guest name if table is already occupied
   useEffect(() => {
@@ -261,6 +256,7 @@ const QRMenu = () => {
       // Fire only the newly added items to KDS immediately
       const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
       await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in');
+      await broadcastOrderCreated(targetTable.id, kdsOrderId);
 
       setOrderSuccess(true);
       setCart({});
