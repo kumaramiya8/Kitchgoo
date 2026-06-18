@@ -239,6 +239,41 @@ export function AppProvider({ children }) {
     setActiveTenant(tenant);
     setHasLoadedFromDb(true);
   };
+  // Apply Appearance Settings globally
+  useEffect(() => {
+    if (settings && settings.appearance) {
+      const { theme, accentColor, compactMode } = settings.appearance;
+      const root = document.documentElement;
+      
+      // Theme
+      if (theme === 'dark') {
+        root.setAttribute('data-theme', 'dark');
+      } else if (theme === 'auto') {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+      } else {
+        root.removeAttribute('data-theme');
+      }
+
+      // Accent Color
+      if (accentColor) {
+        root.style.setProperty('--primary', accentColor);
+        const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+        if (metaThemeColor) {
+          metaThemeColor.setAttribute('content', accentColor);
+        }
+      } else {
+        root.style.removeProperty('--primary');
+      }
+
+      // Compact Mode
+      if (compactMode) {
+        root.classList.add('compact-mode');
+      } else {
+        root.classList.remove('compact-mode');
+      }
+    }
+  }, [settings]);
 
   // Set up realtime updates across all database tables for the active tenant
   useEffect(() => {
