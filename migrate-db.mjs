@@ -6,8 +6,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const url = process.env.VITE_SUPABASE_URL || 'https://vokfkqzyocguxiaqnjhw.supabase.co';
-const key = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZva2ZrcXp5b2NndXhpYXFuamh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMjM5OTMsImV4cCI6MjA4OTg5OTk5M30.7AAAafUY__yZGTa7xAntqsTbJBsUNxEIQ4axSVt1ecs';
+const url = process.env.VITE_SUPABASE_URL;
+const key = process.env.VITE_SUPABASE_ANON_KEY;
+
+if (!url || !key) {
+  console.error('❌ Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in environment variables.');
+  process.exit(1);
+}
 
 const supabase = createClient(url, key);
 
