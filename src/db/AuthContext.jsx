@@ -1,113 +1,84 @@
 /**
- * AuthContext — Handles login, logout, register, and session persistence.
- * Users are stored in Supabase (via the database layer).
+ * AuthContext — Handles login, logout, register, and session persistence securely via backend.
+ * Uses HttpOnly cookies (via /api endpoints) for sessions instead of localStorage.
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getAll, insert, update as dbUpdate, setCurrentTenant, initTenantDB } from './database';
 
 const AuthContext = createContext(null);
 
-// Hash a password simply (for demo — in production use bcrypt on a server)
-const simpleHash = (str) => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
-  }
-  return hash.toString(16);
-};
-
-// Seed default super-admin account if no users exist
-const seedDefaultAdmin = async () => {
-  const existing = getAll('users');
-  if (existing.length === 0) {
-    await insert('users', {
-      name: 'Admin',
-      email: 'admin@kitchgoo.in',
-      password: simpleHash('admin123'),
-      role: 'Owner',
-      avatar: 'A',
-      restaurantName: 'Kitchgoo',
-      createdAt: new Date().toISOString(),
-    });
-  }
-};
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // In-memory impersonation states (lost on reload to prevent XSS storage)
+  const [adminSession, setAdminSession] = useState(null);
+  const [impersonatedTenant, setImpersonatedTenant] = useState(null);
+
   useEffect(() => {
     const init = async () => {
-      await seedDefaultAdmin();
-      // Restore session from localStorage
       try {
-        const saved = localStorage.getItem('kitchgoo_session');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          // Validate session still matches a user in the DB
-          const users = getAll('users');
-          const match = users.find(u => u.id === parsed.id);
-          if (match) {
-            const impersonated = localStorage.getItem('kitchgoo_impersonated_tenant');
-            if (impersonated) {
-              setCurrentTenant(impersonated);
-              await initTenantDB(impersonated);
-              setUser({
-                id: `virtual_${impersonated}`,
-                name: `Admin (${impersonated})`,
-                email: 'admin@kitchgoo.in',
-                role: 'Owner',
-                restaurantName: impersonated,
-                isImpersonated: true,
-              });
-            } else {
-              setCurrentTenant(match.restaurantName);
-              await initTenantDB(match.restaurantName);
-              setUser({ ...match, password: undefined });
-            }
-          }
+        const res = await fetch('/api/session');
+        const data = await res.json();
+        
+        if (data.success && data.user) {
+          setCurrentTenant(data.user.restaurantName);
+          await initTenantDB(data.user.restaurantName);
+          setUser(data.user);
         }
-      } catch { /* ignore */ }
-      setLoading(false);
+      } catch (err) {
+        console.error('[Auth] Failed to verify session via server:', err);
+      } finally {
+        setLoading(false);
+      }
     };
     init();
   }, []);
 
   const login = async (accountName, email, password) => {
-    const users = getAll('users');
-    const found = users.find(u =>
-      (u.restaurantName || '').toLowerCase() === (accountName || '').trim().toLowerCase() &&
-      u.email.toLowerCase() === email.toLowerCase() &&
-      u.password === simpleHash(password)
-    );
-    if (!found) return { success: false, error: 'Invalid Account Name, Email, or Password.' };
-    
-    // Set active tenant prefix and initialize its DB
-    setCurrentTenant(found.restaurantName);
-    await initTenantDB(found.restaurantName);
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountName, email, password }),
+      });
+      const data = await res.json();
 
-    const sessionUser = { ...found, password: undefined };
-    setUser(sessionUser);
-    localStorage.setItem('kitchgoo_session', JSON.stringify(sessionUser));
-    localStorage.removeItem('kitchgoo_impersonated_tenant');
-    localStorage.removeItem('kitchgoo_admin_session');
-    return { success: true };
+      if (data.success && data.user) {
+        setCurrentTenant(data.user.restaurantName);
+        await initTenantDB(data.user.restaurantName);
+        setUser(data.user);
+        
+        // Clear any lingering impersonation state
+        setAdminSession(null);
+        setImpersonatedTenant(null);
+        return { success: true };
+      } else {
+        return { success: false, error: data.error || 'Invalid credentials' };
+      }
+    } catch (err) {
+      return { success: false, error: 'Network error during login' };
+    }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('[Auth] Error logging out:', err);
+    }
     setUser(null);
     setCurrentTenant('Kitchgoo');
-    localStorage.removeItem('kitchgoo_session');
-    localStorage.removeItem('kitchgoo_admin_session');
-    localStorage.removeItem('kitchgoo_impersonated_tenant');
+    setAdminSession(null);
+    setImpersonatedTenant(null);
   };
 
   const impersonateAccount = async (tenantName) => {
     if (!user) return { success: false, error: 'Not logged in.' };
     
-    // Save admin context
-    localStorage.setItem('kitchgoo_admin_session', JSON.stringify(user));
-    localStorage.setItem('kitchgoo_impersonated_tenant', tenantName);
+    // Save admin context in memory only
+    setAdminSession(user);
+    setImpersonatedTenant(tenantName);
     
     // Switch tenant
     setCurrentTenant(tenantName);
@@ -126,29 +97,37 @@ export function AuthProvider({ children }) {
   };
 
   const stopImpersonating = () => {
-    const originalAdmin = localStorage.getItem('kitchgoo_admin_session');
-    if (!originalAdmin) return { success: false, error: 'No admin session found.' };
-    
-    const parsed = JSON.parse(originalAdmin);
+    if (!adminSession) return { success: false, error: 'No admin session found.' };
     
     // Switch tenant back
     setCurrentTenant('Kitchgoo');
-    localStorage.removeItem('kitchgoo_admin_session');
-    localStorage.removeItem('kitchgoo_impersonated_tenant');
-    setUser(parsed);
+    setUser(adminSession);
+    
+    setAdminSession(null);
+    setImpersonatedTenant(null);
     return { success: true };
   };
 
   /**
    * Register a new user account.
-   * If called while already logged in (admin creating users), the current
-   * session is NOT replaced — the new user is just saved to the DB.
+   * This is still done via the database layer since we haven't built a full /api/register yet,
+   * but if it's their first time, we force them to login via the server immediately after.
    */
   const register = async (data) => {
     const users = getAll('users');
     if (users.find(u => u.email.toLowerCase() === data.email.toLowerCase())) {
       return { success: false, error: 'An account with this email already exists.' };
     }
+    
+    // Simple hash for the DB (legacy compatibility)
+    const simpleHash = (str) => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+      }
+      return hash.toString(16);
+    };
+
     const newUser = await insert('users', {
       name: data.name,
       email: data.email,
@@ -160,25 +139,33 @@ export function AuthProvider({ children }) {
       createdAt: new Date().toISOString(),
     });
 
-    // Only auto-login if there is no current session (first-time registration)
     if (!user) {
-      const sessionUser = { ...newUser, password: undefined };
-      setUser(sessionUser);
-      localStorage.setItem('kitchgoo_session', JSON.stringify(sessionUser));
+      // Login via the server to establish HttpOnly cookie
+      return await login(data.restaurantName || 'Kitchgoo', data.email, data.password);
     }
     return { success: true };
   };
 
   const updateProfile = async (data) => {
     if (!user) return { success: false, error: 'Not logged in.' };
+    
+    const simpleHash = (str) => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+      }
+      return hash.toString(16);
+    };
+
     const updated = await dbUpdate('users', user.id, {
       ...data,
       ...(data.password ? { password: simpleHash(data.password) } : {}),
     });
+    
     if (!updated) return { success: false, error: 'User not found.' };
     const sessionUser = { ...updated, password: undefined };
     setUser(sessionUser);
-    localStorage.setItem('kitchgoo_session', JSON.stringify(sessionUser));
+    // Notice: we don't save to localStorage anymore!
     return { success: true };
   };
 
