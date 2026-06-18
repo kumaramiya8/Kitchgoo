@@ -1013,6 +1013,184 @@ const RegisterClosuresReport = () => {
   );
 };
 
+const SalesAccrualReport = ({ orders }) => {
+  const [range, setRange]       = useState('This Month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState('All');
+
+  const { sortField, sortDirection, handleSort } = useSort('date', 'desc');
+
+  // Itemized Accrual Apportionment Logic
+  const processed = useMemo(() => {
+    let arr = filterByRange(orders, range, dateFrom, dateTo);
+
+    if (statusFilter !== 'All') {
+      if (statusFilter === 'Closed') {
+        arr = arr.filter(o => o.status === 'Closed' || o.status === 'Completed');
+      } else if (statusFilter === 'Open') {
+        arr = arr.filter(o => o.status !== 'Closed' && o.status !== 'Completed');
+      }
+    }
+
+    if (paymentTypeFilter !== 'All') {
+      arr = arr.filter(o => (o.paymentMethod || 'N/A') === paymentTypeFilter);
+    }
+
+    const itemized = [];
+
+    arr.forEach(o => {
+      const isClosed = o.status === 'Closed' || o.status === 'Completed';
+      const orderSubtotal = parseFloat(o.subtotal || o.items.reduce((sum, i) => sum + (i.price * (i.qty || 1)), 0));
+      const orderDiscount = parseFloat(o.discount || o.discountAmount || 0);
+      const orderTax = parseFloat(o.tax || 0);
+
+      (o.items || []).forEach(item => {
+        const itemQty = item.qty || 1;
+        const itemGross = parseFloat(item.price || 0) * itemQty;
+        
+        // Apportionment ratio
+        const ratio = orderSubtotal > 0 ? (itemGross / orderSubtotal) : 0;
+        
+        const apportionedDiscount = ratio * orderDiscount;
+        const apportionedTax = ratio * orderTax;
+        
+        const salesExcTax = itemGross - apportionedDiscount;
+        const salesIncTax = salesExcTax + apportionedTax;
+
+        const collected = isClosed ? salesIncTax : 0;
+        const due = isClosed ? 0 : salesIncTax;
+
+        itemized.push({
+          id: `${o.id}_${item.name}`,
+          date: o.createdAt,
+          billNo: o.billNo || o.id?.slice(0, 8),
+          guestName: o.guestName || 'Walk-in',
+          itemName: item.name,
+          category: item.category || 'Uncategorized',
+          qty: itemQty,
+          salesExcTax,
+          tax: apportionedTax,
+          salesIncTax,
+          discount: apportionedDiscount,
+          collected,
+          due,
+          paymentMethod: o.paymentMethod || 'N/A',
+          status: o.status || 'Closed'
+        });
+      });
+    });
+
+    return itemized;
+  }, [orders, range, dateFrom, dateTo, statusFilter, paymentTypeFilter]);
+
+  const sortedData = useMemo(() => {
+    return sortData(processed, sortField, sortDirection);
+  }, [processed, sortField, sortDirection]);
+
+  const totals = useMemo(() => {
+    return sortedData.reduce((s, r) => ({
+      qty: s.qty + r.qty,
+      salesExcTax: s.salesExcTax + r.salesExcTax,
+      tax: s.tax + r.tax,
+      salesIncTax: s.salesIncTax + r.salesIncTax,
+      discount: s.discount + r.discount,
+      collected: s.collected + r.collected,
+      due: s.due + r.due
+    }), { qty: 0, salesExcTax: 0, tax: 0, salesIncTax: 0, discount: 0, collected: 0, due: 0 });
+  }, [sortedData]);
+
+  const handleExport = () => {
+    const rows = [
+      'Sale Date,Invoice#,Guest Name,Item Name,Category,Qty,Sales (Exc. Tax),Tax,Sales (Inc. Tax),Discount,Collected,Due,Payment Type,Status',
+      ...sortedData.map(r =>
+        `"${fmtDateTime(r.date)}","${r.billNo}","${r.guestName}","${r.itemName}","${r.category}",${r.qty},${r.salesExcTax.toFixed(2)},${r.tax.toFixed(2)},${r.salesIncTax.toFixed(2)},${r.discount.toFixed(2)},${r.collected.toFixed(2)},${r.due.toFixed(2)},"${r.paymentMethod}","${r.status}"`
+      ),
+    ];
+    downloadCSV('sales_accrual_report.csv', rows);
+  };
+
+  return (
+    <div>
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Status:</span>
+        <Select value={statusFilter} onChange={setStatusFilter}>
+          <option value="All">All Invoices</option>
+          <option value="Open">Open</option>
+          <option value="Closed">Closed</option>
+        </Select>
+
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Payment:</span>
+        <Select value={paymentTypeFilter} onChange={setPaymentTypeFilter}>
+          <option value="All">All Types</option>
+          <option value="Cash">Cash</option>
+          <option value="Card">Card</option>
+          <option value="UPI">UPI</option>
+        </Select>
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+      </FilterBar>
+
+      <div className="card">
+        <SectionTitle>Sales Accrual Report</SectionTitle>
+        {sortedData.length === 0 ? <Empty text="No items sold during this period." /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th sortField={sortField} currentField="date" sortDirection={sortDirection} onSort={handleSort}>Sale Date</Th>
+                <Th sortField={sortField} currentField="billNo" sortDirection={sortDirection} onSort={handleSort}>Invoice#</Th>
+                <Th sortField={sortField} currentField="guestName" sortDirection={sortDirection} onSort={handleSort}>Guest Name</Th>
+                <Th sortField={sortField} currentField="itemName" sortDirection={sortDirection} onSort={handleSort}>Item Name</Th>
+                <Th sortField={sortField} currentField="category" sortDirection={sortDirection} onSort={handleSort}>Category</Th>
+                <Th right sortField={sortField} currentField="qty" sortDirection={sortDirection} onSort={handleSort}>Qty</Th>
+                <Th right sortField={sortField} currentField="salesExcTax" sortDirection={sortDirection} onSort={handleSort}>Sales (Exc. Tax)</Th>
+                <Th right sortField={sortField} currentField="tax" sortDirection={sortDirection} onSort={handleSort}>Tax</Th>
+                <Th right sortField={sortField} currentField="salesIncTax" sortDirection={sortDirection} onSort={handleSort}>Sales (Inc. Tax)</Th>
+                <Th right sortField={sortField} currentField="collected" sortDirection={sortDirection} onSort={handleSort}>Collected</Th>
+                <Th right sortField={sortField} currentField="due" sortDirection={sortDirection} onSort={handleSort}>Due</Th>
+                <Th sortField={sortField} currentField="status" sortDirection={sortDirection} onSort={handleSort}>Status</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedData.map(r => (
+                <tr key={r.id}>
+                  <Td>{fmtDateTime(r.date)}</Td>
+                  <Td bold>{r.billNo}</Td>
+                  <Td>{r.guestName}</Td>
+                  <Td bold>{r.itemName}</Td>
+                  <Td muted>{r.category}</Td>
+                  <Td right>{r.qty}</Td>
+                  <Td right>{fmt(r.salesExcTax)}</Td>
+                  <Td right muted>{fmt(r.tax)}</Td>
+                  <Td right bold>{fmt(r.salesIncTax)}</Td>
+                  <Td right style={{ color: r.collected > 0 ? 'var(--success)' : 'inherit' }}>{fmt(r.collected)}</Td>
+                  <Td right style={{ color: r.due > 0 ? 'var(--danger)' : 'inherit' }}>{fmt(r.due)}</Td>
+                  <Td><Badge label={r.status} color={r.status === 'Closed' || r.status === 'Completed' ? '#22c55e' : '#ef4444'} /></Td>
+                </tr>
+              ))}
+              <tr>
+                <TdSummary bold>TOTAL</TdSummary>
+                <TdSummary colSpan={4} />
+                <TdSummary right bold>{totals.qty}</TdSummary>
+                <TdSummary right bold>{fmt(totals.salesExcTax)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.tax)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.salesIncTax)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.collected)}</TdSummary>
+                <TdSummary right bold>{fmt(totals.due)}</TdSummary>
+                <TdSummary />
+              </tr>
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SalesInvoicingTab = ({ orders }) => {
   const [subTab, setSubTab] = useState('daily');
 
@@ -1031,14 +1209,20 @@ const SalesInvoicingTab = ({ orders }) => {
           onClick={() => setSubTab('closures')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
           Register Closures
         </button>
+        <button className={`btn ${subTab === 'accrual' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubTab('accrual')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+          Sales Accrual
+        </button>
       </div>
 
       {subTab === 'daily' ? (
         <DailySalesSummaryReport orders={orders} />
       ) : subTab === 'register' ? (
         <DetailedInvoiceRegisterReport orders={orders} />
-      ) : (
+      ) : subTab === 'closures' ? (
         <RegisterClosuresReport />
+      ) : (
+        <SalesAccrualReport orders={orders} />
       )}
     </div>
   );
