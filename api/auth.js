@@ -54,12 +54,17 @@ const resetPasswordLimiter = rateLimit({
 async function fetchAllUsers() {
   if (!supabase) return [];
   try {
-    const { data, error } = await supabase.from('tenant_data').select('*').eq('collection_name', 'users');
+    const { data, error } = await supabase.from('users').select('*');
     if (error) {
-      console.error('[Server] Error fetching users from tenant_data:', error);
+      console.error('[Server] Error fetching users from Supabase:', error);
       return [];
     }
-    return data.map(row => ({ ...row.data, id: row.id, account_id: row.account_id })) || [];
+    // Return users mapped to camelCase since the frontend expects camelCase 
+    // for password checking, or keep it snake_case? 
+    // Wait, the client-side legacy checked `u.restaurantName` and `u.password`.
+    // The table has `restaurant_name` (or wait, it has `account_id` which becomes `restaurantName` in frontend).
+    // Let's return the raw data and map account_id to restaurantName.
+    return data.map(row => ({ ...row, restaurantName: row.account_id })) || [];
   } catch (err) {
     console.error('[Server] Exception fetching users:', err);
     return [];
