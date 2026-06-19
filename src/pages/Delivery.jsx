@@ -137,8 +137,8 @@ const StatCard = ({ label, value, color, icon: Icon, sub }) => (
 const Delivery = () => {
   const {
     deliveryOrders, onlineOrders, staff, menu, settings, orders,
-    addDelivery, advanceDeliveryStatus, rejectDelivery, simulateNewDelivery,
-    addOnlineOrder, editOnlineOrder, updatePOSOrderDeliveryStatus,
+    addDelivery, advanceDeliveryStatus, rejectDelivery, simulateNewDelivery, updateDeliveryOrder,
+    addOnlineOrder, editOnlineOrder, updatePOSOrderDeliveryStatus, updatePOSOrder,
   } = useApp();
 
   const [tab, setTab] = useState('live');
@@ -279,14 +279,18 @@ const Delivery = () => {
   const handleAssignDriver = useCallback((orderId, driverId) => {
     const driver = drivers.find(d => d.id === driverId);
     if (!driver) return;
-    // For delivery orders, we track assignment locally
     const order = allOrders.find(o => o.id === orderId);
+    // Persist the assignment for whichever order source this is
     if (order?.source === 'online') {
       editOnlineOrder(orderId, { assignedDriver: driver.name });
+    } else if (order?.source === 'pos') {
+      updatePOSOrder(orderId, { assignedDriver: driver.name });
+    } else {
+      updateDeliveryOrder(orderId, { assignedDriver: driver.name });
     }
     // Close modal
     setAssignModal(null);
-  }, [drivers, allOrders, editOnlineOrder]);
+  }, [drivers, allOrders, editOnlineOrder, updatePOSOrder, updateDeliveryOrder]);
 
   const handleSendTracking = useCallback((orderId) => {
     setTrackingSent(prev => ({ ...prev, [orderId]: true }));

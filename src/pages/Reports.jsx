@@ -1042,7 +1042,7 @@ const SalesAccrualReport = ({ orders }) => {
 
     arr.forEach(o => {
       const isClosed = o.status === 'Closed' || o.status === 'Completed';
-      const orderSubtotal = parseFloat(o.subtotal || o.items.reduce((sum, i) => sum + (i.price * (i.qty || 1)), 0));
+      const orderSubtotal = parseFloat(o.subtotal || (o.items || []).reduce((sum, i) => sum + (i.price * (i.qty || 1)), 0));
       const orderDiscount = parseFloat(o.discount || o.discountAmount || 0);
       const orderTax = parseFloat(o.tax || 0);
 

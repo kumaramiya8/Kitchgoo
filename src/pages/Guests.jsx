@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import {
   User, Search, Phone, Mail, Star, History, Plus, Trash2, X, ChevronRight,
@@ -614,6 +614,20 @@ const Guests = () => {
       { name: 'VIP', minPoints: 5000, perks: '20% off, Free dessert, Private room access, Chef\'s table' },
     ],
   });
+
+  // Re-sync the form when loyalty config loads/changes from the database so a Save
+  // never overwrites real saved config with the initial defaults.
+  useEffect(() => {
+    if (!loyalty || Object.keys(loyalty).length === 0) return;
+    setLoyaltyForm(prev => ({
+      ...prev,
+      enabled: loyalty.enabled ?? prev.enabled,
+      pointsPerRupee: loyalty.pointsPerRupee ?? prev.pointsPerRupee,
+      pointsPerVisit: loyalty.pointsPerVisit ?? prev.pointsPerVisit,
+      redemptionRate: loyalty.redemptionRate ?? prev.redemptionRate,
+      tiers: loyalty.tiers || prev.tiers,
+    }));
+  }, [loyalty]);
 
   // ══════════════════════════════════════════════════════════
   //  RENDER: GUEST DIRECTORY TAB

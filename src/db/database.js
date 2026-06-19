@@ -1207,13 +1207,18 @@ export async function updateDeliveryStatus(id, status) {
 
 // ─── KDS Tickets ─────────────────────────────────────────────
 export async function createKDSTicket(orderId, items, tableId, orderType) {
+  // Derive the ticket's station from its items so station-filtered KDS screens
+  // actually receive it. If every item shares one station, route the whole ticket
+  // there; mixed or unconfigured items fall back to 'all' (a wildcard shown everywhere).
+  const stations = [...new Set((items || []).map(i => (i.station || '').trim()).filter(Boolean))];
+  const ticketStation = stations.length === 1 ? stations[0] : 'all';
   return insert('kds_tickets', {
     orderId,
     items: items.map(i => ({ ...i, status: 'pending', bumpedAt: null })),
     tableId,
     orderType: orderType || 'dine-in',
     status: 'active',
-    station: 'all',
+    station: ticketStation,
     priority: 'normal',
     allergyAlert: items.some(i => i.allergens?.length > 0),
     allergens: items.flatMap(i => i.allergens || []),

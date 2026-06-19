@@ -991,7 +991,9 @@ const PaymentModal = ({
   const [cashTendered, setCashTendered] = useState('');
 
   const tipValue = parseFloat(tipAmount) || 0;
-  const finalTotal = grandTotal - discount + autoGratuity + tipValue;
+  // grandTotal already includes serviceCharge + autoGratuity and is net of discount.
+  // Only the tip is added on top here — re-applying discount/gratuity double-counted them.
+  const finalTotal = grandTotal + tipValue;
   const cashChange = paymentMethod === 'Cash' ? Math.max(0, (parseFloat(cashTendered) || 0) - finalTotal) : 0;
 
   const payMethods = [
@@ -1148,7 +1150,7 @@ const POS = () => {
     menu, settings, floorPlans, staff, guests, modifiers, cashDrawer,
     placeOrder, fireToKDS, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
-    onlineOrders, editOnlineOrder, reload, addRegisterClosure,
+    onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
@@ -1454,7 +1456,9 @@ const POS = () => {
   const gstRate = settings?.billing?.gstRate ?? 5;
   const serviceChargeRate = settings?.billing?.enableServiceCharge ? (settings?.billing?.serviceCharge || 0) : 0;
   const autoGratuityThreshold = settings?.billing?.autoGratuityThreshold || 6;
-  const autoGratuityRate = settings?.billing?.autoGratuityRate || 18;
+  const autoGratuityEnabled = settings?.billing?.autoGratuityEnabled !== false;
+  const autoGratuityRate = settings?.billing?.autoGratuityPercent || 18;
+  const autoGratuityPreTax = settings?.billing?.autoGratuityPreTax !== false;
   const currency = settings?.restaurant?.currency || 'INR';
 
   const cartTotal = useMemo(() => {
@@ -1466,7 +1470,9 @@ const POS = () => {
 
   const tax = cartTotal * (gstRate / 100);
   const serviceCharge = cartTotal * (serviceChargeRate / 100);
-  const autoGratuity = partySize >= autoGratuityThreshold ? cartTotal * (autoGratuityRate / 100) : 0;
+  const autoGratuity = (autoGratuityEnabled && partySize >= autoGratuityThreshold)
+    ? (autoGratuityPreTax ? cartTotal : cartTotal + tax) * (autoGratuityRate / 100)
+    : 0;
   const grandTotal = cartTotal + tax + serviceCharge + autoGratuity - discountAmount;
 
   // ── Helpers ───────────────────────────────────────────────
@@ -1581,19 +1587,26 @@ const POS = () => {
     if (itemsToFire.length > 0) {
       const orderId = activeTable ? `T${activeTable.id}-${Date.now().toString().slice(-4)}` : `TK-${Date.now().toString().slice(-4)}`;
       await fireToKDS(orderId, itemsToFire, activeTable?.id || null, orderType);
+      broadcastOrderCreated(activeTable?.id || null, orderId);
     }
 
     showSuccess('KOT saved! Kitchen notified.');
   };
 
-  const handleFireNextCourse = () => {
+  const handleFireNextCourse = async () => {
     const nextCourse = Math.min(...cart.filter(i => !firedCourses.has(i.course)).map(i => i.course));
     if (isFinite(nextCourse)) {
       const courseItems = cart.filter(i => i.course === nextCourse);
       setFiredCourses(prev => new Set([...prev, nextCourse]));
       const orderId = activeTable ? `T${activeTable.id}` : 'takeout';
-      fireToKDS(orderId, courseItems, activeTable?.id, orderType);
-      showSuccess(`Course ${nextCourse} fired to kitchen!`);
+      try {
+        await fireToKDS(orderId, courseItems, activeTable?.id, orderType);
+        broadcastOrderCreated(activeTable?.id || null, orderId);
+        showSuccess(`Course ${nextCourse} fired to kitchen!`);
+      } catch (err) {
+        console.error('[POS] Failed to fire course to KDS:', err);
+        alert('Could not send this course to the Kitchen Display. Please try again.');
+      }
     }
   };
 
@@ -1814,7 +1827,14 @@ const POS = () => {
     // Fire to KDS if dine-in order wasn't saved, or if it is takeout/delivery
     const wasFired = activeTable && savedOrders[activeTable.id]?.length > 0;
     if (!wasFired) {
-      fireToKDS(order.id || Date.now().toString(), cart, tableId, orderType);
+      const kdsOrderId = order.id || Date.now().toString();
+      try {
+        await fireToKDS(kdsOrderId, cart, tableId, orderType);
+        broadcastOrderCreated(tableId, kdsOrderId);
+      } catch (err) {
+        console.error('[POS] Failed to fire order to KDS:', err);
+        alert('Order billed, but it could not be sent to the Kitchen Display. Please notify the kitchen manually.');
+      }
     }
 
     // Reset

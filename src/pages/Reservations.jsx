@@ -141,19 +141,22 @@ const Reservations = () => {
   const totalSeats = useMemo(() => tables.reduce((s, t) => s + (t.seats || t.capacity || 4), 0), [tables]);
 
   // Reservation settings with defaults
-  const resSets = useMemo(() => ({
-    maxPartySize: settings?.reservationMaxParty || 20,
-    advanceDays: settings?.reservationAdvanceDays || 30,
-    slotDuration: settings?.reservationSlotDuration || 90,
-    pacingLimit: settings?.reservationPacingLimit || 40,
-    depositRequired: settings?.reservationDepositRequired || false,
-    depositAmount: settings?.reservationDepositAmount || 50,
-    cancellationPolicy: settings?.reservationCancellationPolicy || 'Cancellations must be made at least 24 hours in advance.',
-    noShowFee: settings?.reservationNoShowFee || 25,
-    smsConfirmation: settings?.smsConfirmation || 'Hi {name}, your reservation at Kitchgoo for {party} on {date} at {time} is confirmed!',
-    smsReminder: settings?.smsReminder || 'Reminder: Your reservation at Kitchgoo is tomorrow at {time}. See you then!',
-    smsReady: settings?.smsReady || 'Your table is ready at Kitchgoo! Please head to the host stand.',
-  }), [settings]);
+  const resSets = useMemo(() => {
+    const r = settings?.reservations || {};
+    return {
+      maxPartySize: r.maxPartySize ?? 20,
+      advanceDays: r.advanceDays ?? 30,
+      slotDuration: r.slotDuration ?? 90,
+      pacingLimit: r.pacingLimit ?? 40,
+      depositRequired: r.depositRequired ?? false,
+      depositAmount: r.depositAmount ?? 50,
+      cancellationPolicy: r.cancellationPolicy ?? 'Cancellations must be made at least 24 hours in advance.',
+      noShowFee: r.noShowFee ?? 25,
+      smsConfirmation: r.smsConfirmation ?? 'Hi {name}, your reservation at Kitchgoo for {party} on {date} at {time} is confirmed!',
+      smsReminder: r.smsReminder ?? 'Reminder: Your reservation at Kitchgoo is tomorrow at {time}. See you then!',
+      smsReady: r.smsReady ?? 'Your table is ready at Kitchgoo! Please head to the host stand.',
+    };
+  }, [settings]);
 
   // ── Reservations for selected date ──────────────────────────
   const dayReservations = useMemo(() => {
@@ -586,7 +589,7 @@ const Reservations = () => {
           tables={tables}
           onClose={() => setSeatModal(null)}
           onSeat={async (tableId) => {
-            await seatWaitlist(seatModal.id);
+            await seatWaitlist(seatModal.id, tableId);
             setSeatModal(null);
           }}
         />
@@ -598,7 +601,7 @@ const Reservations = () => {
         <RemoveWaitlistModal
           entry={removeModal}
           onClose={() => setRemoveModal(null)}
-          onRemove={async (reason) => { await removeWaitlist(removeModal.id); setRemoveModal(null); }}
+          onRemove={async (reason) => { await removeWaitlist(removeModal.id, reason); setRemoveModal(null); }}
         />
       )}
     </div>
@@ -1165,7 +1168,9 @@ const RemoveWaitlistModal = ({ entry, onClose, onRemove }) => {
 
 // ── Settings Tab Component ──────────────────────────────────────
 const ReservationSettings = ({ settings: resSets }) => {
-  const { settings, editReservation } = useApp();
+  const { updateSettingsSection } = useApp();
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(false);
   const [local, setLocal] = useState({
     maxPartySize: resSets.maxPartySize,
     advanceDays: resSets.advanceDays,
@@ -1180,6 +1185,20 @@ const ReservationSettings = ({ settings: resSets }) => {
     smsReady: resSets.smsReady,
   });
   const set = (k, v) => setLocal(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateSettingsSection('reservations', local);
+      setSavedAt(true);
+      setTimeout(() => setSavedAt(false), 2500);
+    } catch (err) {
+      console.error('[Reservations] Failed to save settings:', err);
+      alert('Could not save reservation settings. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const labelStyle = { fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
   const sectionStyle = { marginBottom: 24 };
@@ -1368,6 +1387,14 @@ const ReservationSettings = ({ settings: resSets }) => {
             Powered by Kitchgoo
           </div>
         </div>
+      </div>
+
+      {/* Save bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+        {savedAt && <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>Settings saved</span>}
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save Settings'}
+        </button>
       </div>
     </div>
   );

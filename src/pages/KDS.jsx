@@ -339,8 +339,11 @@ export default function KDS() {
   const activeTickets = useMemo(() => {
     return kdsTickets
       .filter(t => t.status === 'active')
-      .filter(t => station === 'All' || (t.station || '').toLowerCase() === station.toLowerCase() ||
-        (t.items || []).some(i => (i.station || '').toLowerCase() === station.toLowerCase()))
+      .filter(t => {
+        const tStation = (t.station || 'all').toLowerCase();
+        return station === 'All' || tStation === 'all' || tStation === station.toLowerCase() ||
+          (t.items || []).some(i => (i.station || '').toLowerCase() === station.toLowerCase());
+      })
       .sort((a, b) => new Date(a.firedAt) - new Date(b.firedAt));
   }, [kdsTickets, station]);
 

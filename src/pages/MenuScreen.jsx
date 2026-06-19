@@ -556,7 +556,7 @@ const MenuScreen = () => {
     (filterCat === 'All' || i.category === filterCat)
   ), [menu, searchTerm, filterCat]);
 
-  const currency = settings?.general?.currency || '\u20B9';
+  const currency = settings?.restaurant?.currency || '\u20B9';
 
   /* ── Menu Item Helpers ────────────────────────────────────────── */
   const calcMargin = (item) => {

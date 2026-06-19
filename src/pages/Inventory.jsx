@@ -788,7 +788,7 @@ const RecipesTab = () => {
     setModal(null);
   };
 
-  const handleProduce = (recipe) => {
+  const handleProduce = async (recipe) => {
     // Check sufficient stock
     const shortages = (recipe.ingredients || []).filter(ing => {
       const item = inventory.find(i => i.id === ing.itemId);
@@ -801,13 +801,13 @@ const RecipesTab = () => {
       }).join(', '));
       return;
     }
-    // Deduct ingredients
-    (recipe.ingredients || []).forEach(ing => {
+    // Deduct ingredients sequentially so each write is awaited (avoids a stale-snapshot race)
+    for (const ing of (recipe.ingredients || [])) {
       const item = inventory.find(i => i.id === ing.itemId);
       if (item) {
-        editInventoryItem(item.id, { ...item, stock: item.stock - parseFloat(ing.qty) });
+        await editInventoryItem(item.id, { ...item, stock: item.stock - parseFloat(ing.qty), lastUpdated: new Date().toISOString() });
       }
-    });
+    }
     setProduceConfirm(null);
   };
 

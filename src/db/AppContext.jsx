@@ -519,6 +519,11 @@ export function AppProvider({ children }) {
     setDeliveryOrders(getAll('delivery_orders'));
   }, []);
 
+  const updateDeliveryOrder = useCallback(async (id, data) => {
+    await update('delivery_orders', id, data);
+    setDeliveryOrders(getAll('delivery_orders'));
+  }, []);
+
   const simulateNewDelivery = useCallback(async () => {
     const platforms = ['Zomato', 'Swiggy', 'UberEats', 'DoorDash'];
     const platform = platforms[Math.floor(Math.random() * platforms.length)];
@@ -585,13 +590,15 @@ export function AppProvider({ children }) {
     setWaitlist(getAll('waitlist'));
   }, []);
 
-  const seatWaitlist = useCallback(async (id) => {
-    await update('waitlist', id, { status: 'seated' });
+  const seatWaitlist = useCallback(async (id, tableId = null) => {
+    await update('waitlist', id, { status: 'seated', tableId, seatedAt: new Date().toISOString() });
     setWaitlist(getAll('waitlist'));
   }, []);
 
-  const removeWaitlist = useCallback(async (id) => {
-    await remove('waitlist', id);
+  const removeWaitlist = useCallback(async (id, reason = '') => {
+    // Mark as 'left' (rather than hard-deleting) so walk-away stats and the
+    // "Completed Today" list reflect it.
+    await update('waitlist', id, { status: 'left', leftReason: reason, leftAt: new Date().toISOString() });
     setWaitlist(getAll('waitlist'));
   }, []);
 
@@ -817,6 +824,11 @@ export function AppProvider({ children }) {
     setOrders(getAll('orders'));
   }, []);
 
+  const updatePOSOrder = useCallback(async (id, data) => {
+    await update('orders', id, data);
+    setOrders(getAll('orders'));
+  }, []);
+
   // ── Settings ──────────────────────────────────────────────
   const updateSettingsSection = useCallback(async (section, data) => {
     const updated = await dbUpdateSettings(section, data);
@@ -857,7 +869,7 @@ export function AppProvider({ children }) {
     // Orders / POS
     placeOrder,
     // Delivery
-    addDelivery, advanceDeliveryStatus, rejectDelivery, simulateNewDelivery,
+    addDelivery, advanceDeliveryStatus, rejectDelivery, simulateNewDelivery, updateDeliveryOrder,
     // KDS
     fireToKDS, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction,
     // Reservations & Waitlist
@@ -892,7 +904,7 @@ export function AppProvider({ children }) {
     // Audit
     addAuditEntry,
     // Online Orders
-    addOnlineOrder, editOnlineOrder, updatePOSOrderDeliveryStatus,
+    addOnlineOrder, editOnlineOrder, updatePOSOrderDeliveryStatus, updatePOSOrder,
     // Settings
     updateSettingsSection,
     // Tip Pools
