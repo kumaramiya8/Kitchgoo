@@ -35,6 +35,7 @@ import {
   getCurrentTenant,
   getTenantCode,
   syncTenantDataFromSupabase,
+  lastDbMutationAt,
 } from './database';
 
 const AppContext = createContext(null);
@@ -76,6 +77,7 @@ export function AppProvider({ children }) {
   const [hasLoadedFromDb, setHasLoadedFromDb] = useState(false);
   const [activeTenant, setActiveTenant] = useState(null);
   const channelRef = useRef(null);
+  const lastMutationAt = useRef(0);
 
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb) return;
@@ -84,6 +86,7 @@ export function AppProvider({ children }) {
     if (tenant) {
       const cached = getAll('pos_tables');
       if (JSON.stringify(cached) === JSON.stringify(posTables)) return;
+      lastMutationAt.current = Date.now();
       setCollection('pos_tables', posTables).catch(err => console.error("Error saving pos_tables:", err));
     }
   }, [posTables, authLoading, hasLoadedFromDb]);
@@ -95,6 +98,7 @@ export function AppProvider({ children }) {
     if (tenant) {
       const cached = getAll('pos_saved_orders');
       if (JSON.stringify(cached) === JSON.stringify(posSavedOrders)) return;
+      lastMutationAt.current = Date.now();
       setCollection('pos_saved_orders', posSavedOrders).catch(err => console.error("Error saving pos_saved_orders:", err));
     }
   }, [posSavedOrders, authLoading, hasLoadedFromDb]);
@@ -291,31 +295,39 @@ export function AppProvider({ children }) {
       return () => window.removeEventListener('storage', handleStorage);
     }
 
+    const debouncedReload = () => {
+      // Ignore realtime events if we mutated locally in the last 2 seconds
+      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) {
+        return;
+      }
+      reload();
+    };
+
     const channel = supabase
       .channel(`kitchgoo_realtime_${activeTenant}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          reload();
+          debouncedReload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, (payload) => {
         if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          reload();
+          debouncedReload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, (payload) => {
         if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          reload();
+          debouncedReload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
         if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          reload();
+          debouncedReload();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tenant_data' }, (payload) => {
         if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          reload();
+          debouncedReload();
         }
       })
       .on('broadcast', { event: 'order_created' }, (payload) => {

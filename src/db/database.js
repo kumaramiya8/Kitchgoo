@@ -75,6 +75,12 @@ const _cache = {};
 
 let _currentTenant = 'Kitchgoo';
 
+export let lastDbMutationAt = 0;
+
+export function markMutation() {
+  lastDbMutationAt = Date.now();
+}
+
 export function setCurrentTenant(tenant) {
   if (tenant) {
     _currentTenant = tenant;
@@ -683,6 +689,7 @@ export function getById(collection, id) {
 }
 
 export async function insert(collection, data) {
+  markMutation();
   const newItem = { createdAt: new Date().toISOString(), ...data };
   if (!newItem.id || String(newItem.id).trim() === '') {
     newItem.id = genId();
@@ -727,6 +734,7 @@ export async function insert(collection, data) {
         });
         if (tdError) throw tdError;
       }
+      markMutation(); // Update again after DB call finishes
     } catch (err) {
       console.error(`[DB] Error inserting to ${collection}:`, err);
     }
@@ -751,6 +759,7 @@ export async function insert(collection, data) {
 }
 
 export async function update(collection, id, data) {
+  markMutation();
   const items = getAll(collection);
   let updatedItem = null;
 
@@ -805,6 +814,7 @@ export async function update(collection, id, data) {
           value: updated
         });
       }
+      markMutation();
     } catch (err) {
       console.error(`[DB] Error updating ${collection}:`, err);
     }
@@ -813,6 +823,7 @@ export async function update(collection, id, data) {
 }
 
 export async function remove(collection, id) {
+  markMutation();
   const items = getAll(collection).filter(i => i.id !== id);
   _cache[collection] = items;
   localBackup(`${_currentTenant}_${collection}`, items);
@@ -834,6 +845,7 @@ export async function remove(collection, id) {
           value: items
         });
       }
+      markMutation();
     } catch (err) {
       console.error(`[DB] Error deleting from ${collection}:`, err);
     }
@@ -855,6 +867,7 @@ export async function remove(collection, id) {
 }
 
 export async function clearCollection(collection) {
+  markMutation();
   _cache[collection] = [];
   localBackup(`${_currentTenant}_${collection}`, []);
 
@@ -877,6 +890,7 @@ export async function clearCollection(collection) {
         });
         if (error) throw error;
       }
+      markMutation();
     } catch (err) {
       console.error(`[DB] Error clearing ${collection}:`, err);
     }
@@ -884,6 +898,7 @@ export async function clearCollection(collection) {
 }
 
 export async function setCollection(collection, data) {
+  markMutation();
   _cache[collection] = data;
   localBackup(`${_currentTenant}_${collection}`, data);
 
@@ -938,6 +953,7 @@ export async function setCollection(collection, data) {
         value: payload
       });
       if (error) throw error;
+      markMutation(); // Update again after DB call finishes
       
       // Update cache and localStorage with the merged payload
       _cache[collection] = payload;
