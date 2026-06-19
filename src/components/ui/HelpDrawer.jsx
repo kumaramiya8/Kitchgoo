@@ -483,13 +483,15 @@ const HelpDrawer = ({ isOpen, onClose }) => {
 
       {/* Drawer */}
       <div 
+        className="copilot-drawer"
         style={{
           position: 'fixed',
           top: '12px',
           bottom: '12px',
           right: '12px',
           width: 'min(380px, calc(100vw - 24px))',
-          height: 'calc(100vh - 24px)',
+          height: '100%',
+          maxHeight: 'calc(100dvh - 24px)',
           background: 'var(--sidebar-bg)',
           backdropFilter: 'var(--blur-heavy)',
           WebkitBackdropFilter: 'var(--blur-heavy)',
@@ -522,6 +524,18 @@ const HelpDrawer = ({ isOpen, onClose }) => {
           }
           .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: rgba(0,0,0,0.2);
+          }
+          @media (max-width: 600px) {
+            .copilot-drawer {
+              top: 0 !important;
+              bottom: 0 !important;
+              right: 0 !important;
+              width: 100vw !important;
+              max-height: 100dvh !important;
+              height: 100dvh !important;
+              border-radius: 0 !important;
+              border: none !important;
+            }
           }
         `}} />
 
@@ -838,7 +852,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
 
         {/* Input Bar */}
         <div style={{
-          padding: '16px',
+          padding: '16px 16px calc(16px + env(safe-area-inset-bottom, 0px)) 16px',
           borderTop: '1px solid var(--border-subtle)',
           background: 'rgba(255,255,255,0.85)',
           backdropFilter: 'blur(10px)',
