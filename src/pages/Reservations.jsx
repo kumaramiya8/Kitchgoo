@@ -93,7 +93,7 @@ const StatCard = ({ icon: Icon, label, value, color = 'var(--primary)', sub }) =
 const Avatar = ({ name, size = 36 }) => (
   <div style={{
     width: size, height: size, borderRadius: size * 0.28, flexShrink: 0,
-    background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+    background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)',
     color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontWeight: 800, fontSize: size * 0.38,
   }}>
@@ -522,7 +522,7 @@ const Reservations = () => {
                       </button>
                     )}
                     <button className="btn btn-sm" onClick={() => setSmsThread(w)}
-                      style={{ background: 'rgba(124,58,237,0.08)', color: 'var(--primary)', border: '1px solid rgba(124,58,237,0.2)' }}>
+                      style={{ background: 'rgba(30, 94, 74,0.08)', color: 'var(--primary)', border: '1px solid rgba(30, 94, 74,0.2)' }}>
                       <MessageCircle size={13} />
                     </button>
                     <button className="btn btn-danger btn-sm" onClick={() => setRemoveModal(w)}>
@@ -1316,7 +1316,7 @@ const ReservationSettings = ({ settings: resSets }) => {
           <div style={{ textAlign: 'center', marginBottom: 20 }}>
             <div style={{
               width: 48, height: 48, borderRadius: 14, margin: '0 auto 10px',
-              background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+              background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: '#fff', fontWeight: 800, fontSize: '1.1rem',
             }}>K</div>
@@ -1366,7 +1366,7 @@ const ReservationSettings = ({ settings: resSets }) => {
                   <div key={t} style={{
                     padding: '8px 14px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 600,
                     background: i === 1 ? 'var(--primary)' : '#fff', color: i === 1 ? '#fff' : 'var(--primary)',
-                    border: `1px solid ${i === 1 ? 'var(--primary)' : 'rgba(124,58,237,0.25)'}`,
+                    border: `1px solid ${i === 1 ? 'var(--primary)' : 'rgba(30, 94, 74,0.25)'}`,
                     cursor: 'pointer',
                   }}>
                     {t}
@@ -1376,9 +1376,9 @@ const ReservationSettings = ({ settings: resSets }) => {
             </div>
             <button style={{
               padding: '12px', borderRadius: 12, border: 'none', cursor: 'pointer',
-              background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+              background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)',
               color: '#fff', fontWeight: 700, fontSize: '0.88rem',
-              boxShadow: '0 4px 14px rgba(124,58,237,0.3)',
+              boxShadow: '0 4px 14px rgba(30, 94, 74,0.3)',
             }}>
               Confirm Reservation
             </button>

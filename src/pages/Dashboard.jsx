@@ -216,10 +216,10 @@ const Dashboard = () => {
             {weekBars.map(({ day, rev, pct }) => (
               <div key={day} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', width: '28px', textAlign: 'right', flexShrink: 0 }}>{day}</span>
-                <div style={{ flex: 1, height: '8px', borderRadius: '4px', background: 'rgba(124,58,237,0.08)' }}>
+                <div style={{ flex: 1, height: '8px', borderRadius: '4px', background: 'rgba(30, 94, 74,0.08)' }}>
                   <div style={{
                     width: `${pct || 2}%`, height: '100%', borderRadius: '4px',
-                    background: pct > 0 ? 'linear-gradient(90deg, #7c3aed, #a855f7)' : 'rgba(124,58,237,0.15)',
+                    background: pct > 0 ? 'linear-gradient(90deg, #1e5e4a, #2e7d5b)' : 'rgba(30, 94, 74,0.15)',
                     transition: 'width 0.5s',
                   }} />
                 </div>
@@ -236,7 +236,7 @@ const Dashboard = () => {
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '14px' }}>Revenue by Channel</h3>
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
             {[
-              { label: 'Dine-in', value: revenueByType['dine-in'], color: '#7c3aed' },
+              { label: 'Dine-in', value: revenueByType['dine-in'], color: '#1e5e4a' },
               { label: 'Takeout', value: revenueByType.takeout, color: '#f59e0b' },
               { label: 'Delivery', value: revenueByType.delivery, color: '#22c55e' },
             ].map(c => (
@@ -257,7 +257,7 @@ const Dashboard = () => {
               return (
                 <div key={i} title={`${i + 8}:00 — ${fmt(val)}`} style={{
                   aspectRatio: '1', borderRadius: '4px',
-                  background: intensity > 0.7 ? '#7c3aed' : intensity > 0.3 ? 'rgba(124,58,237,0.4)' : intensity > 0 ? 'rgba(124,58,237,0.15)' : 'rgba(226,232,240,0.4)',
+                  background: intensity > 0.7 ? '#1e5e4a' : intensity > 0.3 ? 'rgba(30, 94, 74,0.4)' : intensity > 0 ? 'rgba(30, 94, 74,0.15)' : 'rgba(226,232,240,0.4)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: '0.55rem', fontWeight: 600,
                   color: intensity > 0.5 ? 'white' : 'var(--text-muted)',
@@ -357,7 +357,7 @@ const Dashboard = () => {
                   <div style={{
                     width: 32, height: 32, borderRadius: '8px', flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: idx === 0 ? 'linear-gradient(135deg, #f59e0b, #f97316)' : 'rgba(124,58,237,0.1)',
+                    background: idx === 0 ? 'linear-gradient(135deg, #f59e0b, #f97316)' : 'rgba(30, 94, 74,0.1)',
                     color: idx === 0 ? 'white' : 'var(--primary)',
                     fontSize: '0.8rem', fontWeight: 800,
                   }}>
@@ -365,11 +365,11 @@ const Dashboard = () => {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>{item.name}</div>
-                    <div style={{ marginTop: '4px', height: '5px', borderRadius: '3px', background: 'rgba(124,58,237,0.1)' }}>
+                    <div style={{ marginTop: '4px', height: '5px', borderRadius: '3px', background: 'rgba(30, 94, 74,0.1)' }}>
                       <div style={{
                         width: `${Math.max(10, 100 - idx * 18)}%`,
                         height: '100%', borderRadius: '3px',
-                        background: 'linear-gradient(90deg, #7c3aed, #a855f7)',
+                        background: 'linear-gradient(90deg, #1e5e4a, #2e7d5b)',
                       }} />
                     </div>
                   </div>

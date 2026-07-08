@@ -17,7 +17,7 @@ const TIER_COLORS = {
   Bronze: { bg: 'rgba(180,83,9,0.1)', text: '#b45309', border: 'rgba(180,83,9,0.25)' },
   Silver: { bg: 'rgba(100,116,139,0.1)', text: '#64748b', border: 'rgba(100,116,139,0.25)' },
   Gold: { bg: 'rgba(245,158,11,0.1)', text: '#d97706', border: 'rgba(245,158,11,0.25)' },
-  VIP: { bg: 'rgba(124,58,237,0.1)', text: '#7c3aed', border: 'rgba(124,58,237,0.25)' },
+  VIP: { bg: 'rgba(30, 94, 74,0.1)', text: '#1e5e4a', border: 'rgba(30, 94, 74,0.25)' },
 };
 const CAMPAIGN_TYPES = ['Birthday', 'Anniversary', 'Win-back', 'Promotional'];
 const CAMPAIGN_STATUSES = ['active', 'paused', 'draft'];
@@ -73,12 +73,12 @@ const Avatar = ({ name, size = 42, tier }) => {
     Bronze: 'linear-gradient(135deg, #b45309, #d97706)',
     Silver: 'linear-gradient(135deg, #64748b, #94a3b8)',
     Gold: 'linear-gradient(135deg, #d97706, #fbbf24)',
-    VIP: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+    VIP: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)',
   };
   return (
     <div style={{
       width: size, height: size, borderRadius: size * 0.28, flexShrink: 0,
-      background: gradients[tier] || 'linear-gradient(135deg, #7c3aed, #a855f7)',
+      background: gradients[tier] || 'linear-gradient(135deg, #1e5e4a, #2e7d5b)',
       color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontWeight: 800, fontSize: size * 0.38,
     }}>
@@ -134,8 +134,8 @@ const TagChips = ({ tags = [], onRemove }) => (
     {tags.map(t => (
       <span key={t} style={{
         padding: '2px 8px', borderRadius: '12px', fontSize: '0.68rem', fontWeight: 600,
-        background: 'rgba(124,58,237,0.08)', color: 'var(--primary)',
-        border: '1px solid rgba(124,58,237,0.15)', display: 'inline-flex', alignItems: 'center', gap: '4px',
+        background: 'rgba(30, 94, 74,0.08)', color: 'var(--primary)',
+        border: '1px solid rgba(30, 94, 74,0.15)', display: 'inline-flex', alignItems: 'center', gap: '4px',
       }}>
         {t}
         {onRemove && (
@@ -161,7 +161,7 @@ const TagSelect = ({ value = [], onChange, options, label }) => {
         {value.map(t => (
           <span key={t} style={{
             padding: '1px 7px', borderRadius: '10px', fontSize: '0.68rem', fontWeight: 600,
-            background: 'rgba(124,58,237,0.1)', color: 'var(--primary)',
+            background: 'rgba(30, 94, 74,0.1)', color: 'var(--primary)',
           }}>
             {t}
             <X size={9} style={{ marginLeft: 3, cursor: 'pointer' }} onClick={e => { e.stopPropagation(); onChange(value.filter(v => v !== t)); }} />
@@ -542,11 +542,11 @@ const Guests = () => {
     const now = new Date();
     const thisMonth = now.getMonth();
     return [
-      { name: 'VIP Guests', count: guestsWithTier.filter(g => g.tier === 'VIP').length, color: '#7c3aed', icon: Crown,
+      { name: 'VIP Guests', count: guestsWithTier.filter(g => g.tier === 'VIP').length, color: '#1e5e4a', icon: Crown,
         apply: () => setSegFilters(f => ({ ...f, tier: 'VIP' })) },
       { name: 'At Risk (30d+)', count: allGuests.filter(g => daysSince(g.lastVisit) >= 30).length, color: '#ef4444', icon: AlertCircle,
         apply: () => setSegFilters(f => ({ ...f, lastVisitDays: '30' })) },
-      { name: 'Wine Lovers', count: allGuests.filter(g => (g.tags || []).includes('Wine Lover')).length, color: '#8b5cf6', icon: Heart,
+      { name: 'Wine Lovers', count: allGuests.filter(g => (g.tags || []).includes('Wine Lover')).length, color: '#2e7d5b', icon: Heart,
         apply: () => setSegFilters(f => ({ ...f, tags: ['Wine Lover'] })) },
       { name: 'Birthday This Month', count: allGuests.filter(g => g.birthday && new Date(g.birthday).getMonth() === thisMonth).length, color: '#f59e0b', icon: Gift,
         apply: () => {} },
@@ -636,7 +636,7 @@ const Guests = () => {
     <>
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '18px' }}>
-        <StatCard label="Total Guests" value={fmt(stats.total)} color="#7c3aed" icon={Users} />
+        <StatCard label="Total Guests" value={fmt(stats.total)} color="#1e5e4a" icon={Users} />
         <StatCard label="Active (30d)" value={fmt(stats.active)} color="#22c55e" icon={UserCheck} />
         <StatCard label="Average LTV" value={fmtCurrency(stats.avgLTV)} color="#3b82f6" icon={TrendingUp} />
         <StatCard label="VIP Guests" value={fmt(stats.vipCount)} color="#f59e0b" icon={Crown} />
@@ -687,7 +687,7 @@ const Guests = () => {
                 const avgSpend = g.visitCount > 0 ? (g.totalSpend || 0) / g.visitCount : 0;
                 return (
                   <tr key={g.id} onClick={() => openProfile(g)} style={{ cursor: 'pointer', transition: 'background 0.15s' }}
-                    onMouseOver={e => e.currentTarget.style.background = 'rgba(124,58,237,0.03)'}
+                    onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 94, 74,0.03)'}
                     onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -707,7 +707,7 @@ const Guests = () => {
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
                       <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
                         {(g.tags || []).slice(0, 2).map(t => (
-                          <span key={t} style={{ padding: '1px 6px', borderRadius: '8px', fontSize: '0.62rem', fontWeight: 600, background: 'rgba(124,58,237,0.06)', color: 'var(--primary)' }}>{t}</span>
+                          <span key={t} style={{ padding: '1px 6px', borderRadius: '8px', fontSize: '0.62rem', fontWeight: 600, background: 'rgba(30, 94, 74,0.06)', color: 'var(--primary)' }}>{t}</span>
                         ))}
                         {(g.tags || []).length > 2 && <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>+{g.tags.length - 2}</span>}
                       </div>
@@ -777,8 +777,8 @@ const Guests = () => {
         {/* Golden Guest Record Header */}
         <div className="card" style={{
           padding: '24px', marginBottom: '16px',
-          background: 'linear-gradient(135deg, rgba(124,58,237,0.04), rgba(245,158,11,0.04))',
-          border: '1px solid rgba(124,58,237,0.12)',
+          background: 'linear-gradient(135deg, rgba(30, 94, 74,0.04), rgba(245,158,11,0.04))',
+          border: '1px solid rgba(30, 94, 74,0.12)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
             <Avatar name={g.name} size={72} tier={tier} />
@@ -806,7 +806,7 @@ const Guests = () => {
         {/* Quick Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginBottom: '18px' }}>
           {[
-            { label: 'Total Visits', value: g.visitCount || 0, color: '#7c3aed' },
+            { label: 'Total Visits', value: g.visitCount || 0, color: '#1e5e4a' },
             { label: 'Total Spend', value: fmtCurrency(g.totalSpend), color: '#22c55e' },
             { label: 'Avg Spend', value: fmtCurrency(avgSpend), color: '#3b82f6' },
             { label: 'Loyalty Points', value: fmt(points), color: '#f59e0b' },
@@ -854,7 +854,7 @@ const Guests = () => {
                   border: '1px solid var(--border-subtle)', marginBottom: '8px',
                   cursor: 'pointer', transition: 'all 0.15s',
                 }}
-                onMouseOver={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.03)'; e.currentTarget.style.borderColor = 'rgba(124,58,237,0.2)'; }}
+                onMouseOver={e => { e.currentTarget.style.background = 'rgba(30, 94, 74,0.03)'; e.currentTarget.style.borderColor = 'rgba(30, 94, 74,0.2)'; }}
                 onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
               >
                 <div>
@@ -951,8 +951,8 @@ const Guests = () => {
             {/* Points Balance */}
             <div style={{
               padding: '20px', borderRadius: '14px', marginBottom: '16px',
-              background: 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(245,158,11,0.06))',
-              border: '1px solid rgba(124,58,237,0.1)',
+              background: 'linear-gradient(135deg, rgba(30, 94, 74,0.06), rgba(245,158,11,0.06))',
+              border: '1px solid rgba(30, 94, 74,0.1)',
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <div>
@@ -1081,8 +1081,8 @@ const Guests = () => {
             {loyaltyForm.tiers.map((t, i) => (
               <div key={t.name} style={{
                 padding: '16px', borderRadius: '12px',
-                background: editTierIdx === i ? 'rgba(124,58,237,0.04)' : 'rgba(0,0,0,0.02)',
-                border: `1px solid ${editTierIdx === i ? 'rgba(124,58,237,0.2)' : 'var(--border-subtle)'}`,
+                background: editTierIdx === i ? 'rgba(30, 94, 74,0.04)' : 'rgba(0,0,0,0.02)',
+                border: `1px solid ${editTierIdx === i ? 'rgba(30, 94, 74,0.2)' : 'var(--border-subtle)'}`,
               }}>
                 {editTierIdx === i ? (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -1135,7 +1135,7 @@ const Guests = () => {
 
         {/* Loyalty Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-          <StatCard label="Enrolled Members" value={fmt(loyaltyStats.enrolled)} color="#7c3aed" icon={Users} />
+          <StatCard label="Enrolled Members" value={fmt(loyaltyStats.enrolled)} color="#1e5e4a" icon={Users} />
           <StatCard label="Points Issued" value={fmt(loyaltyStats.issued)} color="#22c55e" icon={Zap} />
           <StatCard label="Points Redeemed" value={fmt(loyaltyStats.redeemed)} color="#ef4444" icon={Gift} />
           <StatCard label="Redemption Rate" value={`${loyaltyStats.rate}%`} color="#3b82f6" icon={BarChart3} />
@@ -1193,7 +1193,7 @@ const Guests = () => {
               <div key={c.id} className="card" style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(124,58,237,0.08)', color: 'var(--primary)' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(30, 94, 74,0.08)', color: 'var(--primary)' }}>
                       <TypeIcon size={18} />
                     </div>
                     <div>
@@ -1342,7 +1342,7 @@ const Guests = () => {
             </h3>
             <span style={{
               padding: '4px 12px', borderRadius: '20px', fontSize: '0.78rem', fontWeight: 800,
-              background: 'rgba(124,58,237,0.1)', color: 'var(--primary)',
+              background: 'rgba(30, 94, 74,0.1)', color: 'var(--primary)',
             }}>{segmentedGuests.length}</span>
           </div>
 
@@ -1360,7 +1360,7 @@ const Guests = () => {
                   cursor: 'pointer',
                 }}
                   onClick={() => openProfile(g)}
-                  onMouseOver={e => e.currentTarget.style.background = 'rgba(124,58,237,0.03)'}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 94, 74,0.03)'}
                   onMouseOut={e => e.currentTarget.style.background = 'transparent'}
                 >
                   <Avatar name={g.name} size={30} tier={g.tier} />
@@ -1507,7 +1507,7 @@ const LoyaltyCardPreview = ({ guests, loyaltyForm }) => {
       {found && found !== 'not_found' && (
         <div style={{
           padding: '24px', borderRadius: '16px',
-          background: 'linear-gradient(135deg, #7c3aed, #a855f7, #c084fc)',
+          background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b, #6faa93)',
           color: 'white', position: 'relative', overflow: 'hidden',
         }}>
           {/* Background decoration */}

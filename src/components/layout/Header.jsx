@@ -126,7 +126,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
         backdropFilter: 'blur(24px)',
         border: '1px solid rgba(255,255,255,0.9)',
         borderRadius: '18px',
-        boxShadow: '0 16px 48px rgba(0,0,0,0.14), 0 4px 16px rgba(124,58,237,0.08)',
+        boxShadow: '0 16px 48px rgba(0,0,0,0.14), 0 4px 16px rgba(30, 94, 74,0.08)',
         minWidth: '220px',
         padding: '8px',
         zIndex: 9999,
@@ -135,7 +135,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
       {/* User info */}
       <div style={{ padding: '10px 14px 12px', borderBottom: '1px solid rgba(0,0,0,0.06)', marginBottom: '4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'linear-gradient(135deg, #7c3aed, #a855f7)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.95rem', flexShrink: 0 }}>
+          <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.95rem', flexShrink: 0 }}>
             {avatarInitial}
           </div>
           <div>
@@ -143,7 +143,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
             <div style={{ fontSize: '0.72rem', color: '#888' }}>{user?.email}</div>
           </div>
         </div>
-        <div style={{ marginTop: '8px', display: 'inline-block', padding: '2px 8px', borderRadius: '6px', background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontSize: '0.7rem', fontWeight: 700 }}>
+        <div style={{ marginTop: '8px', display: 'inline-block', padding: '2px 8px', borderRadius: '6px', background: 'rgba(30, 94, 74,0.08)', color: '#1e5e4a', fontSize: '0.7rem', fontWeight: 700 }}>
           {user?.role || 'Owner'}
         </div>
       </div>
@@ -187,7 +187,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
               backdropFilter: 'blur(24px)',
               border: '1px solid rgba(226, 232, 240, 0.9)',
               borderRadius: '16px',
-              boxShadow: '0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(124,58,237,0.04)',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(30, 94, 74,0.04)',
               maxHeight: '300px',
               overflowY: 'auto',
               padding: '6px',
@@ -215,14 +215,14 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
                   textAlign: 'left',
                   transition: 'background 0.2s',
                 }}
-                onMouseOver={e => e.currentTarget.style.background = 'rgba(124,58,237,0.06)'}
+                onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 94, 74,0.06)'}
                 onMouseOut={e => e.currentTarget.style.background = 'none'}
               >
                 <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                   {item.name}
                 </span>
                 <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: '2px', letterSpacing: '0.5px' }}>
-                  {item.type === 'setting' ? '⚙️ Settings Section' : '📱 View / Page'}
+                  {item.type === 'setting' ? 'Settings section' : 'Page'}
                 </span>
               </button>
             ))}
@@ -262,9 +262,9 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
           title="Kitchgoo Copilot Help"
           style={{
             position: 'relative',
-            background: 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(168,85,247,0.06))',
-            border: '1px solid rgba(124,58,237,0.15)',
-            color: '#7c3aed',
+            background: 'linear-gradient(135deg, rgba(30, 94, 74,0.06), rgba(46, 125, 91,0.06))',
+            border: '1px solid rgba(30, 94, 74,0.15)',
+            color: '#1e5e4a',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -275,13 +275,13 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
             transition: 'all 0.2s',
           }}
           onMouseOver={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(124,58,237,0.12), rgba(168,85,247,0.12))';
-            e.currentTarget.style.borderColor = 'rgba(124,58,237,0.25)';
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(30, 94, 74,0.12), rgba(46, 125, 91,0.12))';
+            e.currentTarget.style.borderColor = 'rgba(30, 94, 74,0.25)';
             e.currentTarget.style.transform = 'scale(1.05)';
           }}
           onMouseOut={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(168,85,247,0.06))';
-            e.currentTarget.style.borderColor = 'rgba(124,58,237,0.15)';
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(30, 94, 74,0.06), rgba(46, 125, 91,0.06))';
+            e.currentTarget.style.borderColor = 'rgba(30, 94, 74,0.15)';
             e.currentTarget.style.transform = 'none';
           }}
         >

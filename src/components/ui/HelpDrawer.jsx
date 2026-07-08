@@ -22,7 +22,7 @@ const parseMarkdown = (text) => {
   // Italic *text*
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
   // Inline code `code`
-  html = html.replace(/`(.*?)`/g, '<code style="background: rgba(124,58,237,0.08); color: #7c3aed; padding: 2px 5px; borderRadius: 4px; font-family: monospace; font-size: 0.88em;">$1</code>');
+  html = html.replace(/`(.*?)`/g, '<code style="background: rgba(30, 94, 74,0.08); color: #1e5e4a; padding: 2px 5px; borderRadius: 4px; font-family: monospace; font-size: 0.88em;">$1</code>');
   
   // Line breaks
   html = html.replace(/\n/g, '<br />');
@@ -639,7 +639,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                     fontSize: '0.85rem',
                     lineHeight: 1.45,
                     border: isUser ? 'none' : '1px solid var(--border-subtle)',
-                    boxShadow: isUser ? '0 4px 12px rgba(124,58,237,0.15)' : '0 2px 8px rgba(0,0,0,0.03)',
+                    boxShadow: isUser ? '0 4px 12px rgba(30, 94, 74,0.15)' : '0 2px 8px rgba(0,0,0,0.03)',
                   }}
                   dangerouslySetInnerHTML={{ __html: isUser ? msg.text : parseMarkdown(msg.text) }}
                 />
@@ -671,13 +671,13 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                               width: 24,
                               height: 24,
                               borderRadius: '6px',
-                              background: isNav ? 'rgba(14,165,233,0.1)' : 'rgba(124,58,237,0.1)',
+                              background: isNav ? 'rgba(14,165,233,0.1)' : 'rgba(30, 94, 74,0.1)',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               flexShrink: 0
                             }}>
-                              <Icon size={13} color={isNav ? '#0ea5e9' : '#7c3aed'} />
+                              <Icon size={13} color={isNav ? '#0ea5e9' : '#1e5e4a'} />
                             </div>
                             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                               {isNav ? "AI Suggests Navigating" : (isStock ? "AI Suggests Stock Update" : "AI Suggests Setting Update")}
@@ -750,7 +750,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                                 gap: '6px',
                                 width: '100%',
                                 padding: '6px 10px',
-                                background: isNav ? '#0ea5e9' : '#7c3aed',
+                                background: isNav ? '#0ea5e9' : '#1e5e4a',
                                 border: 'none',
                                 borderRadius: '8px',
                                 color: 'white',
@@ -778,9 +778,9 @@ const HelpDrawer = ({ isOpen, onClose }) => {
           {loading && (
             <div style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.85)', padding: '10px 16px', borderRadius: '16px 16px 16px 4px', border: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', gap: 4 }}>
-                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', animation: 'bounce 1.4s infinite ease-in-out both' }} />
-                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', animation: 'bounce 1.4s infinite ease-in-out both', animationDelay: '0.2s' }} />
-                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', animation: 'bounce 1.4s infinite ease-in-out both', animationDelay: '0.4s' }} />
+                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#1e5e4a', animation: 'bounce 1.4s infinite ease-in-out both' }} />
+                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#1e5e4a', animation: 'bounce 1.4s infinite ease-in-out both', animationDelay: '0.2s' }} />
+                <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#1e5e4a', animation: 'bounce 1.4s infinite ease-in-out both', animationDelay: '0.4s' }} />
               </div>
               <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Thinking...</span>
               <style dangerouslySetInnerHTML={{__html: `

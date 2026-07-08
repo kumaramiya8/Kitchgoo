@@ -74,7 +74,7 @@ const INTEGRATIONS_LIST = [
   { id: 'quickbooks', name: 'QuickBooks', category: 'Accounting', description: 'Sync sales, expenses, and invoices automatically with QuickBooks Online.', color: '#2CA01C' },
   { id: 'xero', name: 'Xero', category: 'Accounting', description: 'Seamless accounting integration with Xero for real-time financial data.', color: '#13B5EA' },
   { id: 'gusto', name: 'Gusto', category: 'Payroll', description: 'Automate payroll processing, tip distribution, and tax filings.', color: '#F45D48' },
-  { id: 'hotel_pms', name: 'Hotel PMS', category: 'Hotel', description: 'Connect room charges and guest folios with hotel property management.', color: '#7c3aed' },
+  { id: 'hotel_pms', name: 'Hotel PMS', category: 'Hotel', description: 'Connect room charges and guest folios with hotel property management.', color: '#1e5e4a' },
   { id: 'mailchimp', name: 'Mailchimp', category: 'Marketing', description: 'Sync guest data for email campaigns, promotions, and newsletters.', color: '#FFE01B' },
   { id: 'twilio', name: 'Twilio', category: 'Communication', description: 'SMS notifications for orders, reservations, and marketing messages.', color: '#F22F46' },
   { id: 'stripe', name: 'Stripe', category: 'Accounting', description: 'Accept online payments and manage subscriptions seamlessly.', color: '#635BFF' },
@@ -90,7 +90,7 @@ const ACTION_COLORS = {
   logout: { bg: 'rgba(100,116,139,0.1)', text: '#64748b' },
   void:   { bg: 'rgba(239,68,68,0.1)', text: '#dc2626' },
   comp:   { bg: 'rgba(245,158,11,0.1)', text: '#d97706' },
-  settings: { bg: 'rgba(124,58,237,0.1)', text: '#7c3aed' },
+  settings: { bg: 'rgba(30, 94, 74,0.1)', text: '#1e5e4a' },
 };
 
 const COMPLIANCE_ITEMS = [
@@ -340,7 +340,7 @@ const AccountsTab = () => {
         <div className="table-wrapper">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
             <thead>
-              <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+              <tr style={{ background: 'rgba(30, 94, 74,0.04)' }}>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Account Name</th>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Owner Name</th>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Email Address</th>
@@ -494,7 +494,7 @@ const SubscriptionTab = ({ settings }) => {
     <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Current Plan Banner */}
       <div style={{
-        background: 'linear-gradient(135deg, #7c3aed, #a855f7)', borderRadius: '16px',
+        background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)', borderRadius: '16px',
         padding: '28px', color: 'white', position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
@@ -532,13 +532,13 @@ const SubscriptionTab = ({ settings }) => {
           <div className="table-wrapper">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
-                <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+                <tr style={{ background: 'rgba(30, 94, 74,0.04)' }}>
                   <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Feature</th>
                   {PLANS.map(p => (
                     <th key={p.id} style={{
                       padding: '12px 16px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid var(--border-subtle)',
                       color: p.id === currentPlan ? 'var(--primary)' : 'var(--text-primary)',
-                      background: p.id === currentPlan ? 'rgba(124,58,237,0.06)' : 'transparent',
+                      background: p.id === currentPlan ? 'rgba(30, 94, 74,0.06)' : 'transparent',
                     }}>
                       {p.name}
                       {p.id === currentPlan && <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--primary)', marginTop: '2px' }}>CURRENT</div>}
@@ -553,7 +553,7 @@ const SubscriptionTab = ({ settings }) => {
                     {PLANS.map(p => (
                       <td key={p.id} style={{
                         padding: '10px 16px', textAlign: 'center', borderBottom: '1px solid var(--border-subtle)',
-                        background: p.id === currentPlan ? 'rgba(124,58,237,0.03)' : 'transparent',
+                        background: p.id === currentPlan ? 'rgba(30, 94, 74,0.03)' : 'transparent',
                       }}>
                         {p.features[feature]
                           ? <CheckCircle size={16} style={{ color: 'var(--success)' }} />
@@ -696,7 +696,7 @@ const AuditLogsTab = ({ auditLog }) => {
         <div className="table-wrapper">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
             <thead>
-              <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+              <tr style={{ background: 'rgba(30, 94, 74,0.04)' }}>
                 {['Timestamp', 'Account', 'User', 'Action', 'Details', 'IP Address'].map(h => (
                   <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
@@ -844,7 +844,7 @@ const ApiWebhooksTab = ({ addAuditEntry }) => {
           <div className="table-wrapper">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
               <thead>
-                <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+                <tr style={{ background: 'rgba(30, 94, 74,0.04)' }}>
                   {['Name', 'Key', 'Created', 'Last Used', 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
@@ -915,7 +915,7 @@ const ApiWebhooksTab = ({ addAuditEntry }) => {
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '6px' }}>
                     {w.events.map(ev => (
-                      <Badge key={ev} bg="rgba(124,58,237,0.08)" color="var(--primary)">{ev}</Badge>
+                      <Badge key={ev} bg="rgba(30, 94, 74,0.08)" color="var(--primary)">{ev}</Badge>
                     ))}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -1243,7 +1243,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
           <div className="table-wrapper">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
               <thead>
-                <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+                <tr style={{ background: 'rgba(30, 94, 74,0.04)' }}>
                   {['User', 'Device', 'IP Address', 'Last Active', ''].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}

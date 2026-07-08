@@ -83,7 +83,7 @@ function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
 
 // ─── Shared UI pieces ───────────────────────────────────────
 
-const StatCard = ({ label, value, sub, color = '#7c3aed', icon: Icon }) => (
+const StatCard = ({ label, value, sub, color = '#1e5e4a', icon: Icon }) => (
   <div className="stat-card" style={{ flex: 1 }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
       <div>
@@ -189,7 +189,7 @@ const Td = ({ children, right, bold, muted, style: extraStyle }) => (
 );
 
 const TdSummary = ({ children, right, bold }) => (
-  <td style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: bold ? 800 : 700, color: 'var(--primary)', borderTop: '2px solid var(--primary)', background: 'rgba(124,58,237,0.04)', whiteSpace: 'nowrap', fontSize: '0.83rem' }}>{children}</td>
+  <td style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: bold ? 800 : 700, color: 'var(--primary)', borderTop: '2px solid var(--primary)', background: 'rgba(30, 94, 74,0.04)', whiteSpace: 'nowrap', fontSize: '0.83rem' }}>{children}</td>
 );
 
 const FilterBar = ({ children }) => (
@@ -228,7 +228,7 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-const COLORS = ['#7c3aed', '#0ea5e9', '#22c55e', '#f59e0b', '#ec4899', '#f97316', '#14b8a6'];
+const COLORS = ['#1e5e4a', '#0ea5e9', '#22c55e', '#f59e0b', '#ec4899', '#f97316', '#14b8a6'];
 
 const Empty = ({ text = 'No data for this period.' }) => (
   <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
@@ -284,7 +284,7 @@ const Modal = ({ open, onClose, title, children, wide }) => {
   );
 };
 
-const GaugeChart = ({ value, max = 100, label, color = '#7c3aed', size = 110 }) => {
+const GaugeChart = ({ value, max = 100, label, color = '#1e5e4a', size = 110 }) => {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   const r = (size - 12) / 2;
   const circ = Math.PI * r;
@@ -405,7 +405,7 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
         <div className="card" style={{ padding: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <span style={{ fontSize: '0.73rem', fontWeight: 600, color: 'var(--text-muted)' }}>Live Sales</span>
-            <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(30, 94, 74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <IndianRupee size={16} color="var(--primary)" />
             </div>
           </div>
@@ -637,7 +637,7 @@ const DailySalesSummaryReport = ({ orders }) => {
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Gross Sales" value={fmt(totals.gross)} color="#7c3aed" icon={IndianRupee} />
+        <StatCard label="Gross Sales" value={fmt(totals.gross)} color="#1e5e4a" icon={IndianRupee} />
         <StatCard label="Discounts Applied" value={fmt(totals.discounts)} color="#ef4444" icon={TrendingDown} />
         <StatCard label="Net Sales" value={fmt(totals.gross - totals.discounts)} color="#22c55e" icon={TrendingUp} />
         <StatCard label="Tax Collected" value={fmt(totals.tax)} color="#f59e0b" icon={Receipt} />
@@ -792,7 +792,7 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
                   <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedOrder(o)}>
                     <Td bold>{o.billNo || o.id?.slice(0, 8)}</Td>
                     <Td>{fmtDateTime(o.createdAt)}</Td>
-                    <Td><Badge label={o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')} color="#7c3aed" /></Td>
+                    <Td><Badge label={o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')} color="#1e5e4a" /></Td>
                     <Td right bold>{fmt(o.total || 0)}</Td>
                     <Td><Badge label={status} color={statusColor} /></Td>
                     <Td muted>{o.serverName || '—'}</Td>
@@ -1322,7 +1322,7 @@ const TaxComplianceTab = ({ orders }) => {
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Gross Taxable Amount" value={fmt(totals.taxable)} color="#7c3aed" icon={IndianRupee} />
+        <StatCard label="Gross Taxable Amount" value={fmt(totals.taxable)} color="#1e5e4a" icon={IndianRupee} />
         <StatCard label="Tax Amount Collected" value={fmt(totals.collected)} color="#22c55e" icon={Receipt} />
         <StatCard label="Total Invoice Value" value={fmt(totals.taxable + totals.collected)} color="#f59e0b" icon={TrendingUp} />
       </div>
@@ -1440,7 +1440,7 @@ const StockStatusReorderReport = ({ inventory }) => {
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Total Asset Value" value={fmt(totals.totalAssetVal)} color="#7c3aed" icon={Boxes} />
+        <StatCard label="Total Asset Value" value={fmt(totals.totalAssetVal)} color="#1e5e4a" icon={Boxes} />
         <StatCard label="Low Stock Items" value={totals.lowCount} color="#f59e0b" icon={AlertTriangle} />
         <StatCard label="Out of Stock Items" value={totals.outCount} color="#ef4444" icon={XCircle} />
       </div>
@@ -1533,7 +1533,7 @@ const WastageVarianceLogReport = ({ wasteLog }) => {
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Wastage Entries" value={filtered.length} color="#7c3aed" icon={Boxes} />
+        <StatCard label="Wastage Entries" value={filtered.length} color="#1e5e4a" icon={Boxes} />
         <StatCard label="Total Cost Impact" value={fmt(totalCost)} color="#ef4444" icon={IndianRupee} />
         <StatCard label="Average Loss / Entry" value={filtered.length > 0 ? fmt(totalCost / filtered.length) : '₹0'} color="#f59e0b" icon={TrendingUp} />
       </div>
@@ -1694,7 +1694,7 @@ const MenuManagementTab = ({ orders, menu }) => {
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Quantity Sold" value={totals.qtySold} color="#7c3aed" icon={ShoppingBag} />
+        <StatCard label="Quantity Sold" value={totals.qtySold} color="#1e5e4a" icon={ShoppingBag} />
         <StatCard label="Total Revenue" value={fmt(totals.revenue)} color="#22c55e" icon={TrendingUp} />
         <StatCard label="Cost of Goods Sold (COGS)" value={fmt(totals.cogs)} color="#ef4444" icon={TrendingDown} />
         <StatCard label="Gross Margin" value={fmtPct(avgMargin)} color="#f59e0b" icon={Target} />
@@ -1718,7 +1718,7 @@ const MenuManagementTab = ({ orders, menu }) => {
               {sortedPerformanceData.map(d => (
                 <tr key={d.id}>
                   <Td bold>{d.name}</Td>
-                  <Td><Badge label={d.category} color="#7c3aed" /></Td>
+                  <Td><Badge label={d.category} color="#1e5e4a" /></Td>
                   <Td right bold>{d.qtySold}</Td>
                   <Td right>{fmt(d.revenue)}</Td>
                   <Td right muted>{fmt(d.cogs)}</Td>
@@ -1845,8 +1845,8 @@ const OperationalEfficiencyTab = ({ orders }) => {
             const ratio = h.revenue / maxRevenue;
             const bg = ratio > 0.8 ? 'rgba(239,68,68,0.85)' 
                      : ratio > 0.5 ? 'rgba(245,158,11,0.8)' 
-                     : ratio > 0.2 ? 'rgba(124,58,237,0.6)' 
-                     : ratio > 0 ? 'rgba(124,58,237,0.18)'  
+                     : ratio > 0.2 ? 'rgba(30, 94, 74,0.6)' 
+                     : ratio > 0 ? 'rgba(30, 94, 74,0.18)'  
                      : 'rgba(226,232,240,0.3)';             
             
             const briefLabel = `${h.hour % 12 || 12}${h.hour >= 12 ? 'PM' : 'AM'}`;
@@ -1866,8 +1866,8 @@ const OperationalEfficiencyTab = ({ orders }) => {
         </div>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(226,232,240,0.3)' }} /> Idle</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(124,58,237,0.18)' }} /> Low Traffic</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(124,58,237,0.6)' }} /> Medium Traffic</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(30, 94, 74,0.18)' }} /> Low Traffic</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(30, 94, 74,0.6)' }} /> Medium Traffic</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(245,158,11,0.8)' }} /> High Traffic</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(239,68,68,0.85)' }} /> Peak Traffic</span>
         </div>
@@ -1987,7 +1987,7 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Avg Order-to-Ticket" value={fmtMinSec(averages.orderToTicket)} color="#7c3aed" icon={Timer} />
+        <StatCard label="Avg Order-to-Ticket" value={fmtMinSec(averages.orderToTicket)} color="#1e5e4a" icon={Timer} />
         <StatCard label="Avg Kitchen Time" value={fmtMinSec(averages.ticketToFood)} color="#f59e0b" icon={Utensils} />
         <StatCard label="Avg Food-to-Paid" value={fmtMinSec(averages.foodToPaid)} color="#0ea5e9" icon={CreditCard} />
         <StatCard label="Avg Total Time" value={fmtMinSec(averages.totalTime)} color="#22c55e" icon={Clock} />
@@ -2013,7 +2013,7 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
               {sortedServiceData.slice(0, 50).map(d => {
                 const maxTime = averages.totalTime * 2 || 600000;
                 const phases = [];
-                if (d.orderToTicket > 0) phases.push({ pct: Math.min((d.orderToTicket / maxTime) * 100, 33), color: '#7c3aed', label: 'Queue' });
+                if (d.orderToTicket > 0) phases.push({ pct: Math.min((d.orderToTicket / maxTime) * 100, 33), color: '#1e5e4a', label: 'Queue' });
                 if (d.ticketToFood > 0) phases.push({ pct: Math.min((d.ticketToFood / maxTime) * 100, 33), color: '#f59e0b', label: 'Kitchen' });
                 if (d.foodToPaid > 0) phases.push({ pct: Math.min((d.foodToPaid / maxTime) * 100, 33), color: '#22c55e', label: 'Service' });
 
@@ -2127,7 +2127,7 @@ const LaborReport = ({ orders, staff: staffList }) => {
       </FilterBar>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Total Labor Cost" value={fmt(totalLaborCost)} color="#7c3aed" icon={IndianRupee} />
+        <StatCard label="Total Labor Cost" value={fmt(totalLaborCost)} color="#1e5e4a" icon={IndianRupee} />
         <StatCard label="Labor Cost %" value={fmtPct(laborPct)} sub={laborPct > 30 ? 'Above target' : 'Within target'} color={laborPct > 30 ? '#ef4444' : '#22c55e'} icon={Gauge} />
         <StatCard label="Total Hours" value={`${totalHours.toFixed(1)}h`} color="#0ea5e9" icon={Clock} />
         <StatCard label="Total Revenue" value={fmt(totalRevenue)} color="#f59e0b" icon={TrendingUp} />
@@ -2152,7 +2152,7 @@ const LaborReport = ({ orders, staff: staffList }) => {
               {sortedLaborData.map(d => (
                 <tr key={d.id}>
                   <Td bold>{d.name}</Td>
-                  <Td><Badge label={d.role} color="#7c3aed" /></Td>
+                  <Td><Badge label={d.role} color="#1e5e4a" /></Td>
                   <Td right>{d.hours.toFixed(1)}h</Td>
                   <Td right muted>₹{d.rate}</Td>
                   <Td right bold>{fmt(d.totalPay)}</Td>

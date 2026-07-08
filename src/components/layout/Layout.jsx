@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import BottomNav from './BottomNav';
 import { useAuth } from '../../db/AuthContext';
 import { useApp } from '../../db/AppContext';
 import { useNavigate } from 'react-router-dom';
@@ -29,7 +30,7 @@ const Layout = ({ children, title }) => {
           left: 0,
           right: 0,
           height: '44px',
-          background: 'linear-gradient(90deg, #7c3aed, #a855f7)',
+          background: 'linear-gradient(90deg, #1e5e4a, #2e7d5b)',
           color: 'white',
           display: 'flex',
           alignItems: 'center',
@@ -38,7 +39,7 @@ const Layout = ({ children, title }) => {
           zIndex: 10000,
           fontSize: '0.84rem',
           fontWeight: 600,
-          boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
+          boxShadow: '0 4px 12px rgba(30, 94, 74,0.25)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Eye size={16} />
@@ -91,6 +92,7 @@ const Layout = ({ children, title }) => {
           {children}
         </div>
       </main>
+      <BottomNav onMoreClick={() => setSidebarOpen(true)} />
     </div>
   );
 };

@@ -12,13 +12,13 @@ import './index.css'
 const SetupScreen = () => (
   <div style={{
     minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'linear-gradient(135deg, #f8f0ff 0%, #ede9fe 50%, #dbeafe 100%)',
-    fontFamily: "'Inter', sans-serif", padding: '24px',
+    background: '#f1f3ef',
+    fontFamily: "'Hanken Grotesk', system-ui, sans-serif", padding: '24px',
   }}>
     <div style={{
       maxWidth: 520, width: '100%', background: 'white', borderRadius: 24,
-      padding: '36px 32px', boxShadow: '0 20px 60px rgba(124,58,237,0.12)',
-      border: '1.5px solid rgba(124,58,237,0.15)',
+      padding: '36px 32px', boxShadow: '0 20px 60px rgba(30, 94, 74,0.12)',
+      border: '1.5px solid rgba(30, 94, 74,0.15)',
     }}>
       <div style={{ fontSize: 40, marginBottom: 12 }}>🗄️</div>
       <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e1b4b', marginBottom: 8 }}>
@@ -35,7 +35,7 @@ const SetupScreen = () => (
         <li>Create a <code style={{ background: '#f3f4f6', padding: '1px 6px', borderRadius: 4 }}>.env</code> file in the project root:</li>
       </ol>
       <pre style={{
-        background: '#1e1b4b', color: '#c4b5fd', borderRadius: 12, padding: '14px 18px',
+        background: '#1e1b4b', color: '#9dc3b4', borderRadius: 12, padding: '14px 18px',
         fontSize: '0.8rem', margin: '16px 0', overflowX: 'auto', lineHeight: 1.8,
       }}>{`VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key-here`}</pre>
@@ -45,7 +45,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here`}</pre>
       <div style={{
         margin: '24px 0 16px',
         height: '1px',
-        background: 'linear-gradient(90deg, rgba(124,58,237,0) 0%, rgba(124,58,237,0.2) 50%, rgba(124,58,237,0) 100%)'
+        background: 'linear-gradient(90deg, rgba(30, 94, 74,0) 0%, rgba(30, 94, 74,0.2) 50%, rgba(30, 94, 74,0) 100%)'
       }} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
         <button
@@ -55,7 +55,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here`}</pre>
           }}
           style={{
             width: '100%',
-            background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+            background: 'linear-gradient(135deg, #1e5e4a 0%, #174b3b 100%)',
             color: 'white',
             border: 'none',
             borderRadius: 12,
@@ -63,17 +63,17 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here`}</pre>
             fontSize: '0.92rem',
             fontWeight: 600,
             cursor: 'pointer',
-            boxShadow: '0 4px 12px rgba(124, 58, 237, 0.2)',
+            boxShadow: '0 4px 12px rgba(30, 94, 74, 0.2)',
             transition: 'all 0.2s ease-in-out',
-            fontFamily: "'Inter', sans-serif",
+            fontFamily: "'Hanken Grotesk', system-ui, sans-serif",
           }}
           onMouseOver={(e) => {
             e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.boxShadow = '0 6px 20px rgba(124, 58, 237, 0.3)';
+            e.currentTarget.style.boxShadow = '0 6px 20px rgba(30, 94, 74, 0.3)';
           }}
           onMouseOut={(e) => {
             e.currentTarget.style.transform = 'none';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.2)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(30, 94, 74, 0.2)';
           }}
         >
           Try Demo Mode (Local Only)

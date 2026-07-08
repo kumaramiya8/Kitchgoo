@@ -27,7 +27,7 @@ const TABLE_STATUS_COLORS = {
   seated: '#3b82f6',
   ordered: '#f97316',
   eating: '#eab308',
-  paying: '#a855f7',
+  paying: '#2e7d5b',
   'needs-bussing': '#94a3b8',
   reserved: '#ec4899',
 };
@@ -249,11 +249,11 @@ const GuestModal = ({ tableId, onConfirm, onClose }) => {
                   <button key={g.id} onClick={() => setSelected(g)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px',
-                      borderRadius: 'var(--r-lg)', border: `1.5px solid ${selected?.id === g.id ? 'rgba(124,58,237,0.4)' : 'var(--border-subtle)'}`,
-                      background: selected?.id === g.id ? 'rgba(124,58,237,0.06)' : 'rgba(255,255,255,0.5)',
+                      borderRadius: 'var(--r-lg)', border: `1.5px solid ${selected?.id === g.id ? 'rgba(30, 94, 74,0.4)' : 'var(--border-subtle)'}`,
+                      background: selected?.id === g.id ? 'rgba(30, 94, 74,0.06)' : 'rgba(255,255,255,0.5)',
                       cursor: 'pointer', textAlign: 'left', width: '100%',
                     }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 'var(--r-md)', background: 'linear-gradient(135deg, #7c3aed, #a855f7)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.9rem', flexShrink: 0 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 'var(--r-md)', background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.9rem', flexShrink: 0 }}>
                       {g.name?.charAt(0) || '?'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -272,7 +272,7 @@ const GuestModal = ({ tableId, onConfirm, onClose }) => {
                   <History size={16} /> {selected.name}'s History
                 </div>
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
-                  <div style={{ flex: 1, padding: '10px', background: 'rgba(124,58,237,0.06)', borderRadius: 'var(--r-md)', textAlign: 'center' }}>
+                  <div style={{ flex: 1, padding: '10px', background: 'rgba(30, 94, 74,0.06)', borderRadius: 'var(--r-md)', textAlign: 'center' }}>
                     <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--primary)' }}>{selected.visitCount || 0}</div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Visits</div>
                   </div>
@@ -443,8 +443,8 @@ const ModifierModal = ({ item, modifierGroups, onConfirm, onClose }) => {
                   <button key={opt.name} onClick={() => toggleModifier(currentGroup.id, opt)}
                     style={{
                       padding: '10px 14px', borderRadius: 'var(--r-md)', cursor: 'pointer',
-                      border: `1.5px solid ${sel ? 'rgba(124,58,237,0.4)' : 'var(--border-subtle)'}`,
-                      background: sel ? 'rgba(124,58,237,0.06)' : 'rgba(255,255,255,0.5)',
+                      border: `1.5px solid ${sel ? 'rgba(30, 94, 74,0.4)' : 'var(--border-subtle)'}`,
+                      background: sel ? 'rgba(30, 94, 74,0.06)' : 'rgba(255,255,255,0.5)',
                       textAlign: 'left', transition: 'all 0.15s',
                     }}>
                     <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{opt.name}</div>
@@ -564,7 +564,7 @@ const SplitBillModal = ({ cart, grandTotal, gstRate, onClose, onApply }) => {
               {Array.from({ length: splitCount }, (_, i) => (
                 <div key={i} style={{
                   padding: 14, borderRadius: 'var(--r-md)', textAlign: 'center',
-                  background: 'rgba(124,58,237,0.05)', border: '1px solid rgba(124,58,237,0.15)',
+                  background: 'rgba(30, 94, 74,0.05)', border: '1px solid rgba(30, 94, 74,0.15)',
                 }}>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Person {i + 1}</div>
                   <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
@@ -582,7 +582,7 @@ const SplitBillModal = ({ cart, grandTotal, gstRate, onClose, onApply }) => {
               {persons.slice(0, 3).map(p => (
                 <span key={p} style={{
                   padding: '4px 10px', borderRadius: 'var(--r-sm)', fontSize: '0.75rem', fontWeight: 700,
-                  background: p === 'A' ? 'rgba(124,58,237,0.1)' : p === 'B' ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.1)',
+                  background: p === 'A' ? 'rgba(30, 94, 74,0.1)' : p === 'B' ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.1)',
                   color: p === 'A' ? 'var(--primary)' : p === 'B' ? 'var(--accent-blue)' : 'var(--success)',
                 }}>
                   Person {p}
@@ -624,7 +624,7 @@ const SplitBillModal = ({ cart, grandTotal, gstRate, onClose, onApply }) => {
               {Object.entries(getItemSplitTotals()).map(([person, total]) => (
                 <div key={person} style={{
                   flex: 1, padding: 10, borderRadius: 'var(--r-md)', textAlign: 'center',
-                  background: person === 'A' ? 'rgba(124,58,237,0.06)' : person === 'B' ? 'rgba(59,130,246,0.06)' : 'rgba(34,197,94,0.06)',
+                  background: person === 'A' ? 'rgba(30, 94, 74,0.06)' : person === 'B' ? 'rgba(59,130,246,0.06)' : 'rgba(34,197,94,0.06)',
                   border: '1px solid var(--border-subtle)',
                 }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Person {person}</div>
@@ -665,7 +665,7 @@ const SplitBillModal = ({ cart, grandTotal, gstRate, onClose, onApply }) => {
               {Object.entries(getSeatSplitTotals()).map(([seat, total]) => (
                 <div key={seat} style={{
                   padding: 10, borderRadius: 'var(--r-md)', textAlign: 'center', minWidth: 80,
-                  background: 'rgba(124,58,237,0.05)', border: '1px solid rgba(124,58,237,0.15)',
+                  background: 'rgba(30, 94, 74,0.05)', border: '1px solid rgba(30, 94, 74,0.15)',
                 }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Seat {seat}</div>
                   <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--primary)' }}>
@@ -824,8 +824,8 @@ const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) =
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '12px 14px', borderRadius: 'var(--r-md)', cursor: 'pointer',
-                  border: `1.5px solid ${selectedTable === t.id ? 'rgba(124,58,237,0.4)' : 'var(--border-subtle)'}`,
-                  background: selectedTable === t.id ? 'rgba(124,58,237,0.06)' : 'rgba(255,255,255,0.5)',
+                  border: `1.5px solid ${selectedTable === t.id ? 'rgba(30, 94, 74,0.4)' : 'var(--border-subtle)'}`,
+                  background: selectedTable === t.id ? 'rgba(30, 94, 74,0.06)' : 'rgba(255,255,255,0.5)',
                 }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Table {t.id}</div>
@@ -869,7 +869,7 @@ const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) 
     <Modal title="Cash Drawer" onClose={onClose}>
       <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-          <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(124,58,237,0.05)', textAlign: 'center' }}>
+          <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(30, 94, 74,0.05)', textAlign: 'center' }}>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Opening</div>
             <div style={{ fontWeight: 800, color: 'var(--primary)' }}>
               {(cashDrawer?.openingBalance || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
@@ -998,7 +998,7 @@ const PaymentModal = ({
 
   const payMethods = [
     { key: 'Cash', icon: Banknote, color: '#22c55e' },
-    { key: 'UPI', icon: Phone, color: '#7c3aed' },
+    { key: 'UPI', icon: Phone, color: '#1e5e4a' },
     { key: 'Card', icon: CreditCard, color: '#3b82f6' },
     { key: 'Wallet', icon: Wallet, color: '#f59e0b' },
   ];
@@ -1010,7 +1010,7 @@ const PaymentModal = ({
           {/* Left: Summary */}
           <div>
             <div style={{
-              background: 'rgba(124,58,237,0.05)', border: '1px solid rgba(124,58,237,0.15)',
+              background: 'rgba(30, 94, 74,0.05)', border: '1px solid rgba(30, 94, 74,0.15)',
               borderRadius: 'var(--r-lg)', padding: 14,
             }}>
               <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 10, color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
@@ -1052,7 +1052,7 @@ const PaymentModal = ({
                   </div>
                 )}
                 {autoGratuity > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#a855f7' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#2e7d5b' }}>
                     <span>Auto-Gratuity</span>
                     <span>{autoGratuity.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
                   </div>
@@ -1332,7 +1332,7 @@ const POS = () => {
           textAlign: 'center'
         }}>
           <div style={{
-            background: 'rgba(124, 58, 237, 0.2)',
+            background: 'rgba(30, 94, 74, 0.2)',
             width: 72,
             height: 72,
             borderRadius: '50%',
@@ -1340,9 +1340,9 @@ const POS = () => {
             alignItems: 'center',
             justifyContent: 'center',
             margin: '0 auto 24px',
-            border: '2px solid rgba(124, 58, 237, 0.4)'
+            border: '2px solid rgba(30, 94, 74, 0.4)'
           }}>
-            <Lock size={32} color="#a78bfa" />
+            <Lock size={32} color="#6faa93" />
           </div>
           <h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: 8, letterSpacing: '-0.02em' }}>
             Cash Register Closed
@@ -1381,7 +1381,7 @@ const POS = () => {
               className="btn"
               style={{
                 width: '100%',
-                background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                background: 'linear-gradient(135deg, #1e5e4a, #174b3b)',
                 color: 'white',
                 border: 'none',
                 borderRadius: 12,
@@ -1393,7 +1393,7 @@ const POS = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                boxShadow: '0 4px 14px 0 rgba(124, 58, 237, 0.4)',
+                boxShadow: '0 4px 14px 0 rgba(30, 94, 74, 0.4)',
                 transition: 'all 0.3s'
               }}
             >
@@ -1696,7 +1696,8 @@ const POS = () => {
   };
 
   // ── Open Register ──────────────────────────────────────────
-  const handleOpenRegister = async (e) => {
+  // Hoisted: the "Cash Register Closed" early return above renders before this line runs
+  async function handleOpenRegister(e) {
     e.preventDefault();
     const floatVal = parseFloat(startingFloat);
     if (isNaN(floatVal) || floatVal < 0) {
@@ -1720,7 +1721,7 @@ const POS = () => {
       user?.name || 'System / Guest',
       `Opened register with starting float: ₹${floatVal}`
     );
-  };
+  }
 
   // ── Close Register ─────────────────────────────────────────
   const handleCloseRegister = async (actualCash, notes) => {
@@ -2037,7 +2038,7 @@ const POS = () => {
                   width: '750px',
                   height: '500px',
                   backgroundSize: '30px 30px',
-                  backgroundImage: 'radial-gradient(rgba(124,58,237,0.06) 1.5px, transparent 0)',
+                  backgroundImage: 'radial-gradient(rgba(30, 94, 74,0.06) 1.5px, transparent 0)',
                 }}>
                   {tables.map(table => {
                     const fpTable = floorPlans?.tables?.find(t => String(t.id) === String(table.id) || String(t.number) === String(table.number)) || {};
@@ -2407,16 +2408,16 @@ const POS = () => {
               <button key={item.id} onClick={() => handleAddItem(item)}
                 style={{
                   padding: 0, textAlign: 'left', borderRadius: 'var(--r-lg)', cursor: 'pointer',
-                  background: totalInCart > 0 ? 'rgba(124,58,237,0.07)' : 'var(--card-bg)',
+                  background: totalInCart > 0 ? 'rgba(30, 94, 74,0.07)' : 'var(--card-bg)',
                   backdropFilter: 'blur(16px)',
-                  border: `1.5px solid ${totalInCart > 0 ? 'rgba(124,58,237,0.3)' : 'var(--border-subtle)'}`,
+                  border: `1.5px solid ${totalInCart > 0 ? 'rgba(30, 94, 74,0.3)' : 'var(--border-subtle)'}`,
                   transition: 'all var(--t-fast)', position: 'relative',
                   display: 'flex', flexDirection: 'column', overflow: 'hidden',
                 }}
                 onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
                 onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
               >
-                <div style={{ position: 'relative', height: 70, width: '100%', overflow: 'hidden', background: 'rgba(124,58,237,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ position: 'relative', height: 70, width: '100%', overflow: 'hidden', background: 'rgba(30, 94, 74,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
                   {item.image ? (
                     <img src={item.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
@@ -2477,7 +2478,7 @@ const POS = () => {
             </div>
             {autoGratuity > 0 && (
               <span style={{
-                background: 'rgba(168,85,247,0.1)', color: '#a855f7',
+                background: 'rgba(46, 125, 91,0.1)', color: '#2e7d5b',
                 padding: '2px 8px', borderRadius: 'var(--r-sm)', fontSize: '0.65rem', fontWeight: 700,
               }}>
                 Auto-grat {autoGratuityRate}%
@@ -2536,8 +2537,8 @@ const POS = () => {
                     }}>-</button>
                     <span style={{ width: 20, textAlign: 'center', fontSize: '0.82rem', fontWeight: 700 }}>{item.qty}</span>
                     <button onClick={() => updateQty(key, 1)} style={{
-                      width: 22, height: 22, borderRadius: 'var(--r-sm)', border: '1px solid rgba(124,58,237,0.3)',
-                      background: 'rgba(124,58,237,0.07)', cursor: 'pointer', fontWeight: 700, color: 'var(--primary)',
+                      width: 22, height: 22, borderRadius: 'var(--r-sm)', border: '1px solid rgba(30, 94, 74,0.3)',
+                      background: 'rgba(30, 94, 74,0.07)', cursor: 'pointer', fontWeight: 700, color: 'var(--primary)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem',
                     }}>+</button>
                   </div>
@@ -2648,8 +2649,8 @@ const POS = () => {
           )}
           {autoGratuity > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: '0.8rem' }}>
-              <span style={{ color: '#a855f7' }}>Auto-Grat ({autoGratuityRate}%)</span>
-              <span style={{ fontWeight: 600, color: '#a855f7' }}>{autoGratuity.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
+              <span style={{ color: '#2e7d5b' }}>Auto-Grat ({autoGratuityRate}%)</span>
+              <span style={{ fontWeight: 600, color: '#2e7d5b' }}>{autoGratuity.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
             </div>
           )}
           {discountAmount > 0 && (

@@ -568,7 +568,7 @@ const MenuScreen = () => {
 
   const priceTier = (price) => {
     const p = parseFloat(price) || 0;
-    if (p >= 500) return { label: 'Premium', color: '#7c3aed' };
+    if (p >= 500) return { label: 'Premium', color: '#1e5e4a' };
     if (p >= 250) return { label: 'Mid', color: '#3b82f6' };
     return { label: 'Value', color: '#22c55e' };
   };
@@ -1032,7 +1032,7 @@ const MenuScreen = () => {
 
       {/* CSV sync bar */}
       <div style={{
-        background: 'rgba(124,58,237,0.04)', border: '1px solid var(--border-subtle)',
+        background: 'rgba(30, 94, 74,0.04)', border: '1px solid var(--border-subtle)',
         borderRadius: 16, padding: '12px 18px', marginBottom: 16,
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         flexWrap: 'wrap', gap: 12
@@ -1103,7 +1103,7 @@ const MenuScreen = () => {
       <div className="table-wrapper" style={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ width: '100%', minWidth: '1350px', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.8rem' }}>
           <thead>
-            <tr style={{ background: 'rgba(124,58,237,0.04)' }}>
+            <tr style={{ background: 'rgba(30, 94, 74,0.04)' }}>
               {isOwnerOrAdmin && (
                 <th style={{ padding: '10px 8px', borderBottom: '2px solid var(--border-subtle)', width: 40, textAlign: 'center' }}>
                   <input
@@ -1143,7 +1143,7 @@ const MenuScreen = () => {
                 <tr key={item.id} style={{
                   borderBottom: '1px solid var(--border-subtle)',
                   opacity: item.sold86 ? 0.55 : 1,
-                  background: selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : item.sold86 ? 'rgba(239,68,68,0.03)' : 'transparent',
+                  background: selectedIds.has(item.id) ? 'rgba(30, 94, 74,0.04)' : item.sold86 ? 'rgba(239,68,68,0.03)' : 'transparent',
                   transition: 'background .15s',
                 }}>
                   {isOwnerOrAdmin && (
@@ -1170,7 +1170,7 @@ const MenuScreen = () => {
                       {item.image ? (
                         <img src={item.image} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
                       ) : (
-                        <div style={{ width: 28, height: 28, borderRadius: 4, background: 'rgba(124,58,237,0.06)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>🍔</div>
+                        <div style={{ width: 28, height: 28, borderRadius: 4, background: 'rgba(30, 94, 74,0.06)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>🍔</div>
                       )}
                       <div style={{ overflow: 'hidden' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1348,7 +1348,7 @@ const MenuScreen = () => {
                   {(mod.items || []).map((item, idx) => (
                     <div key={idx} style={{
                       display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px',
-                      borderRadius: 10, background: 'rgba(124,58,237,0.04)',
+                      borderRadius: 10, background: 'rgba(30, 94, 74,0.04)',
                       border: '1px solid var(--border-subtle)', fontSize: '0.8rem',
                     }}>
                       <span style={{ fontWeight: 500 }}>{item.name}</span>
@@ -1420,7 +1420,7 @@ const MenuScreen = () => {
 
     const quadrantMeta = {
       star: { label: 'Stars', icon: <Star size={16} />, color: '#f59e0b', desc: 'High Profit & High Popularity' },
-      puzzle: { label: 'Puzzles', icon: <Zap size={16} />, color: '#7c3aed', desc: 'High Profit, Low Popularity' },
+      puzzle: { label: 'Puzzles', icon: <Zap size={16} />, color: '#1e5e4a', desc: 'High Profit, Low Popularity' },
       plowhorse: { label: 'Plowhorses', icon: <Coffee size={16} />, color: '#3b82f6', desc: 'Low Profit, High Popularity' },
       dog: { label: 'Dogs', icon: <TrendingDown size={16} />, color: '#ef4444', desc: 'Low Profit & Low Popularity' },
     };
@@ -1493,7 +1493,7 @@ const MenuScreen = () => {
                   gap: 2, minHeight: 380, borderRadius: 16, overflow: 'hidden',
                 }}>
                   {/* Puzzles (top-left): High profit, Low pop */}
-                  <div style={{ background: 'rgba(124,58,237,0.05)', padding: 14, position: 'relative', borderRight: '2px dashed var(--border-subtle)', borderBottom: '2px dashed var(--border-subtle)' }}>
+                  <div style={{ background: 'rgba(30, 94, 74,0.05)', padding: 14, position: 'relative', borderRight: '2px dashed var(--border-subtle)', borderBottom: '2px dashed var(--border-subtle)' }}>
                     <div style={{ fontSize: '0.78rem', fontWeight: 700, color: quadrantMeta.puzzle.color, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                       {quadrantMeta.puzzle.icon} Puzzles
                     </div>
@@ -1587,7 +1587,7 @@ const MenuScreen = () => {
                 <h4 style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Scatter Plot</h4>
                 <div style={{
                   position: 'relative', width: '100%', height: 280,
-                  background: 'linear-gradient(135deg, rgba(124,58,237,0.02), rgba(59,130,246,0.02))',
+                  background: 'linear-gradient(135deg, rgba(30, 94, 74,0.02), rgba(59,130,246,0.02))',
                   border: '1px solid var(--border-subtle)', borderRadius: 12,
                   overflow: 'hidden',
                 }}>
@@ -1796,11 +1796,11 @@ const MenuScreen = () => {
                             <title>QR Menu - ${tenantId}</title>
                             <style>
                               body { font-family: sans-serif; text-align: center; padding: 40px; }
-                              .container { max-width: 400px; margin: 0 auto; padding: 30px; border: 2px solid #7c3aed; border-radius: 20px; box-shadow: 0 4px 20px rgba(124,58,237,0.15); }
+                              .container { max-width: 400px; margin: 0 auto; padding: 30px; border: 2px solid #1e5e4a; border-radius: 20px; box-shadow: 0 4px 20px rgba(30, 94, 74,0.15); }
                               h1 { color: #1e1b4b; font-size: 24px; margin-bottom: 5px; }
                               p { color: #6b7280; font-size: 14px; margin-bottom: 24px; }
                               .qr-img { width: 220px; height: 220px; }
-                              .footer { margin-top: 30px; font-weight: bold; color: #7c3aed; }
+                              .footer { margin-top: 30px; font-weight: bold; color: #1e5e4a; }
                             </style>
                           </head>
                           <body>

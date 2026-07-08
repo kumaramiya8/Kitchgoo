@@ -46,7 +46,7 @@ const StatusBadge = ({ status, small }) => {
     pending: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b', label: 'Pending' },
     overdue: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', label: 'Overdue' },
     placed: { bg: 'rgba(59,130,246,0.12)', color: '#3b82f6', label: 'Placed' },
-    'in-production': { bg: 'rgba(124,58,237,0.12)', color: '#7c3aed', label: 'In Production' },
+    'in-production': { bg: 'rgba(30, 94, 74,0.12)', color: '#1e5e4a', label: 'In Production' },
     ready: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b', label: 'Ready' },
     dispatched: { bg: 'rgba(59,130,246,0.12)', color: '#3b82f6', label: 'Dispatched' },
     received: { bg: 'rgba(34,197,94,0.12)', color: '#22c55e', label: 'Received' },
@@ -332,7 +332,7 @@ export default function MultiLocation() {
           {/* Map Placeholder */}
           <div style={{
             borderRadius: 16, padding: 32, marginBottom: 24, textAlign: 'center',
-            background: 'linear-gradient(135deg, rgba(124,58,237,0.06), rgba(59,130,246,0.06))',
+            background: 'linear-gradient(135deg, rgba(30, 94, 74,0.06), rgba(59,130,246,0.06))',
             border: '1px dashed var(--border-subtle)', position: 'relative', overflow: 'hidden',
             minHeight: 200,
           }}>
@@ -348,8 +348,8 @@ export default function MultiLocation() {
               {locations.map((loc, i) => (
                 <div key={loc.id || i} style={{
                   display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                  borderRadius: 20, background: loc.isHQ ? 'rgba(124,58,237,0.15)' : 'rgba(59,130,246,0.1)',
-                  border: `1px solid ${loc.isHQ ? 'rgba(124,58,237,0.3)' : 'rgba(59,130,246,0.2)'}`,
+                  borderRadius: 20, background: loc.isHQ ? 'rgba(30, 94, 74,0.15)' : 'rgba(59,130,246,0.1)',
+                  border: `1px solid ${loc.isHQ ? 'rgba(30, 94, 74,0.3)' : 'rgba(59,130,246,0.2)'}`,
                   fontSize: 12, fontWeight: 600, color: loc.isHQ ? 'var(--primary)' : 'var(--accent-blue)',
                 }}>
                   <MapPin size={13} /> {loc.name?.split(' ').slice(-1)[0] || loc.name}
@@ -370,7 +370,7 @@ export default function MultiLocation() {
                 {loc.isHQ && (
                   <div style={{
                     position: 'absolute', top: 12, right: 12, display: 'flex', alignItems: 'center', gap: 4,
-                    padding: '3px 10px', borderRadius: 20, background: 'rgba(124,58,237,0.12)',
+                    padding: '3px 10px', borderRadius: 20, background: 'rgba(30, 94, 74,0.12)',
                     color: 'var(--primary)', fontSize: 11, fontWeight: 700,
                   }}>
                     <Crown size={12} /> HQ
@@ -379,7 +379,7 @@ export default function MultiLocation() {
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
                   <div style={{
                     width: 44, height: 44, borderRadius: 12,
-                    background: loc.isHQ ? 'rgba(124,58,237,0.12)' : 'rgba(59,130,246,0.1)',
+                    background: loc.isHQ ? 'rgba(30, 94, 74,0.12)' : 'rgba(59,130,246,0.1)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   }}>
                     <Building2 size={20} color={loc.isHQ ? 'var(--primary)' : 'var(--accent-blue)'} />
@@ -406,8 +406,8 @@ export default function MultiLocation() {
                 </div>
                 <div style={{
                   display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10,
-                  padding: 12, borderRadius: 10, background: 'rgba(124,58,237,0.04)',
-                  border: '1px solid rgba(124,58,237,0.08)', marginBottom: 12,
+                  padding: 12, borderRadius: 10, background: 'rgba(30, 94, 74,0.04)',
+                  border: '1px solid rgba(30, 94, 74,0.08)', marginBottom: 12,
                 }}>
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Revenue</div>
@@ -434,7 +434,7 @@ export default function MultiLocation() {
               <div className="table-wrapper" style={{ borderRadius: 14, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr style={{ background: 'rgba(124,58,237,0.06)' }}>
+                    <tr style={{ background: 'rgba(30, 94, 74,0.06)' }}>
                       <th style={thStyle}>Location</th>
                       <th style={thStyle}>Status</th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Revenue</th>
@@ -510,8 +510,8 @@ export default function MultiLocation() {
                 <label key={loc.id} style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
                   borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 500,
-                  background: selectedLocations.includes(loc.id) ? 'rgba(124,58,237,0.1)' : 'rgba(100,116,139,0.06)',
-                  border: `1px solid ${selectedLocations.includes(loc.id) ? 'rgba(124,58,237,0.3)' : 'var(--border-subtle)'}`,
+                  background: selectedLocations.includes(loc.id) ? 'rgba(30, 94, 74,0.1)' : 'rgba(100,116,139,0.06)',
+                  border: `1px solid ${selectedLocations.includes(loc.id) ? 'rgba(30, 94, 74,0.3)' : 'var(--border-subtle)'}`,
                   color: selectedLocations.includes(loc.id) ? 'var(--primary)' : 'var(--text-secondary)',
                   transition: 'all 0.15s',
                 }}>
@@ -541,7 +541,7 @@ export default function MultiLocation() {
             <div className="table-wrapper" style={{ borderRadius: 14, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ background: 'rgba(124,58,237,0.06)' }}>
+                  <tr style={{ background: 'rgba(30, 94, 74,0.06)' }}>
                     <th style={thStyle}>Location</th>
                     <th style={thStyle}>Item</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Master Price</th>
@@ -569,8 +569,8 @@ export default function MultiLocation() {
                                 placeholder={String(item.price)}
                                 style={{
                                   width: 80, padding: '4px 8px', borderRadius: 6, fontSize: 13,
-                                  border: '1px solid rgba(124,58,237,0.3)', textAlign: 'right',
-                                  background: 'rgba(124,58,237,0.04)', outline: 'none',
+                                  border: '1px solid rgba(30, 94, 74,0.3)', textAlign: 'right',
+                                  background: 'rgba(30, 94, 74,0.04)', outline: 'none',
                                 }} />
                             ) : (
                               <span style={{ color: 'var(--text-muted)' }}>--</span>
@@ -647,7 +647,7 @@ export default function MultiLocation() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                     <div style={{
                       width: 32, height: 32, borderRadius: 8,
-                      background: loc.isHQ ? 'rgba(124,58,237,0.12)' : 'rgba(59,130,246,0.1)',
+                      background: loc.isHQ ? 'rgba(30, 94, 74,0.12)' : 'rgba(59,130,246,0.1)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                       <Building2 size={16} color={loc.isHQ ? 'var(--primary)' : 'var(--accent-blue)'} />
@@ -692,7 +692,7 @@ export default function MultiLocation() {
           <div className="table-wrapper" style={{ borderRadius: 14, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ background: 'rgba(124,58,237,0.06)' }}>
+                <tr style={{ background: 'rgba(30, 94, 74,0.06)' }}>
                   <th style={thStyle}>Rank</th>
                   <th style={thStyle}>Location</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Revenue</th>
@@ -759,7 +759,7 @@ export default function MultiLocation() {
               {locations.filter(l => !l.isHQ).map(loc => (
                 <div key={loc.id} style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-                  borderRadius: 10, background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.08)',
+                  borderRadius: 10, background: 'rgba(30, 94, 74,0.04)', border: '1px solid rgba(30, 94, 74,0.08)',
                 }}>
                   <Building2 size={16} color="var(--accent-blue)" />
                   <div style={{ flex: 1 }}>
@@ -805,7 +805,7 @@ export default function MultiLocation() {
           <div className="table-wrapper" style={{ borderRadius: 14, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ background: 'rgba(124,58,237,0.06)' }}>
+                <tr style={{ background: 'rgba(30, 94, 74,0.06)' }}>
                   <th style={thStyle}>Location</th>
                   <th style={thStyle}>Period</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Gross Sales</th>
@@ -852,8 +852,8 @@ export default function MultiLocation() {
           {/* Header */}
           <div style={{
             padding: 20, borderRadius: 14, marginBottom: 24,
-            background: 'linear-gradient(135deg, rgba(124,58,237,0.08), rgba(59,130,246,0.06))',
-            border: '1px solid rgba(124,58,237,0.15)',
+            background: 'linear-gradient(135deg, rgba(30, 94, 74,0.08), rgba(59,130,246,0.06))',
+            border: '1px solid rgba(30, 94, 74,0.15)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
               <Factory size={22} color="var(--primary)" />
@@ -904,7 +904,7 @@ export default function MultiLocation() {
           <div className="table-wrapper" style={{ borderRadius: 14, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ background: 'rgba(124,58,237,0.06)' }}>
+                <tr style={{ background: 'rgba(30, 94, 74,0.06)' }}>
                   <th style={thStyle}>Order ID</th>
                   <th style={thStyle}>From Location</th>
                   <th style={thStyle}>Items</th>
@@ -1046,8 +1046,8 @@ export default function MultiLocation() {
               const amount = (loc.revenue || 0) * (genInvoiceForm.royaltyPct / 100);
               return (
                 <div style={{
-                  padding: 14, borderRadius: 10, background: 'rgba(124,58,237,0.06)',
-                  border: '1px solid rgba(124,58,237,0.12)',
+                  padding: 14, borderRadius: 10, background: 'rgba(30, 94, 74,0.06)',
+                  border: '1px solid rgba(30, 94, 74,0.12)',
                 }}>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Invoice Preview</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>

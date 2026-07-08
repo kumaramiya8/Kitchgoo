@@ -336,12 +336,12 @@ const QRMenu = () => {
       
       {/* Premium Cover Banner */}
       <div style={{ 
-        background: 'linear-gradient(135deg, var(--primary), #a855f7)', 
+        background: 'linear-gradient(135deg, var(--primary), #2e7d5b)', 
         color: 'white', 
         padding: '30px 20px 24px 20px', 
         borderBottomLeftRadius: 24, 
         borderBottomRightRadius: 24,
-        boxShadow: '0 4px 20px rgba(124, 58, 237, 0.15)',
+        boxShadow: '0 4px 20px rgba(30, 94, 74, 0.15)',
         position: 'relative'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -365,12 +365,12 @@ const QRMenu = () => {
         
         {guestTableOrder && guestTableOrder.length > 0 && (
           <div style={{
-            background: 'linear-gradient(135deg, #ffffff 0%, #faf5ff 100%)',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f6f7f4 100%)',
             borderRadius: 20,
             padding: 16,
             marginBottom: 20,
-            border: '1px solid rgba(124, 58, 237, 0.15)',
-            boxShadow: '0 8px 30px rgba(124, 58, 237, 0.06)'
+            border: '1px solid rgba(30, 94, 74, 0.15)',
+            boxShadow: '0 8px 30px rgba(30, 94, 74, 0.06)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -502,7 +502,7 @@ const QRMenu = () => {
                 }}
               >
                 {/* Item Thumbnail Crop */}
-                <div style={{ width: 80, height: 80, borderRadius: 12, overflow: 'hidden', background: 'rgba(124,58,237,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{ width: 80, height: 80, borderRadius: 12, overflow: 'hidden', background: 'rgba(30, 94, 74,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   {item.image ? (
                     <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (

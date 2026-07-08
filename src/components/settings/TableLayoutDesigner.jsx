@@ -311,10 +311,10 @@ export default function TableLayoutDesigner() {
       {/* Toast Notification */}
       {successMessage && (
         <div style={{
-          position: 'fixed', bottom: 24, right: 24, background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+          position: 'fixed', bottom: 24, right: 24, background: 'linear-gradient(135deg, #1e5e4a, #174b3b)',
           color: 'white', padding: '12px 20px', borderRadius: '12px', zIndex: 9999,
           display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600,
-          boxShadow: '0 8px 24px rgba(124,58,237,0.3)', fontSize: '0.85rem',
+          boxShadow: '0 8px 24px rgba(30, 94, 74,0.3)', fontSize: '0.85rem',
           animation: 'fadeUp 0.2s ease forwards'
         }}>
           <Save size={16} /> {successMessage}
@@ -447,7 +447,7 @@ export default function TableLayoutDesigner() {
 
         {/* Selected Table properties editor */}
         {selectedTable && (
-          <div className="card" style={{ padding: '16px', border: '1px solid rgba(124,58,237,0.3)', background: 'rgba(124,58,237,0.02)' }}>
+          <div className="card" style={{ padding: '16px', border: '1px solid rgba(30, 94, 74,0.3)', background: 'rgba(30, 94, 74,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <h4 style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)' }}>Editing T{selectedTable.number}</h4>
               <button className="btn btn-secondary btn-sm" onClick={() => handleDeleteTable(selectedTableId)} style={{ padding: '3px 8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
@@ -530,16 +530,16 @@ export default function TableLayoutDesigner() {
               border: '1.5px solid var(--border-subtle)',
               boxShadow: 'inset 0 4px 16px rgba(0,0,0,0.02)',
               backgroundSize: `${GRID_SIZE * 2}px ${GRID_SIZE * 2}px`,
-              backgroundImage: 'radial-gradient(rgba(124,58,237,0.06) 1.5px, transparent 0)',
+              backgroundImage: 'radial-gradient(rgba(30, 94, 74,0.06) 1.5px, transparent 0)',
               overflow: 'hidden',
             }}
           >
             {tables.filter(t => activeFilterSection === 'All' || t.section === activeFilterSection).map(table => {
               const isSelected = String(selectedTableId) === String(table.id);
               const size = table.shape === 'bar' ? 80 : 90;
-              const borderCol = isSelected ? 'var(--primary)' : 'rgba(124,58,237,0.25)';
+              const borderCol = isSelected ? 'var(--primary)' : 'rgba(30, 94, 74,0.25)';
               const borderStyle = isSelected ? '2.5px solid' : '1.5px solid';
-              const shadow = isSelected ? '0 8px 20px rgba(124,58,237,0.2)' : '0 2px 6px rgba(0,0,0,0.05)';
+              const shadow = isSelected ? '0 8px 20px rgba(30, 94, 74,0.2)' : '0 2px 6px rgba(0,0,0,0.05)';
   
               return (
                 <div
@@ -567,7 +567,7 @@ export default function TableLayoutDesigner() {
                 >
                   <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>T{table.number}</span>
                   <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 600, marginTop: '1px' }}>{table.seats} Pax</span>
-                  <span style={{ fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, marginTop: '2px', background: 'rgba(124,58,237,0.06)', padding: '1px 5px', borderRadius: '4px', maxWidth: '78px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, marginTop: '2px', background: 'rgba(30, 94, 74,0.06)', padding: '1px 5px', borderRadius: '4px', maxWidth: '78px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {table.section}
                   </span>
                 </div>

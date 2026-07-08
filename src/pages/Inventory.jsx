@@ -470,7 +470,7 @@ const StockTab = () => {
 
       {/* CSV Sync Bar */}
       <div style={{
-        background: 'rgba(124,58,237,0.04)', border: '1px solid var(--border-subtle)',
+        background: 'rgba(30, 94, 74,0.04)', border: '1px solid var(--border-subtle)',
         borderRadius: 16, padding: '12px 18px', marginBottom: 16,
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         flexWrap: 'wrap', gap: 12
@@ -581,8 +581,8 @@ const StockTab = () => {
               return (
                 <tr key={item.id} style={{
                   transition: 'background 0.15s',
-                  background: selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : 'transparent'
-                }} onMouseEnter={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.06)' : 'rgba(124,58,237,0.04)'} onMouseLeave={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(124,58,237,0.04)' : ''}>
+                  background: selectedIds.has(item.id) ? 'rgba(30, 94, 74,0.04)' : 'transparent'
+                }} onMouseEnter={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(30, 94, 74,0.06)' : 'rgba(30, 94, 74,0.04)'} onMouseLeave={e => e.currentTarget.style.background = selectedIds.has(item.id) ? 'rgba(30, 94, 74,0.04)' : ''}>
                   {isOwnerOrAdmin && (
                     <td style={{ ...cellStyle, textAlign: 'center', width: 40 }}>
                       <input
@@ -608,7 +608,7 @@ const StockTab = () => {
                         {linkedMenuItems.map(m => (
                           <span key={m.id} style={{
                             fontSize: '9px',
-                            background: 'rgba(124,58,237,0.08)',
+                            background: 'rgba(30, 94, 74,0.08)',
                             color: 'var(--primary)',
                             padding: '2px 6px',
                             borderRadius: 4,
@@ -700,7 +700,7 @@ const StockTab = () => {
                       return (
                         <span key={m.id} style={{
                           fontSize: '0.78rem',
-                          background: 'rgba(124,58,237,0.08)',
+                          background: 'rgba(30, 94, 74,0.08)',
                           color: 'var(--primary)',
                           padding: '4px 10px',
                           borderRadius: 6,
@@ -862,7 +862,7 @@ const RecipesTab = () => {
             <p style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>
               Producing <strong>{produceConfirm.name}</strong> will deduct the following from stock:
             </p>
-            <div style={{ background: 'rgba(124,58,237,0.04)', borderRadius: 10, padding: 12, marginBottom: 8 }}>
+            <div style={{ background: 'rgba(30, 94, 74,0.04)', borderRadius: 10, padding: 12, marginBottom: 8 }}>
               {(produceConfirm.ingredients || []).map((ing, i) => {
                 const item = inventory.find(it => it.id === ing.itemId);
                 return (
@@ -1011,7 +1011,7 @@ const SuppliersTab = () => {
         {suppliers.map(s => (
           <div key={s.id} className="card" style={{ padding: 18, cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s' }}
             onClick={() => setDetail(s)}
-            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(124,58,237,0.12)'; }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(30, 94, 74,0.12)'; }}
             onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{s.name}</div>
@@ -1064,7 +1064,7 @@ const SuppliersTab = () => {
             {getLinkedItems(detail.name).length === 0 ? (
               <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No items linked to this supplier.</div>
             ) : (
-              <div style={{ background: 'rgba(124,58,237,0.04)', borderRadius: 10, padding: 12 }}>
+              <div style={{ background: 'rgba(30, 94, 74,0.04)', borderRadius: 10, padding: 12 }}>
                 {getLinkedItems(detail.name).map(item => (
                   <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13, color: 'var(--text-secondary)' }}>
                     <span>{item.name}</span>
@@ -1245,7 +1245,7 @@ const PurchaseOrdersTab = () => {
             {[...purchaseOrders].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(po => (
               <tr key={po.id} style={{ cursor: 'pointer', transition: 'background 0.15s' }}
                 onClick={() => setDetail(po)}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,58,237,0.04)'}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(30, 94, 74,0.04)'}
                 onMouseLeave={e => e.currentTarget.style.background = ''}>
                 <td style={{ ...cellStyle, fontWeight: 600, fontFamily: 'monospace' }}>{po.poNumber || '--'}</td>
                 <td style={cellStyle}>{po.supplier}</td>

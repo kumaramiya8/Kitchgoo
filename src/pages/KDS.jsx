@@ -45,7 +45,7 @@ const borderColor = (secs, prepTime = 600) => {
 };
 
 const ORDER_TYPE_COLORS = {
-  'dine-in': { bg: 'rgba(124,58,237,0.18)', text: '#7c3aed' },
+  'dine-in': { bg: 'rgba(30, 94, 74,0.18)', text: '#1e5e4a' },
   'takeaway': { bg: 'rgba(59,130,246,0.18)', text: '#3b82f6' },
   'delivery': { bg: 'rgba(245,158,11,0.18)', text: '#f59e0b' },
   'online': { bg: 'rgba(34,197,94,0.18)', text: '#22c55e' },
@@ -196,7 +196,7 @@ const RecipeModal = ({ item, recipes, menu, onClose }) => {
             </div>
             {recipe.plating && (
               <div>
-                <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: '#c084fc' }}>Plating</h4>
+                <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: '#6faa93' }}>Plating</h4>
                 <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.7, color: '#cbd5e1' }}>{recipe.plating}</p>
               </div>
             )}

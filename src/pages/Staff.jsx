@@ -18,7 +18,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')
 
 const ROLE_COLORS = {
   Owner: '#1e1b4b',
-  Manager: '#7c3aed', Chef: '#ef4444', Cashier: '#22c55e',
+  Manager: '#1e5e4a', Chef: '#ef4444', Cashier: '#22c55e',
   Waiter: '#3b82f6', 'Delivery Boy': '#f59e0b', Host: '#ec4899',
 };
 
@@ -514,7 +514,7 @@ const Staff = () => {
                         <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{m.name}</span>
                       </div>
                     </td>
-                    <td style={{ padding: '10px 12px' }}><Badge color={ROLE_COLORS[m.role] || '#7c3aed'}>{m.role}</Badge></td>
+                    <td style={{ padding: '10px 12px' }}><Badge color={ROLE_COLORS[m.role] || '#1e5e4a'}>{m.role}</Badge></td>
                     <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{m.phone || '--'}</td>
                     <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{m.shift || '--'}</td>
                     <td style={{ padding: '10px 12px' }}>
@@ -681,8 +681,8 @@ const Staff = () => {
                     <td style={{ padding: '8px 12px', position: 'sticky', left: 0, background: 'rgba(255,255,255,0.95)', zIndex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{
-                          width: 28, height: 28, borderRadius: 8, background: `${ROLE_COLORS[m.role] || '#7c3aed'}22`,
-                          color: ROLE_COLORS[m.role] || '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: 28, height: 28, borderRadius: 8, background: `${ROLE_COLORS[m.role] || '#1e5e4a'}22`,
+                          color: ROLE_COLORS[m.role] || '#1e5e4a', display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 12, fontWeight: 700,
                         }}>{m.name?.charAt(0)}</div>
                         <div>
@@ -705,8 +705,8 @@ const Staff = () => {
                           ) : shifts.map((sh, i) => (
                             <div key={sh.id || i} style={{
                               padding: '4px 6px', borderRadius: 6, marginBottom: 3, fontSize: 10,
-                              background: `${ROLE_COLORS[sh.role] || '#7c3aed'}15`,
-                              borderLeft: `3px solid ${ROLE_COLORS[sh.role] || '#7c3aed'}`,
+                              background: `${ROLE_COLORS[sh.role] || '#1e5e4a'}15`,
+                              borderLeft: `3px solid ${ROLE_COLORS[sh.role] || '#1e5e4a'}`,
                               position: 'relative',
                             }}>
                               <div style={{ fontWeight: 600 }}>{sh.startTime} - {sh.endTime}</div>
@@ -1047,7 +1047,7 @@ const Staff = () => {
             </div>
             {ROLES.map(role => (
               <div key={role} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                <Badge color={ROLE_COLORS[role] || '#7c3aed'}>{role}</Badge>
+                <Badge color={ROLE_COLORS[role] || '#1e5e4a'}>{role}</Badge>
                 <div style={{ flex: 1 }} />
                 {editingRules ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1174,7 +1174,7 @@ const Staff = () => {
                 {ROLES.map(role => (
                   <tr key={role} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                     <td style={{ padding: '10px 14px', fontWeight: 600, position: 'sticky', left: 0, background: 'rgba(255,255,255,0.95)', zIndex: 1 }}>
-                      <Badge color={ROLE_COLORS[role] || '#7c3aed'}>{role}</Badge>
+                      <Badge color={ROLE_COLORS[role] || '#1e5e4a'}>{role}</Badge>
                     </td>
                     {ALL_PERMISSIONS.map(p => (
                       <td key={p} style={{ padding: '6px', textAlign: 'center' }}>
@@ -1299,7 +1299,7 @@ const Staff = () => {
                       <span style={{ fontWeight: 600 }}>{k.name}</span>
                     </div>
                   </td>
-                  <td style={{ padding: '10px 12px' }}><Badge color={ROLE_COLORS[k.role] || '#7c3aed'}>{k.role}</Badge></td>
+                  <td style={{ padding: '10px 12px' }}><Badge color={ROLE_COLORS[k.role] || '#1e5e4a'}>{k.role}</Badge></td>
                   <td style={{ padding: '10px 12px', fontWeight: 600 }}>{k.orders}</td>
                   <td style={{ padding: '10px 12px', fontWeight: 600 }}>{fmt(k.avgCheck)}</td>
                   <td style={{ padding: '10px 12px' }}>{fmt(k.perHead)}</td>

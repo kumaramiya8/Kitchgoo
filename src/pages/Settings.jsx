@@ -451,13 +451,13 @@ const ModulesSection = ({ data, onChange, isMobile }) => (
         <div key={m.key} style={{
           display: 'flex', alignItems: 'center', gap: '14px',
           padding: '14px 16px', borderRadius: '14px', marginBottom: '8px',
-          background: enabled ? 'rgba(124,58,237,0.04)' : 'rgba(148,163,184,0.06)',
-          border: `1px solid ${enabled ? 'rgba(124,58,237,0.15)' : 'var(--border-subtle)'}`,
+          background: enabled ? 'rgba(30, 94, 74,0.04)' : 'rgba(148,163,184,0.06)',
+          border: `1px solid ${enabled ? 'rgba(30, 94, 74,0.15)' : 'var(--border-subtle)'}`,
           transition: 'all 0.2s',
         }}>
           <div style={{
             width: 38, height: 38, borderRadius: '10px',
-            background: enabled ? 'rgba(124,58,237,0.12)' : 'rgba(148,163,184,0.12)',
+            background: enabled ? 'rgba(30, 94, 74,0.12)' : 'rgba(148,163,184,0.12)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: enabled ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0,
           }}>
@@ -498,7 +498,7 @@ const NamingSection = ({ data, onChange, isMobile }) => (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
             <div style={{
               padding: '3px 8px', borderRadius: '6px',
-              background: 'rgba(124,58,237,0.08)', fontSize: '0.72rem',
+              background: 'rgba(30, 94, 74,0.08)', fontSize: '0.72rem',
               fontWeight: 700, color: 'var(--primary)',
             }}>
               DEFAULT
@@ -560,7 +560,7 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
 
         <div style={{
           padding: '20px', borderRadius: '14px', border: '2px dashed var(--border-subtle)',
-          background: 'rgba(124,58,237,0.02)', textAlign: 'center', marginBottom: '16px', cursor: 'pointer',
+          background: 'rgba(30, 94, 74,0.02)', textAlign: 'center', marginBottom: '16px', cursor: 'pointer',
         }}>
           <Upload size={28} style={{ color: 'var(--text-muted)', marginBottom: '6px' }} />
           <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Upload Logo</div>
@@ -605,7 +605,7 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
           <div style={{ textAlign: 'center', marginBottom: '8px' }}>
             <div style={{
               width: 60, height: 24, borderRadius: '4px', margin: '0 auto',
-              background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(30, 94, 74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, fontFamily: 'inherit',
             }}>LOGO</div>
           </div>
@@ -754,9 +754,9 @@ const AppearanceSection = ({ data, onChange, isMobile }) => (
     </Field>
     <Field label="Accent Color" hint="Primary brand color for the platform">
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-        <input type="color" value={data.accentColor || '#7c3aed'} onChange={e => onChange('accentColor', e.target.value)}
+        <input type="color" value={data.accentColor || '#1e5e4a'} onChange={e => onChange('accentColor', e.target.value)}
           style={{ width: 44, height: 36, border: 'none', borderRadius: '8px', cursor: 'pointer', padding: 0 }} />
-        <input className="input-field" style={{ flex: 1 }} value={data.accentColor || '#7c3aed'} onChange={e => onChange('accentColor', e.target.value)} placeholder="#7c3aed" />
+        <input className="input-field" style={{ flex: 1 }} value={data.accentColor || '#1e5e4a'} onChange={e => onChange('accentColor', e.target.value)} placeholder="#1e5e4a" />
       </div>
     </Field>
     <Field label="Language">
@@ -975,7 +975,7 @@ const MenuCategoriesSection = ({ data, onChange, isMobile }) => {
                   justifyContent: 'space-between',
                   padding: '8px 12px',
                   borderRadius: '10px',
-                  background: isSelected ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.4)',
+                  background: isSelected ? 'rgba(30, 94, 74,0.08)' : 'rgba(255,255,255,0.4)',
                   border: isSelected ? '1.5px solid var(--primary)' : '1.5px solid transparent',
                   cursor: isEditing ? 'default' : 'pointer',
                   transition: 'all 0.2s',
@@ -1211,7 +1211,7 @@ const TeamSection = ({ isMobile }) => {
       )}
 
       {showAdd && (
-        <div style={{ background: 'rgba(124,58,237,0.04)', border: '1.5px solid rgba(124,58,237,0.15)', borderRadius: '14px', padding: '16px', marginBottom: '16px' }}>
+        <div style={{ background: 'rgba(30, 94, 74,0.04)', border: '1.5px solid rgba(30, 94, 74,0.15)', borderRadius: '14px', padding: '16px', marginBottom: '16px' }}>
           <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '12px', color: 'var(--text-primary)' }}>New Team Member</div>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px' }}>
             <div>
@@ -1256,7 +1256,7 @@ const TeamSection = ({ isMobile }) => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {users.map(u => (
           <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: 'rgba(255,255,255,0.6)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'linear-gradient(135deg, #7c3aed, #a855f7)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.9rem', flexShrink: 0 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.9rem', flexShrink: 0 }}>
               {u.name?.charAt(0).toUpperCase()}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -1266,7 +1266,7 @@ const TeamSection = ({ isMobile }) => {
             <select
               value={u.role}
               onChange={e => handleRoleChange(u.id, e.target.value)}
-              style={{ padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'rgba(124,58,237,0.05)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+              style={{ padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'rgba(30, 94, 74,0.05)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
             >
               {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
@@ -1395,7 +1395,7 @@ const Settings = () => {
                 style={{
                   display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
                   padding: isMobile ? '12px 14px' : '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                  background: active ? (isMobile ? 'rgba(124, 58, 237, 0.08)' : 'white') : 'transparent',
+                  background: active ? (isMobile ? 'rgba(30, 94, 74, 0.08)' : 'white') : 'transparent',
                   boxShadow: !isMobile && active ? 'var(--shadow-md)' : 'none',
                   color: active ? 'var(--primary)' : 'var(--text-secondary)',
                   fontWeight: active ? 700 : 500, fontSize: isMobile ? '0.88rem' : '0.82rem',
@@ -1422,12 +1422,12 @@ const Settings = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {isMobile && (
-              <button onClick={() => setMobileView('menu')} style={{ background: 'rgba(124,58,237,0.06)', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '8px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+              <button onClick={() => setMobileView('menu')} style={{ background: 'rgba(30, 94, 74,0.06)', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: '8px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
                 <ChevronLeft size={18} />
               </button>
             )}
             {activeInfo && (
-              <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+              <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(30, 94, 74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
                 <activeInfo.icon size={20} />
               </div>
             )}

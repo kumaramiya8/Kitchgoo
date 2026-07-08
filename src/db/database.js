@@ -236,7 +236,7 @@ const SEEDS = {
     },
     appearance: {
       theme: 'light',
-      accentColor: '#7c3aed',
+      accentColor: '#1e5e4a',
       compactMode: false,
       language: 'en',
     },

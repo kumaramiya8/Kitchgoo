@@ -80,7 +80,7 @@ const Modal = ({ title, onClose, children, wide }) =>
 const s = {
   badge: (color, bg) => ({
     display: 'inline-flex', alignItems: 'center', gap: 4,
-    background: bg || 'rgba(124,58,237,0.1)', color: color || 'var(--primary)',
+    background: bg || 'rgba(30, 94, 74,0.1)', color: color || 'var(--primary)',
     fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', borderRadius: 6,
   }),
   platformBadge: (platform) => {
@@ -166,7 +166,7 @@ const Delivery = () => {
   ]);
   const [onlineSettings, setOnlineSettings] = useState({
     acceptingOrders: true, deliveryFee: 40, minOrder: 200,
-    brandColor: '#7c3aed', brandName: settings?.restaurantName || 'Kitchgoo Kitchen',
+    brandColor: '#1e5e4a', brandName: settings?.restaurantName || 'Kitchgoo Kitchen',
   });
 
   /* ── Derived data ───────────────────────────────────────── */
@@ -995,7 +995,7 @@ const DriverDispatchTab = ({ drivers, allOrders, driverStatuses, setDriverStatus
                 </div>
 
                 {order.assignedDriver && (
-                  <div style={{ fontSize: '0.75rem', marginBottom: 8, padding: '6px 10px', background: 'rgba(124,58,237,0.06)', borderRadius: 6 }}>
+                  <div style={{ fontSize: '0.75rem', marginBottom: 8, padding: '6px 10px', background: 'rgba(30, 94, 74,0.06)', borderRadius: 6 }}>
                     <Bike size={12} style={{ verticalAlign: -2, color: 'var(--primary)' }} />
                     {' '}Driver: <strong>{order.assignedDriver}</strong>
                   </div>
@@ -1087,7 +1087,7 @@ const DeliveryZonesTab = ({ zones, feeTiers, onEdit, onAdd, onDelete, onToggle }
           {feeTiers.map((tier, i) => (
             <div key={i} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '10px 12px', background: i % 2 === 0 ? 'rgba(124,58,237,0.04)' : 'transparent',
+              padding: '10px 12px', background: i % 2 === 0 ? 'rgba(30, 94, 74,0.04)' : 'transparent',
               borderRadius: 8,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1105,7 +1105,7 @@ const DeliveryZonesTab = ({ zones, feeTiers, onEdit, onAdd, onDelete, onToggle }
         <div style={s.sectionHeader}>Zone Map Preview</div>
         <div className="card" style={{
           padding: 32, textAlign: 'center', color: 'var(--text-muted)',
-          background: 'rgba(124,58,237,0.03)', minHeight: 180,
+          background: 'rgba(30, 94, 74,0.03)', minHeight: 180,
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         }}>
           <Map size={36} style={{ marginBottom: 10, opacity: 0.3 }} />
