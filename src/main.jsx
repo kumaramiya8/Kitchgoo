@@ -8,6 +8,24 @@ import { initDB } from './db/database.js'
 import { isConfigured } from './lib/supabase.js'
 import './index.css'
 
+// ── Service worker: production only ───────────────────────────
+// In dev the SW must never run — intercepting Vite's module requests serves
+// stale code. In an existing dev browser it also self-heals: the new SW
+// activates, purges old caches, and unregisters itself outside production.
+if ('serviceWorker' in navigator) {
+  if (import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .catch(err => console.log('ServiceWorker registration failed:', err));
+    });
+  } else {
+    // Clean up any SW left behind by older builds on localhost
+    navigator.serviceWorker.getRegistrations()
+      .then(regs => regs.forEach(reg => reg.unregister()))
+      .catch(() => {});
+  }
+}
+
 // ── Setup screen shown when .env credentials are missing ──────
 const SetupScreen = () => (
   <div style={{

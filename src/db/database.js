@@ -101,6 +101,25 @@ export function markMutation() {
   lastDbMutationAt = Date.now();
 }
 
+// Writes currently in flight. Sync responses that raced with a local write
+// are discarded — applying them would revert optimistic state and, worse,
+// the persistence effects would then push that stale state back upstream.
+let _pendingWrites = 0;
+
+async function tracked(promise) {
+  _pendingWrites++;
+  try {
+    return await promise;
+  } finally {
+    _pendingWrites--;
+    markMutation();
+  }
+}
+
+export function hasPendingWrites() {
+  return _pendingWrites > 0;
+}
+
 export function setCurrentTenant(tenant) {
   if (tenant) {
     _currentTenant = tenant;
@@ -171,13 +190,19 @@ function applyTenantPayload(payload) {
 export async function syncTenantDataFromSupabase(tenantName) {
   if (!isLive()) return;
   try {
+    const mutationsBefore = lastDbMutationAt;
+    let payload;
     if (_guestMode) {
       const q = _guestTableParam ? `?table=${encodeURIComponent(_guestTableParam)}` : '';
-      const payload = await api.get(`/api/public/qrmenu/${encodeURIComponent(tenantName)}${q}`);
-      applyTenantPayload(payload);
+      payload = await api.get(`/api/public/qrmenu/${encodeURIComponent(tenantName)}${q}`);
+    } else {
+      payload = await api.get('/api/data/sync', { tenant: tenantName });
+    }
+    // A write started or finished while this response was in flight — the
+    // payload predates it. Skip; the next sync will carry the fresh state.
+    if (_pendingWrites > 0 || lastDbMutationAt !== mutationsBefore) {
       return;
     }
-    const payload = await api.get('/api/data/sync', { tenant: tenantName });
     applyTenantPayload(payload);
   } catch (err) {
     console.error('[DB] sync error:', err);
@@ -338,14 +363,16 @@ export async function insert(collection, data) {
       if (_guestMode) {
         // Guests may only fire KDS tickets; the server appends atomically.
         if (collection === 'kds_tickets') {
-          await api.post(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/kds`, { ticket: newItem });
+          await tracked(api.post(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/kds`, { ticket: newItem }));
         }
+      } else if (collection === 'kds_tickets') {
+        // Atomic append — never clobbers tickets other devices just created
+        await tracked(api.post('/api/data/kds-append', { ticket: newItem }, { tenant: _currentTenant }));
       } else if (ROW_TABLES.includes(collection)) {
-        await api.post(`/api/data/rows/${collection}`, { item: newItem }, { tenant: _currentTenant });
+        await tracked(api.post(`/api/data/rows/${collection}`, { item: newItem }, { tenant: _currentTenant }));
       } else {
-        await api.put(`/api/data/collections/${collection}`, { value: _cache[collection] }, { tenant: _currentTenant });
+        await tracked(api.put(`/api/data/collections/${collection}`, { value: _cache[collection] }, { tenant: _currentTenant }));
       }
-      markMutation(); // Update again after the API call finishes
     } catch (err) {
       console.error(`[DB] Error inserting to ${collection}:`, err);
     }
@@ -381,7 +408,7 @@ export async function update(collection, id, data) {
 
     if (isLive() && !_guestMode) {
       try {
-        await api.put(`/api/data/collections/${collection}`, { value: updated }, { tenant: _currentTenant });
+        await tracked(api.put(`/api/data/collections/${collection}`, { value: updated }, { tenant: _currentTenant }));
       } catch (err) {
         console.error(`[DB] Error updating non-array ${collection}:`, err);
       }
@@ -407,11 +434,10 @@ export async function update(collection, id, data) {
   if (isLive() && !_guestMode && updatedItem) {
     try {
       if (ROW_TABLES.includes(collection)) {
-        await api.patch(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant });
+        await tracked(api.patch(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant }));
       } else {
-        await api.put(`/api/data/collections/${collection}`, { value: updated }, { tenant: _currentTenant });
+        await tracked(api.put(`/api/data/collections/${collection}`, { value: updated }, { tenant: _currentTenant }));
       }
-      markMutation();
     } catch (err) {
       console.error(`[DB] Error updating ${collection}:`, err);
     }
@@ -428,11 +454,10 @@ export async function remove(collection, id) {
   if (isLive() && !_guestMode) {
     try {
       if (ROW_TABLES.includes(collection)) {
-        await api.delete(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { tenant: _currentTenant });
+        await tracked(api.delete(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { tenant: _currentTenant }));
       } else {
-        await api.put(`/api/data/collections/${collection}`, { value: items }, { tenant: _currentTenant });
+        await tracked(api.put(`/api/data/collections/${collection}`, { value: items }, { tenant: _currentTenant }));
       }
-      markMutation();
     } catch (err) {
       console.error(`[DB] Error deleting from ${collection}:`, err);
     }
@@ -461,11 +486,10 @@ export async function clearCollection(collection) {
   if (isLive() && !_guestMode) {
     try {
       if (['menu', 'inventory', 'orders'].includes(collection)) {
-        await api.delete(`/api/data/rows/${collection}`, { tenant: _currentTenant });
+        await tracked(api.delete(`/api/data/rows/${collection}`, { tenant: _currentTenant }));
       } else {
-        await api.put(`/api/data/collections/${collection}`, { value: [] }, { tenant: _currentTenant });
+        await tracked(api.put(`/api/data/collections/${collection}`, { value: [] }, { tenant: _currentTenant }));
       }
-      markMutation();
     } catch (err) {
       console.error(`[DB] Error clearing ${collection}:`, err);
     }
@@ -486,16 +510,15 @@ export async function setCollection(collection, data) {
         if (collection === 'pos_tables') {
           const table = (data || []).find(t => String(t.id) === String(gtId));
           if (table) {
-            await api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(gtId)}`, { table });
+            await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(gtId)}`, { table }));
           }
         } else {
           const savedOrder = data && data[gtId] !== undefined ? data[gtId] : null;
-          await api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(gtId)}`, { savedOrder });
+          await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(gtId)}`, { savedOrder }));
         }
       } else if (!_guestMode) {
-        await api.put(`/api/data/collections/${collection}`, { value: data }, { tenant: _currentTenant });
+        await tracked(api.put(`/api/data/collections/${collection}`, { value: data }, { tenant: _currentTenant }));
       }
-      markMutation(); // Update again after the API call finishes
     } catch (err) {
       console.error(`[DB] Error setCollection ${collection}:`, err);
       throw err;
@@ -540,7 +563,7 @@ export async function updateSettings(section, data) {
 
   if (isLive() && !_guestMode) {
     try {
-      await api.put(`/api/data/settings/${section}`, { value: newSectionValue }, { tenant: _currentTenant });
+      await tracked(api.put(`/api/data/settings/${section}`, { value: newSectionValue }, { tenant: _currentTenant }));
     } catch (err) {
       console.error('[DB] Error updating settings row:', err);
     }
@@ -627,10 +650,10 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
 
   if (isLive() && !_guestMode) {
     try {
-      await Promise.all([
+      await tracked(Promise.all([
         api.post('/api/data/rows/orders', { item: order }, { tenant: _currentTenant }),
         api.put('/api/data/collections/bill_counter', { value: { counter: counter + 1 } }, { tenant: _currentTenant }),
-      ]);
+      ]));
     } catch (err) {
       console.error('[DB] createOrder API error:', err);
     }
@@ -840,10 +863,49 @@ export async function updateCashDrawer(data) {
 
   if (isLive() && !_guestMode) {
     try {
-      await api.put('/api/data/collections/cash_drawer', { value: updated }, { tenant: _currentTenant });
+      await tracked(api.put('/api/data/collections/cash_drawer', { value: updated }, { tenant: _currentTenant }));
     } catch (err) {
       console.error('[DB] Error updating cash drawer:', err);
     }
   }
   return updated;
+}
+
+// ─── Atomic per-table POS state ──────────────────────────────
+// Used by the AppContext persistence layer instead of whole-collection PUTs:
+// the server merges a single table's slice into the latest stored state, so
+// a device holding a stale snapshot can never revert other tables — or this
+// one — by writing the whole array.
+
+export function setLocalCollection(collection, data) {
+  _cache[collection] = data;
+  localBackup(`${_currentTenant}_${collection}`, data);
+}
+
+export async function saveTableState(tableId, table) {
+  markMutation();
+  if (!isLive()) return;
+  try {
+    if (_guestMode) {
+      await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(tableId)}`, { table }));
+    } else {
+      await tracked(api.put(`/api/data/tables/${encodeURIComponent(tableId)}`, { table }, { tenant: _currentTenant }));
+    }
+  } catch (err) {
+    console.error('[DB] Error saving table state:', err);
+  }
+}
+
+export async function saveTableOrder(tableId, savedOrder) {
+  markMutation();
+  if (!isLive()) return;
+  try {
+    if (_guestMode) {
+      await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(tableId)}`, { savedOrder: savedOrder ?? null }));
+    } else {
+      await tracked(api.put(`/api/data/table-orders/${encodeURIComponent(tableId)}`, { savedOrder: savedOrder ?? null }, { tenant: _currentTenant }));
+    }
+  } catch (err) {
+    console.error('[DB] Error saving table order:', err);
+  }
 }

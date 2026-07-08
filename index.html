@@ -15,15 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Spline+Sans+Mono:wght@400;500;600;700&family=Young+Serif&display=swap" rel="stylesheet">
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('ServiceWorker registered:', reg))
-            .catch(err => console.log('ServiceWorker registration failed:', err));
-        });
-      }
-    </script>
+    <!-- Service worker registration lives in src/main.jsx (production only) -->
   </head>
   <body>
     <div id="root"></div>

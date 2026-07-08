@@ -193,6 +193,97 @@ app.delete('/api/data/rows/:table', wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
+// ── Atomic POS state (per-table server-side merge) ──────────
+// Whole-collection PUTs race: a client that read before another client's
+// write lands will push a stale array back and silently revert tables.
+// These endpoints read-merge-write a SINGLE table's slice server-side.
+
+async function getFlex(db, tenant, name, fallback) {
+  const { data } = await db
+    .from('tenant_data').select('value')
+    .eq('account_id', tenant).eq('collection_name', name)
+    .maybeSingle();
+  return data ? data.value : fallback;
+}
+
+// PUT /api/data/tables/:tableId  body: { table }
+app.put('/api/data/tables/:tableId', wrap(async (req, res) => {
+  const db = requireDb();
+  const tenant = resolveTenant(req);
+  const { tableId } = req.params;
+  const table = req.body?.table;
+  if (!table || typeof table !== 'object') {
+    return res.status(400).json({ success: false, error: 'table payload required' });
+  }
+
+  const current = (await getFlex(db, tenant, 'pos_tables', [])) || [];
+  let found = false;
+  const merged = current.map(t => {
+    if (String(t.id) === String(tableId)) { found = true; return { ...t, ...table, id: t.id }; }
+    return t;
+  });
+  if (!found) merged.push({ ...table, id: table.id ?? tableId });
+
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: tenant, collection_name: 'pos_tables', value: merged,
+  });
+  if (error) throw error;
+
+  broadcastChange(tenant, 'pos_tables');
+  res.json({ success: true });
+}));
+
+// PUT /api/data/table-orders/:tableId  body: { savedOrder } (null clears)
+app.put('/api/data/table-orders/:tableId', wrap(async (req, res) => {
+  const db = requireDb();
+  const tenant = resolveTenant(req);
+  const { tableId } = req.params;
+  const { savedOrder } = req.body || {};
+
+  const current = (await getFlex(db, tenant, 'pos_saved_orders', {})) || {};
+  const merged = { ...current };
+  if (savedOrder === null || savedOrder === undefined) {
+    delete merged[tableId];
+  } else {
+    merged[tableId] = savedOrder;
+  }
+
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: tenant, collection_name: 'pos_saved_orders', value: merged,
+  });
+  if (error) throw error;
+
+  broadcastChange(tenant, 'pos_saved_orders');
+  res.json({ success: true });
+}));
+
+// POST /api/data/kds-append  body: { ticket } — append without clobbering
+// tickets other devices created since this client last synced.
+app.post('/api/data/kds-append', wrap(async (req, res) => {
+  const db = requireDb();
+  const tenant = resolveTenant(req);
+  const ticket = req.body?.ticket;
+  if (!ticket || typeof ticket !== 'object') {
+    return res.status(400).json({ success: false, error: 'ticket payload required' });
+  }
+
+  const current = (await getFlex(db, tenant, 'kds_tickets', [])) || [];
+  const withId = {
+    ...ticket,
+    id: ticket.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  };
+  // Idempotent: retries with the same id don't duplicate the ticket
+  const next = current.some(t => t.id === withId.id) ? current : [...current, withId];
+
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: tenant, collection_name: 'kds_tickets', value: next,
+  });
+  if (error) throw error;
+
+  broadcastChange(tenant, 'kds_tickets');
+  res.json({ success: true, ticket: withId });
+}));
+
 // ── Flex collections + settings ─────────────────────────────
 
 app.put('/api/data/collections/:name', wrap(async (req, res) => {

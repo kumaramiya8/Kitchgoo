@@ -123,10 +123,13 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
 
   if (table !== undefined) {
-    const current = await getFlex(db, tenant, 'pos_tables', []);
-    const merged = (current || []).map(t =>
-      String(t.id) === String(tableId) ? { ...t, ...table, id: t.id } : t
-    );
+    const current = (await getFlex(db, tenant, 'pos_tables', [])) || [];
+    let found = false;
+    const merged = current.map(t => {
+      if (String(t.id) === String(tableId)) { found = true; return { ...t, ...table, id: t.id }; }
+      return t;
+    });
+    if (!found) merged.push({ ...table, id: table.id ?? tableId });
     const { error } = await db.from('tenant_data').upsert({
       account_id: tenant, collection_name: 'pos_tables', value: merged,
     });

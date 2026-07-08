@@ -37,9 +37,22 @@ import {
   getTenantCode,
   syncTenantDataFromSupabase,
   lastDbMutationAt,
+  setLocalCollection,
+  saveTableState,
+  saveTableOrder,
+  isGuestMode,
 } from './database';
 
 const AppContext = createContext(null);
+
+// Key-order-insensitive serialization for change detection. Postgres JSONB
+// reorders object keys, so plain JSON.stringify sees phantom diffs between
+// synced and locally-built objects and re-pushes unchanged tables.
+function stableStringify(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+}
 
 export function AppProvider({ children }) {
   const [ready, setReady] = useState(false);
@@ -84,24 +97,59 @@ export function AppProvider({ children }) {
     if (authLoading || !hasLoadedFromDb) return;
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
-    if (tenant) {
-      const cached = getAll('pos_tables');
-      if (JSON.stringify(cached) === JSON.stringify(posTables)) return;
-      lastMutationAt.current = Date.now();
+    if (!tenant) return;
+
+    const cached = getAll('pos_tables') || [];
+    if (stableStringify(cached) === stableStringify(posTables)) return;
+    lastMutationAt.current = Date.now();
+
+    const isDemo = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+    if (!supabase || isDemo) {
       setCollection('pos_tables', posTables).catch(err => console.error("Error saving pos_tables:", err));
+      return;
     }
+
+    // Live mode: push ONLY the tables that changed, each as an atomic
+    // server-side merge. Whole-array writes let a stale device revert
+    // every other table (the "table clears itself after KOT" bug).
+    let changed = posTables.filter(t => {
+      const prev = cached.find(c => String(c.id) === String(t.id));
+      return !prev || stableStringify(prev) !== stableStringify(t);
+    });
+    if (isGuestMode()) {
+      const gtId = window.sessionStorage.getItem('kitchgoo_guest_table');
+      changed = changed.filter(t => String(t.id) === String(gtId));
+    }
+    setLocalCollection('pos_tables', posTables);
+    changed.forEach(t => { saveTableState(t.id, t); });
   }, [posTables, authLoading, hasLoadedFromDb]);
 
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb) return;
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_saved_orders`, JSON.stringify(posSavedOrders));
-    if (tenant) {
-      const cached = getAll('pos_saved_orders');
-      if (JSON.stringify(cached) === JSON.stringify(posSavedOrders)) return;
-      lastMutationAt.current = Date.now();
+    if (!tenant) return;
+
+    const cached = getAll('pos_saved_orders');
+    const cachedObj = (cached && !Array.isArray(cached)) ? cached : {};
+    if (stableStringify(cachedObj) === stableStringify(posSavedOrders)) return;
+    lastMutationAt.current = Date.now();
+
+    const isDemo = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+    if (!supabase || isDemo) {
       setCollection('pos_saved_orders', posSavedOrders).catch(err => console.error("Error saving pos_saved_orders:", err));
+      return;
     }
+
+    // Live mode: per-table atomic merge (null clears the table's order)
+    let changedIds = [...new Set([...Object.keys(cachedObj), ...Object.keys(posSavedOrders || {})])]
+      .filter(id => stableStringify(cachedObj[id]) !== stableStringify((posSavedOrders || {})[id]));
+    if (isGuestMode()) {
+      const gtId = window.sessionStorage.getItem('kitchgoo_guest_table');
+      changedIds = changedIds.filter(id => String(id) === String(gtId));
+    }
+    setLocalCollection('pos_saved_orders', posSavedOrders);
+    changedIds.forEach(id => { saveTableOrder(id, (posSavedOrders || {})[id] ?? null); });
   }, [posSavedOrders, authLoading, hasLoadedFromDb]);
 
   // Build posTables from floorPlans
