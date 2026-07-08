@@ -16,6 +16,7 @@ import { isConfigured } from '../lib/supabase';
 import { api } from '../lib/api';
 import { SEEDS, FLEX_COLLECTIONS, ROW_TABLES } from '../../shared/seeds';
 import { toCamelCase } from '../../shared/mappers';
+import { localDayStr, todayLocalStr } from '../../shared/dates';
 
 export function genId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -663,11 +664,12 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
 }
 
 export function getOrdersByDate(dateStr) {
-  return getAll('orders').filter(o => o.createdAt.startsWith(dateStr));
+  // dateStr is a LOCAL calendar day; createdAt timestamps are UTC ISO strings
+  return getAll('orders').filter(o => o.createdAt && localDayStr(o.createdAt) === dateStr);
 }
 
 export function getTodayStats() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocalStr();
   const todayOrders = getOrdersByDate(today);
   const gross = todayOrders.reduce((s, o) => s + o.total, 0);
   const orderCount = todayOrders.length;
@@ -740,7 +742,7 @@ export async function logAttendance(staffId, type) {
     staffId,
     type,
     timestamp: new Date().toISOString(),
-    date: new Date().toISOString().split('T')[0],
+    date: todayLocalStr(), // shift date = the LOCAL business day
   });
 }
 

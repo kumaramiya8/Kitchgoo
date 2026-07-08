@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll, insert as dbInsert, update as dbUpdate, remove as dbRemove, getCurrentTenant } from '../db/database';
+import { todayLocalStr, localDayStr } from '../../shared/dates';
 
 // ─── Constants ──────────────────────────────────────────────
 const ROLES = ['Owner', 'Manager', 'Chef', 'Cashier', 'Waiter', 'Delivery Boy', 'Host'];
@@ -61,7 +62,7 @@ const fmt = (n) => {
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '--';
 const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--';
 const genLocalId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => todayLocalStr(); // LOCAL business day, not UTC
 
 // ─── Shared UI Components ───────────────────────────────────
 const Modal = ({ title, onClose, children, wide }) =>
@@ -1014,7 +1015,7 @@ const Staff = () => {
 
     // Calculate today's tips from orders
     const tipCalc = useMemo(() => {
-      const todayOrders = (orders || []).filter(o => o.createdAt?.startsWith(today()));
+      const todayOrders = (orders || []).filter(o => o.createdAt && localDayStr(o.createdAt) === today());
       const totalTips = todayOrders.reduce((sum, o) => sum + (o.tip || 0), 0);
       const totalShare = Object.values(currentRules).reduce((s, v) => s + v, 0) || 100;
 

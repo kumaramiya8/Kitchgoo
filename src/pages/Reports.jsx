@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
+import { localDayStr } from '../../shared/dates';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -48,20 +49,27 @@ const formatHour = (h) => {
 const RANGES = ['Today', 'Yesterday', 'This Week', 'This Month', 'This Quarter', 'Custom'];
 
 function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
+  // All boundaries are LOCAL calendar days — timestamps are stored in UTC,
+  // so comparing UTC date-prefixes shifts every report by the tz offset.
   const now = new Date();
-  const today = now.toISOString().split('T')[0];
+  const today = localDayStr(now);
   return list.filter(item => {
     const val = item[key];
     if (!val) return false;
     const d = new Date(val);
+    if (isNaN(d.getTime())) return false;
+    const day = localDayStr(val);
     switch (range) {
-      case 'Today':     return val.startsWith(today);
+      case 'Today':     return day === today;
       case 'Yesterday': {
         const y = new Date(now); y.setDate(y.getDate() - 1);
-        return val.startsWith(y.toISOString().split('T')[0]);
+        return day === localDayStr(y);
       }
       case 'This Week': {
-        const w = new Date(now); w.setDate(w.getDate() - 7);
+        // Calendar week, Monday 00:00 local
+        const w = new Date(now);
+        w.setDate(w.getDate() - ((w.getDay() + 6) % 7));
+        w.setHours(0, 0, 0, 0);
         return d >= w;
       }
       case 'This Month': return d >= new Date(now.getFullYear(), now.getMonth(), 1);
@@ -70,8 +78,9 @@ function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
         return d >= new Date(now.getFullYear(), qm, 1);
       }
       case 'Custom': {
-        const from = dateFrom ? new Date(dateFrom) : null;
-        const to   = dateTo   ? new Date(dateTo + 'T23:59:59') : null;
+        // Date-input values are local days; span them fully, local midnight to midnight
+        const from = dateFrom ? new Date(dateFrom + 'T00:00:00') : null;
+        const to   = dateTo   ? new Date(dateTo + 'T23:59:59.999') : null;
         if (from && d < from) return false;
         if (to   && d > to)   return false;
         return true;
@@ -319,8 +328,8 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
   const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
   const todayOrders = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    return orders.filter(o => o.createdAt && o.createdAt.startsWith(today));
+    const today = localDayStr(new Date());
+    return orders.filter(o => o.createdAt && localDayStr(o.createdAt) === today);
   }, [orders]);
 
   const liveGross = useMemo(() => todayOrders.reduce((s, o) => s + (o.total || 0), 0), [todayOrders]);
@@ -329,8 +338,8 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
 
   const yesterdayGross = useMemo(() => {
     const y = new Date(); y.setDate(y.getDate() - 1);
-    const yd = y.toISOString().split('T')[0];
-    return orders.filter(o => o.createdAt && o.createdAt.startsWith(yd)).reduce((s, o) => s + (o.total || 0), 0);
+    const yd = localDayStr(y);
+    return orders.filter(o => o.createdAt && localDayStr(o.createdAt) === yd).reduce((s, o) => s + (o.total || 0), 0);
   }, [orders]);
 
   const trendPct = yesterdayGross > 0 ? ((liveGross - yesterdayGross) / yesterdayGross * 100) : 0;

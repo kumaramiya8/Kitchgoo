@@ -5,6 +5,7 @@ import {
   AlertTriangle, Truck, Star, DollarSign, BarChart3, Percent
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { localDayStr, todayLocalStr } from '../../shared/dates';
 
 const StatCard = ({ label, value, subLabel, icon: Icon, changeValue, changeUp, color }) => (
   <div className="stat-card animate-fade-up">
@@ -71,8 +72,7 @@ const Dashboard = () => {
   const lowStockCount = inventory.filter(i => i.status !== 'good').length;
   const activeKDSCount = (kdsTickets || []).filter(t => t.status === 'active').length;
   const todayReservations = (reservations || []).filter(r => {
-    const today = new Date().toISOString().split('T')[0];
-    return r.date === today && r.status !== 'cancelled';
+    return r.date === todayLocalStr() && r.status !== 'cancelled';
   }).length;
   const waitlistCount = (waitlist || []).filter(w => w.status === 'waiting').length;
   const activeStaff = staff.filter(s => s.status === 'active').length;
@@ -111,9 +111,9 @@ const Dashboard = () => {
     for (let d = 6; d >= 0; d--) {
       const date = new Date(now);
       date.setDate(date.getDate() - d);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = localDayStr(date);
       const rev = orders
-        .filter(o => o.createdAt && o.createdAt.startsWith(dateStr))
+        .filter(o => o.createdAt && localDayStr(o.createdAt) === dateStr)
         .reduce((s, o) => s + (o.total || 0), 0);
       if (rev > maxRev) maxRev = rev;
       result.push({ day: days[date.getDay()], rev, dateStr });
@@ -127,9 +127,9 @@ const Dashboard = () => {
   const laborPct = ((totalLabor / totalRevenue) * 100).toFixed(1);
 
   // Today's waste
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayLocalStr();
   const todayWaste = (wasteLog || [])
-    .filter(w => w.timestamp && w.timestamp.startsWith(todayStr))
+    .filter(w => w.timestamp && localDayStr(w.timestamp) === todayStr)
     .reduce((s, w) => s + (w.costImpact || 0), 0);
 
   return (
