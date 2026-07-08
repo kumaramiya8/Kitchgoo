@@ -580,15 +580,30 @@ export function AppProvider({ children }) {
     setKdsTickets(getAll('kds_tickets'));
   }, []);
 
+  // When a table's ticket is fully bumped, the food is on its way out —
+  // advance the table from 'ordered' to 'eating' on the POS floor.
+  const maybeMarkTableEating = useCallback((ticketId) => {
+    const ticket = (getAll('kds_tickets') || []).find(t => t.id === ticketId);
+    if (ticket && ticket.status === 'completed' && ticket.tableId) {
+      setPosTables(prev => prev.map(t =>
+        String(t.id) === String(ticket.tableId) && t.status === 'ordered'
+          ? { ...t, status: 'eating' }
+          : t
+      ));
+    }
+  }, []);
+
   const bumpKDSItemAction = useCallback(async (ticketId, itemIndex) => {
     await bumpKDSItem(ticketId, itemIndex);
     setKdsTickets(getAll('kds_tickets'));
-  }, []);
+    maybeMarkTableEating(ticketId);
+  }, [maybeMarkTableEating]);
 
   const bumpKDSTicketAction = useCallback(async (ticketId) => {
     await bumpKDSTicket(ticketId);
     setKdsTickets(getAll('kds_tickets'));
-  }, []);
+    maybeMarkTableEating(ticketId);
+  }, [maybeMarkTableEating]);
 
   const recallKDSTicketAction = useCallback(async (ticketId) => {
     await recallKDSTicket(ticketId);

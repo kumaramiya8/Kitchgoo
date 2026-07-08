@@ -27,7 +27,7 @@ const TABLE_STATUS_COLORS = {
   seated: '#3b82f6',
   ordered: '#f97316',
   eating: '#eab308',
-  paying: '#2e7d5b',
+  paying: '#8b5cf6', // violet — must stay distinguishable from available-green at dot size
   'needs-bussing': '#94a3b8',
   reserved: '#ec4899',
 };
@@ -1151,6 +1151,7 @@ const POS = () => {
     placeOrder, fireToKDS, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
+    reservations,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
@@ -1250,6 +1251,38 @@ const POS = () => {
   const [cart, setCart] = useState([]);
   const savedOrders = posSavedOrders || {};
   const setSavedOrders = setPosSavedOrders;
+
+  // Table status the settle flow should restore if payment is cancelled
+  const prePayStatusRef = useRef(null);
+
+  // Tables with a confirmed reservation coming up (next 2h, 30min grace) show
+  // as 'reserved' while they sit available — display-only, never persisted.
+  const reservedTableIds = useMemo(() => {
+    const ids = new Set();
+    // Reservation dates are written with toISOString (UTC); accept the local
+    // date too so the overlay doesn't vanish around midnight in non-UTC zones.
+    const todayUTC = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayLocal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const now = Date.now();
+    (reservations || []).forEach(r => {
+      if (r.status !== 'confirmed' || !r.tableId || !r.time) return;
+      if (r.date !== todayUTC && r.date !== todayLocal) return;
+      const at = new Date(`${todayLocal}T${r.time}`).getTime();
+      if (isNaN(at)) return;
+      if (at - now <= 2 * 60 * 60 * 1000 && at - now >= -30 * 60 * 1000) {
+        ids.add(String(r.tableId));
+      }
+    });
+    return ids;
+  }, [reservations]);
+
+  // Status to DISPLAY for a table (layers the reservation overlay on top)
+  const displayStatus = (table) =>
+    table.status === 'available' && reservedTableIds.has(String(table.id))
+      ? 'reserved'
+      : (table.status || 'available');
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -1534,6 +1567,17 @@ const POS = () => {
 
   // ── Table click ───────────────────────────────────────────
   const handleTableClick = (table) => {
+    if (table.status === 'needs-bussing') {
+      // Table was settled; staff confirms it's been cleaned before reuse
+      if (window.confirm(`Mark Table ${table.number || table.id} as cleaned and available?`)) {
+        setTables(prev => prev.map(t => String(t.id) === String(table.id)
+          ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
+          : t
+        ));
+        showSuccess(`Table ${table.number || table.id} is available again`);
+      }
+      return;
+    }
     if (table.status !== 'available') {
       setActiveTable(table);
       setCart(savedOrders[table.id] || []);
@@ -1816,11 +1860,13 @@ const POS = () => {
       guestName: activeTable?.guestName || customerName,
     });
 
-    // Clear table
+    // Bill settled — table needs bussing before it can be reused. Tapping the
+    // table on the floor map marks it cleaned and available again.
     if (activeTable) {
+      prePayStatusRef.current = null;
       setSavedOrders(prev => { const next = { ...prev }; delete next[activeTable.id]; return next; });
       setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
-        ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
+        ? { ...t, status: 'needs-bussing', guestName: null, guestId: null, seatedAt: null }
         : t
       ));
     }
@@ -1967,29 +2013,34 @@ const POS = () => {
         {/* Dine-in: Floor Plan */}
         {orderType === 'dine-in' && (
           <>
-            {/* Status Legend */}
+            {/* Status Legend — live counts per status */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-              {Object.entries(TABLE_STATUS_COLORS).map(([status, color]) => (
-                <span key={status} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', boxShadow: `0 0 6px ${color}50` }} />
-                  {TABLE_STATUS_LABELS[status]}
-                </span>
-              ))}
+              {Object.entries(TABLE_STATUS_COLORS).map(([status, color]) => {
+                const count = tables.filter(t => displayStatus(t) === status).length;
+                return (
+                  <span key={status} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', color: count > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: count > 0 ? 600 : 400 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', boxShadow: `0 0 6px ${color}50`, opacity: count > 0 ? 1 : 0.45 }} />
+                    {TABLE_STATUS_LABELS[status]}{count > 0 ? ` · ${count}` : ''}
+                  </span>
+                );
+              })}
             </div>
 
             {/* Server Sections */}
             {sections.length > 0 && (
               <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                 {sections.map(sec => {
-                  const sectionTables = tables.filter(t => t.section === sec.name || t.section === sec.id);
+                  // Sections are stored as plain strings; older layouts may hold objects
+                  const secName = typeof sec === 'string' ? sec : (sec.name || sec.id);
+                  const sectionTables = tables.filter(t => t.section === secName);
                   const serverIds = [...new Set(sectionTables.map(t => t.serverId).filter(Boolean))];
                   return (
-                    <div key={sec.id || sec.name} style={{
+                    <div key={secName} style={{
                       padding: '6px 12px', borderRadius: 'var(--r-md)',
                       background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border-subtle)',
                       fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6,
                     }}>
-                      <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{sec.name}</span>
+                      <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{secName}</span>
                       {serverIds.length > 0 && (
                         <span style={{ color: 'var(--text-muted)' }}>
                           {serverIds.map(id => serverMap[id]?.name || 'Staff').join(', ')}
@@ -2045,7 +2096,7 @@ const POS = () => {
                     const posX = fpTable.x !== undefined ? fpTable.x : 50;
                     const posY = fpTable.y !== undefined ? fpTable.y : 50;
                     
-                    const statusColor = TABLE_STATUS_COLORS[table.status] || TABLE_STATUS_COLORS.available;
+                    const statusColor = TABLE_STATUS_COLORS[displayStatus(table)] || TABLE_STATUS_COLORS.available;
                     const isOccupied = table.status !== 'available';
                     const hasOrder = savedOrders[table.id]?.length > 0;
                     const serverName = table.serverId && serverMap[table.serverId]?.name;
@@ -2132,7 +2183,7 @@ const POS = () => {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12 }}>
                 {tables.map(table => {
-                  const statusColor = TABLE_STATUS_COLORS[table.status] || TABLE_STATUS_COLORS.available;
+                  const statusColor = TABLE_STATUS_COLORS[displayStatus(table)] || TABLE_STATUS_COLORS.available;
                   const isOccupied = table.status !== 'available';
                   const hasOrder = savedOrders[table.id]?.length > 0;
                   const serverName = table.serverId && serverMap[table.serverId]?.name;
@@ -2677,7 +2728,14 @@ const POS = () => {
               <Split size={14} /> Split
             </button>
           </div>
-          <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => cart.length > 0 && setPaymentModal(true)} disabled={cart.length === 0}>
+          <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => {
+            if (cart.length === 0) return;
+            if (activeTable) {
+              prePayStatusRef.current = activeTable.status;
+              setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) ? { ...t, status: 'paying' } : t));
+            }
+            setPaymentModal(true);
+          }} disabled={cart.length === 0}>
             <ReceiptText size={15} /> Settle Bill
           </button>
         </div>
@@ -2710,7 +2768,15 @@ const POS = () => {
           autoGratuity={autoGratuity} discount={discountAmount}
           activeTable={activeTable} currentGuest={currentGuest}
           onConfirm={handleConfirmPayment}
-          onClose={() => setPaymentModal(false)}
+          onClose={() => {
+            setPaymentModal(false);
+            // Payment cancelled — put the table back in its pre-paying state
+            if (activeTable && prePayStatusRef.current) {
+              const restore = prePayStatusRef.current;
+              prePayStatusRef.current = null;
+              setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) && t.status === 'paying' ? { ...t, status: restore } : t));
+            }
+          }}
         />
       )}
 
