@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -88,6 +88,24 @@ function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
       default: return true;
     }
   });
+}
+
+// The cache only holds the recent orders window; when a tab's period
+// reaches further back, pull the missing history once from the backend.
+function useHistoricalOrders(range, dateFrom) {
+  const { loadOlderOrders } = useApp();
+  useEffect(() => {
+    let from = null;
+    const now = new Date();
+    if (range === 'This Quarter') {
+      from = localDayStr(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1));
+    } else if (range === 'This Month') {
+      from = localDayStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    } else if (range === 'Custom' && dateFrom) {
+      from = dateFrom;
+    }
+    if (from) loadOlderOrders(from);
+  }, [range, dateFrom, loadOlderOrders]);
 }
 
 // ─── Shared UI pieces ───────────────────────────────────────
@@ -324,6 +342,7 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
   const [range, setRange]       = useState('Today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
 
   const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
@@ -514,6 +533,7 @@ const DailySalesSummaryReport = ({ orders }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [terminalFilter, setTerminalFilter] = useState('All');
   const [shiftFilter, setShiftFilter]       = useState('All');
 
@@ -704,6 +724,7 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [statusFilter, setStatusFilter] = useState('All');
   const [cashierFilter, setCashierFilter] = useState('All');
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -874,6 +895,7 @@ const RegisterClosuresReport = () => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [editClosure, setEditClosure] = useState(null);
   
   // Edit Form state
@@ -1026,6 +1048,7 @@ const SalesAccrualReport = ({ orders }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [statusFilter, setStatusFilter] = useState('All');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState('All');
 
@@ -1245,6 +1268,7 @@ const TaxComplianceTab = ({ orders }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [taxTypeFilter, setTaxTypeFilter] = useState('All');
 
   const { sortField, sortDirection, handleSort } = useSort('name', 'asc');
@@ -1496,6 +1520,7 @@ const WastageVarianceLogReport = ({ wasteLog }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [reasonFilter, setReasonFilter] = useState('All');
 
   const { sortField, sortDirection, handleSort } = useSort('createdAt', 'desc');
@@ -1613,6 +1638,7 @@ const MenuManagementTab = ({ orders, menu }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [categoryFilter, setCategoryFilter] = useState('All');
 
   const { sortField, sortDirection, handleSort } = useSort('qtySold', 'desc');
@@ -1760,6 +1786,7 @@ const OperationalEfficiencyTab = ({ orders }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
   const [dayFilter, setDayFilter] = useState('All');
 
   const { sortField, sortDirection, handleSort } = useSort('hour', 'asc');
@@ -1928,6 +1955,7 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
   const [range, setRange]       = useState('Today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
 
   const { sortField, sortDirection, handleSort } = useSort('orderPlaced', 'desc');
 
@@ -2062,6 +2090,7 @@ const LaborReport = ({ orders, staff: staffList }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  useHistoricalOrders(range, dateFrom);
 
   const { sortField, sortDirection, handleSort } = useSort('totalPay', 'desc');
 

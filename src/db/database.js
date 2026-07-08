@@ -155,12 +155,35 @@ function mapUserRow(row) {
   return u;
 }
 
+// Oldest → newest, the order the app has always assumed
+function sortByCreatedAt(list) {
+  return [...list].sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+}
+
+// Start of the orders window currently held in the cache (ISO). Older
+// ranges are pulled on demand via ensureOrdersSince().
+let _ordersLoadedFrom = null;
+
 function applyTenantPayload(payload) {
   if (!payload) return;
 
   if (payload.menu) _cache['menu'] = payload.menu.map(toCamelCase);
   if (payload.inventory) _cache['inventory'] = payload.inventory.map(toCamelCase);
-  if (payload.orders) _cache['orders'] = payload.orders.map(toCamelCase);
+  if (payload.orders) {
+    let orders = payload.orders.map(toCamelCase);
+    if (payload.ordersFrom) {
+      // Bounded window from the server: keep any older rows already fetched
+      const existing = (_cache['orders'] || []).filter(o =>
+        o.createdAt && _ordersLoadedFrom && o.createdAt < payload.ordersFrom && o.createdAt >= _ordersLoadedFrom
+      );
+      const ids = new Set(orders.map(o => o.id));
+      orders = [...orders, ...existing.filter(o => !ids.has(o.id))];
+      _ordersLoadedFrom = _ordersLoadedFrom && _ordersLoadedFrom < payload.ordersFrom
+        ? _ordersLoadedFrom
+        : payload.ordersFrom;
+    }
+    _cache['orders'] = sortByCreatedAt(orders);
+  }
   if (payload.settings) _cache['settings'] = payload.settings;
 
   if (payload.collections) {
@@ -331,6 +354,33 @@ export function isGuestMode() {
   return _guestMode;
 }
 
+// ─── On-demand historical orders ─────────────────────────────
+// The default payload only carries the recent window. When a report asks
+// for an older period, pull the missing range once and widen the window.
+export async function ensureOrdersSince(fromDayStr) {
+  if (!isLive() || _guestMode || !fromDayStr) return false;
+  // fromDayStr is a LOCAL calendar day — convert local midnight to UTC
+  const fromDate = new Date(`${fromDayStr}T00:00:00`);
+  if (isNaN(fromDate.getTime())) return false;
+  const fromIso = fromDate.toISOString();
+  if (_ordersLoadedFrom && fromIso >= _ordersLoadedFrom) return false; // already covered
+
+  try {
+    const to = _ordersLoadedFrom || undefined;
+    const q = to ? `?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(to)}` : `?from=${encodeURIComponent(fromIso)}`;
+    const { orders } = await api.get(`/api/data/orders${q}`, { tenant: _currentTenant });
+    const older = (orders || []).map(toCamelCase);
+    const existing = _cache['orders'] || [];
+    const ids = new Set(existing.map(o => o.id));
+    _cache['orders'] = sortByCreatedAt([...existing, ...older.filter(o => !ids.has(o.id))]);
+    _ordersLoadedFrom = fromIso;
+    return true;
+  } catch (err) {
+    console.error('[DB] ensureOrdersSince error:', err);
+    return false;
+  }
+}
+
 // ─── Generic Collection CRUD ────────────────────────────────
 export function getAll(collection) {
   return _cache[collection] || [];
@@ -366,13 +416,12 @@ export async function insert(collection, data) {
         if (collection === 'kds_tickets') {
           await tracked(api.post(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/kds`, { ticket: newItem }));
         }
-      } else if (collection === 'kds_tickets') {
-        // Atomic append — never clobbers tickets other devices just created
-        await tracked(api.post('/api/data/kds-append', { ticket: newItem }, { tenant: _currentTenant }));
       } else if (ROW_TABLES.includes(collection)) {
         await tracked(api.post(`/api/data/rows/${collection}`, { item: newItem }, { tenant: _currentTenant }));
       } else {
-        await tracked(api.put(`/api/data/collections/${collection}`, { value: _cache[collection] }, { tenant: _currentTenant }));
+        // Atomic per-item append — whole-array writes let a stale device
+        // silently drop rows other devices just created
+        await tracked(api.post(`/api/data/flex/${collection}`, { item: newItem }, { tenant: _currentTenant }));
       }
     } catch (err) {
       console.error(`[DB] Error inserting to ${collection}:`, err);
@@ -437,7 +486,8 @@ export async function update(collection, id, data) {
       if (ROW_TABLES.includes(collection)) {
         await tracked(api.patch(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant }));
       } else {
-        await tracked(api.put(`/api/data/collections/${collection}`, { value: updated }, { tenant: _currentTenant }));
+        // Atomic per-item merge server-side
+        await tracked(api.patch(`/api/data/flex/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant }));
       }
     } catch (err) {
       console.error(`[DB] Error updating ${collection}:`, err);
@@ -457,7 +507,8 @@ export async function remove(collection, id) {
       if (ROW_TABLES.includes(collection)) {
         await tracked(api.delete(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { tenant: _currentTenant }));
       } else {
-        await tracked(api.put(`/api/data/collections/${collection}`, { value: items }, { tenant: _currentTenant }));
+        // Atomic per-item removal server-side
+        await tracked(api.delete(`/api/data/flex/${collection}/${encodeURIComponent(id)}`, { tenant: _currentTenant }));
       }
     } catch (err) {
       console.error(`[DB] Error deleting from ${collection}:`, err);

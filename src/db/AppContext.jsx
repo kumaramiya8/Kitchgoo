@@ -41,6 +41,7 @@ import {
   saveTableState,
   saveTableOrder,
   isGuestMode,
+  ensureOrdersSince,
 } from './database';
 
 const AppContext = createContext(null);
@@ -888,6 +889,16 @@ export function AppProvider({ children }) {
     setTipPools(data);
   }, []);
 
+  // Reports call this when a selected period reaches past the loaded orders
+  // window; older rows are fetched once and merged into state.
+  const loadOlderOrders = useCallback(async (fromDayStr) => {
+    const fetched = await ensureOrdersSince(fromDayStr);
+    if (fetched) {
+      setOrders(getAll('orders'));
+    }
+    return fetched;
+  }, []);
+
   const broadcastOrderCreated = useCallback(async (tableId, kdsOrderId) => {
     if (channelRef.current) {
       await channelRef.current.send({
@@ -958,7 +969,7 @@ export function AppProvider({ children }) {
     // Realtime Broadcasts
     broadcastOrderCreated,
     // Utility
-    reload,
+    reload, loadOlderOrders,
   };
 
   if (!ready) return null;

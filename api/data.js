@@ -84,6 +84,29 @@ app.get('/api/data/sync', wrap(async (req, res) => {
   res.json({ success: true, tenant, ...payload });
 }));
 
+// Historical orders by range — the default payload only carries the recent
+// window, so Reports fetch older periods here on demand.
+app.get('/api/data/orders', wrap(async (req, res) => {
+  const db = requireDb();
+  const tenant = resolveTenant(req);
+  const { from, to } = req.query;
+  if (!from || !/^\d{4}-\d{2}-\d{2}/.test(String(from))) {
+    return res.status(400).json({ success: false, error: 'from date required (YYYY-MM-DD or ISO)' });
+  }
+
+  let q = db.from('orders').select('*').eq('account_id', tenant)
+    .gte('created_at', String(from))
+    .order('created_at', { ascending: false })
+    .limit(5000);
+  if (to && /^\d{4}-\d{2}-\d{2}/.test(String(to))) {
+    q = q.lt('created_at', String(to));
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+
+  res.json({ success: true, orders: data || [] });
+}));
+
 // Combined audit log across all tenants — platform admin only
 app.get('/api/data/audit-all', wrap(async (req, res) => {
   const db = requireDb();
@@ -282,6 +305,112 @@ app.post('/api/data/kds-append', wrap(async (req, res) => {
 
   broadcastChange(tenant, 'kds_tickets');
   res.json({ success: true, ticket: withId });
+}));
+
+// ── Generic atomic flex-collection items ────────────────────
+// Every flex collection is one JSON array in tenant_data. Clients used to
+// PUT the whole array on any change, so two devices writing concurrently
+// (or one holding a stale snapshot) silently dropped each other's rows.
+// These endpoints read-merge-write a single item server-side instead.
+
+// Growth caps applied on append — these collections otherwise grow forever
+// and get shipped to every device on every sync.
+function capCollection(name, arr) {
+  if (name === 'audit_log') {
+    // Newest last; keep the most recent 1000 entries
+    return arr.length > 1000 ? arr.slice(arr.length - 1000) : arr;
+  }
+  if (name === 'kds_tickets') {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return arr.filter(t => {
+      if (t.status !== 'completed') return true;
+      const ts = new Date(t.updatedAt || t.firedAt || t.createdAt || 0).getTime();
+      return ts >= cutoff;
+    });
+  }
+  return arr;
+}
+
+function assertFlexArray(name) {
+  if (!FLEX_COLLECTIONS.includes(name)) {
+    const err = new Error(`Unknown collection: ${name}`);
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+// POST /api/data/flex/:name  body: { item } — append (idempotent by id)
+app.post('/api/data/flex/:name', wrap(async (req, res) => {
+  const db = requireDb();
+  const { name } = req.params;
+  assertFlexArray(name);
+  const tenant = resolveTenant(req);
+  const item = req.body?.item;
+  if (!item || typeof item !== 'object') {
+    return res.status(400).json({ success: false, error: 'item payload required' });
+  }
+
+  const current = (await getFlex(db, tenant, name, [])) || [];
+  const arr = Array.isArray(current) ? current : [];
+  const withId = { ...item, id: item.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` };
+  const next = arr.some(x => x.id === withId.id) ? arr : capCollection(name, [...arr, withId]);
+
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: tenant, collection_name: name, value: next,
+  });
+  if (error) throw error;
+
+  broadcastChange(tenant, name);
+  res.json({ success: true, item: withId });
+}));
+
+// PATCH /api/data/flex/:name/:id  body: { data } — merge into the item (upsert)
+app.patch('/api/data/flex/:name/:id', wrap(async (req, res) => {
+  const db = requireDb();
+  const { name, id } = req.params;
+  assertFlexArray(name);
+  const tenant = resolveTenant(req);
+  const data = req.body?.data;
+  if (!data || typeof data !== 'object') {
+    return res.status(400).json({ success: false, error: 'data payload required' });
+  }
+
+  const current = (await getFlex(db, tenant, name, [])) || [];
+  const arr = Array.isArray(current) ? current : [];
+  let found = false;
+  const next = arr.map(x => {
+    if (String(x.id) === String(id)) { found = true; return { ...x, ...data, id: x.id }; }
+    return x;
+  });
+  if (!found) next.push({ ...data, id });
+
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: tenant, collection_name: name, value: next,
+  });
+  if (error) throw error;
+
+  broadcastChange(tenant, name);
+  res.json({ success: true });
+}));
+
+// DELETE /api/data/flex/:name/:id — remove one item
+app.delete('/api/data/flex/:name/:id', wrap(async (req, res) => {
+  const db = requireDb();
+  const { name, id } = req.params;
+  assertFlexArray(name);
+  const tenant = resolveTenant(req);
+
+  const current = (await getFlex(db, tenant, name, [])) || [];
+  const arr = Array.isArray(current) ? current : [];
+  const next = arr.filter(x => String(x.id) !== String(id));
+
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: tenant, collection_name: name, value: next,
+  });
+  if (error) throw error;
+
+  broadcastChange(tenant, name);
+  res.json({ success: true });
 }));
 
 // ── Flex collections + settings ─────────────────────────────

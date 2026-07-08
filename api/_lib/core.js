@@ -220,15 +220,31 @@ export async function seedTenantIfNew(tenant) {
   return true;
 }
 
+// Orders shipped in the default payload are bounded — a busy restaurant
+// accumulates 100k+ rows a year and shipping all of them to every device
+// on every sync is the app's memory ceiling. Older ranges are fetched on
+// demand via GET /api/data/orders.
+export const ORDERS_WINDOW_DAYS = 60;
+export const ORDERS_WINDOW_LIMIT = 3000;
+
+export function ordersWindowStart() {
+  const d = new Date(Date.now() - ORDERS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  return d.toISOString();
+}
+
 /**
  * Everything the frontend cache needs for one tenant, in one round trip.
  */
 export async function loadTenantPayload(tenant) {
   const db = getAdminClient();
+  const ordersFrom = ordersWindowStart();
   const [menuRes, inventoryRes, ordersRes, settingsRes, flexRes, usersRes] = await Promise.all([
     db.from('menu').select('*').eq('account_id', tenant),
     db.from('inventory').select('*').eq('account_id', tenant),
-    db.from('orders').select('*').eq('account_id', tenant),
+    db.from('orders').select('*').eq('account_id', tenant)
+      .gte('created_at', ordersFrom)
+      .order('created_at', { ascending: false })
+      .limit(ORDERS_WINDOW_LIMIT),
     db.from('settings').select('*').eq('account_id', tenant),
     db.from('tenant_data').select('*').eq('account_id', tenant),
     db.from('users').select('id, account_id, name, email, role, avatar, phone, created_at').eq('account_id', tenant),
@@ -251,6 +267,7 @@ export async function loadTenantPayload(tenant) {
     menu: menuRes.data || [],
     inventory: inventoryRes.data || [],
     orders: ordersRes.data || [],
+    ordersFrom, // clients fetch older ranges on demand
     settings: settingsObj,
     users: usersRes.data || [],
     collections,

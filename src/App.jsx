@@ -1,22 +1,31 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './db/AuthContext';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import POS from './pages/POS';
-import Inventory from './pages/Inventory';
-import MenuScreen from './pages/MenuScreen';
-import Delivery from './pages/Delivery';
-import Staff from './pages/Staff';
-import Reports from './pages/Reports';
-import Settings from './pages/Settings';
-import Guests from './pages/Guests';
-import KDS from './pages/KDS';
-import Reservations from './pages/Reservations';
-import MultiLocation from './pages/MultiLocation';
-import PlatformAdmin from './pages/PlatformAdmin';
-import QRMenu from './pages/QRMenu';
+
+// Pages load as separate chunks — the old single bundle was 1.25 MB, which
+// is a slow first paint on the cheap tablets restaurants actually run.
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const POS = lazy(() => import('./pages/POS'));
+const Inventory = lazy(() => import('./pages/Inventory'));
+const MenuScreen = lazy(() => import('./pages/MenuScreen'));
+const Delivery = lazy(() => import('./pages/Delivery'));
+const Staff = lazy(() => import('./pages/Staff'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Guests = lazy(() => import('./pages/Guests'));
+const KDS = lazy(() => import('./pages/KDS'));
+const Reservations = lazy(() => import('./pages/Reservations'));
+const MultiLocation = lazy(() => import('./pages/MultiLocation'));
+const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
+const QRMenu = lazy(() => import('./pages/QRMenu'));
+
+const PageLoader = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+    Loading…
+  </div>
+);
 
 // Route guard
 const Protected = ({ children, allowAdmin = false }) => {
@@ -44,6 +53,7 @@ function App() {
   const { user } = useAuth();
 
   return (
+    <Suspense fallback={<PageLoader />}>
     <Routes>
       {/* Public */}
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
@@ -72,6 +82,7 @@ function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
 }
 

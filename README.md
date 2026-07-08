@@ -33,6 +33,17 @@ Backend (Vercel serverless, Express)          Supabase (Postgres)
 - **Frontend data layer**: [src/db/database.js](src/db/database.js) keeps an
   in-memory cache per tenant so page reads stay synchronous; writes update
   the cache optimistically and call the API.
+- **Bounded data**: the default payload carries only the last 60 days of
+  orders; Reports fetch older ranges on demand (`GET /api/data/orders`).
+  The audit log is capped at 1,000 recent entries and completed KDS tickets
+  are pruned after 7 days.
+- **Atomic writes**: list collections are never written whole — every
+  insert/update/delete merges a single item server-side
+  (`/api/data/flex/:name`), so concurrent devices can't clobber each other.
+- **Code splitting**: each page ships as its own chunk (entry ~280 KB
+  instead of a single 1.25 MB bundle).
+- **Tests**: `npm test` (vitest) covers the date logic, payload
+  sanitizers/mappers, and password hashing.
 
 ## Setup
 
