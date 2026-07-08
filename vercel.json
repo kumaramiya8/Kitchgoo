@@ -1,8 +1,16 @@
 {
   "rewrites": [
     {
-      "source": "/api/(login|session|logout|reset-password)",
+      "source": "/api/(login|session|logout|register|reset-password)",
       "destination": "/api/auth"
+    },
+    {
+      "source": "/api/data/(.*)",
+      "destination": "/api/data"
+    },
+    {
+      "source": "/api/public/(.*)",
+      "destination": "/api/public"
     },
     {
       "source": "/api/(.*)",

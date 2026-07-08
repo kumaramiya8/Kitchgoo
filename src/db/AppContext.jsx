@@ -5,6 +5,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import {
   getAll,
   getSettings,
@@ -174,31 +175,11 @@ export function AppProvider({ children }) {
     setWasteLog(getAll('waste_log'));
     setLocations(getAll('locations'));
     const isDemo = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
-    if (tenant === 'Kitchgoo' && supabase && !isDemo) {
+    if (tenant === 'Kitchgoo' && user && supabase && !isDemo) {
       try {
-        const { data: allLogsRes } = await supabase
-          .from('tenant_data')
-          .select('*')
-          .eq('collection_name', 'audit_log');
-          
-        if (allLogsRes && allLogsRes.length > 0) {
-          const combinedLogs = [];
-          allLogsRes.forEach(row => {
-            const accId = row.account_id;
-            if (Array.isArray(row.value)) {
-              row.value.forEach(log => {
-                combinedLogs.push({
-                  ...log,
-                  accountId: accId,
-                });
-              });
-            }
-          });
-          combinedLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-          setAuditLog(combinedLogs);
-        } else {
-          setAuditLog([]);
-        }
+        // Combined cross-tenant audit log — platform admin only, via the backend
+        const { auditLog: combinedLogs } = await api.get('/api/data/audit-all');
+        setAuditLog(combinedLogs || []);
       } catch (err) {
         console.error('[DB] Failed to fetch all audit logs:', err);
         setAuditLog(getAll('audit_log'));
@@ -303,32 +284,13 @@ export function AppProvider({ children }) {
       reload();
     };
 
+    // The backend broadcasts a data-free "db_changed" signal after every
+    // mutation; clients hear it and pull fresh state through the API. The
+    // anon key no longer has table access, so postgres_changes is gone.
     const channel = supabase
-      .channel(`kitchgoo_realtime_${activeTenant}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          debouncedReload();
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, (payload) => {
-        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          debouncedReload();
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, (payload) => {
-        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          debouncedReload();
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
-        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          debouncedReload();
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tenant_data' }, (payload) => {
-        if (activeTenant === 'Kitchgoo' || payload.new?.account_id === activeTenant || payload.old?.account_id === activeTenant) {
-          debouncedReload();
-        }
+      .channel(`kitchgoo_changes_${activeTenant}`)
+      .on('broadcast', { event: 'db_changed' }, () => {
+        debouncedReload();
       })
       .on('broadcast', { event: 'order_created' }, (payload) => {
         console.log('[Realtime] Received order_created broadcast:', payload);
@@ -347,6 +309,27 @@ export function AppProvider({ children }) {
 
     return () => {
       supabase.removeChannel(channel);
+    };
+  }, [authLoading, hasLoadedFromDb, activeTenant]);
+
+  // Polling fallback — if the realtime socket drops, a visible tab still
+  // converges within 30s; a hidden tab resyncs the moment it's shown.
+  useEffect(() => {
+    if (authLoading || !hasLoadedFromDb || !activeTenant) return;
+    const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+    if (isDemoMode) return;
+
+    const maybeReload = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
+      reload();
+    };
+
+    const interval = setInterval(maybeReload, 30000);
+    document.addEventListener('visibilitychange', maybeReload);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', maybeReload);
     };
   }, [authLoading, hasLoadedFromDb, activeTenant]);
 

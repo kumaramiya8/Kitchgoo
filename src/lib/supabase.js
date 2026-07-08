@@ -1,3 +1,12 @@
+/**
+ * Realtime-only Supabase client.
+ *
+ * The browser no longer queries tables with this client — all data access
+ * goes through the backend API (/api/data, /api/public). This client exists
+ * solely to subscribe to broadcast channels for live sync signals; the anon
+ * key is safe to ship because RLS denies it all table access
+ * (see supabase-rls.sql).
+ */
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL

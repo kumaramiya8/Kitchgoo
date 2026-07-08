@@ -1,16 +1,21 @@
 /**
- * Kitchgoo — Relational Database Client & Adapter (Supabase & local Demo Mode)
+ * Kitchgoo — Data layer (backend API & local Demo Mode)
  *
  * Architecture:
- *  • Core transactional tables (accounts, users, settings, menu, inventory, orders)
- *    are stored as standard database rows in Supabase.
- *  • Other supporting collections are stored in the flexible tenant_data table.
- *  • Front-end read operations remain synchronous by loading the active tenant's datasets
+ *  • The browser NEVER talks to the database directly. All live reads/writes
+ *    go through the authenticated backend (/api/data/*), which derives the
+ *    tenant from the session cookie and scopes every query server-side.
+ *  • Guest devices (public QR menu) use the read-only /api/public/* surface.
+ *  • Front-end reads stay synchronous by loading the active tenant's datasets
  *    into an in-memory cache (_cache) at login/switch.
- *  • Writes update the cache immediately and launch targeted SQL queries to Supabase.
+ *  • Writes update the cache immediately and launch targeted API calls.
+ *  • Demo Mode keeps everything in localStorage — no network at all.
  */
 
-import { supabase } from '../lib/supabase';
+import { isConfigured } from '../lib/supabase';
+import { api } from '../lib/api';
+import { SEEDS, FLEX_COLLECTIONS, ROW_TABLES } from '../../shared/seeds';
+import { toCamelCase } from '../../shared/mappers';
 
 export function genId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -27,8 +32,6 @@ function getSessionUser() {
   } catch {}
   return { id: 'system', name: 'System / Guest' };
 }
-
-const NS = 'kitchgoo_';
 
 // Local Storage backup helpers for Demo Mode
 function localBackup(key, value) {
@@ -53,7 +56,8 @@ function localRestore(key) {
   return undefined;
 }
 
-// Hashing helper for admin seed
+// Legacy hashing helper — still used to seed the demo-mode admin.
+// Live-mode passwords are scrypt-hashed on the server; never hash client-side.
 export const simpleHash = (str) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -70,7 +74,23 @@ function isDemoMode() {
   return true;
 }
 
-// In-memory cache — populated from Supabase or LocalStorage
+// Live mode = backend-backed (not demo). Guest mode = public QR device.
+function isLive() {
+  return isConfigured && !isDemoMode();
+}
+
+let _guestMode = false;
+let _guestTableParam = '';
+
+function guestTableId() {
+  try {
+    return typeof window !== 'undefined' ? window.sessionStorage.getItem('kitchgoo_guest_table') : null;
+  } catch {
+    return null;
+  }
+}
+
+// In-memory cache — populated from the backend or LocalStorage
 const _cache = {};
 
 let _currentTenant = 'Kitchgoo';
@@ -108,393 +128,65 @@ export function getTenantCode(tenant) {
   return cleaned.padEnd(3, 'X');
 }
 
-
-// Generic Mapper helpers: CamelCase <--> snake_case
-function toSnakeCase(obj) {
-  if (obj === null || obj === undefined) return obj;
-  if (Array.isArray(obj)) return obj.map(toSnakeCase);
-  if (typeof obj !== 'object') return obj;
-  
-  const snake = {};
-  for (const [key, value] of Object.entries(obj)) {
-    let sKey = key.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/_([0-9])/, "_$1");
-    if (key === 'sold86') sKey = 'sold_86';
-    // If value is an array of objects or an object, convert recursively (excluding jsonb columns we want to keep raw)
-    if (key !== 'items' && key !== 'modifierGroups' && key !== 'allergens' && key !== 'dietaryLabels' && key !== 'priceTiers' && key !== 'timestamps' && key !== 'courseFiring') {
-      snake[sKey] = (typeof value === 'object' && value !== null) ? toSnakeCase(value) : value;
-    } else {
-      snake[sKey] = value;
-    }
-  }
-  return snake;
+// ─── Backend payload → cache ────────────────────────────────
+function mapUserRow(row) {
+  const u = toCamelCase(row);
+  u.restaurantName = u.accountId; // legacy field the frontend expects
+  return u;
 }
 
-function toCamelCase(obj) {
-  if (obj === null || obj === undefined) return obj;
-  if (Array.isArray(obj)) return obj.map(toCamelCase);
-  if (typeof obj !== 'object') return obj;
+function applyTenantPayload(payload) {
+  if (!payload) return;
 
-  const camel = {};
-  for (const [key, value] of Object.entries(obj)) {
-    let cKey = key.replace(/_([a-z0-9])/g, (_, char) => char.toUpperCase());
-    if (key === 'sold_86') cKey = 'sold86';
-    if (key !== 'items' && key !== 'modifier_groups' && key !== 'allergens' && key !== 'dietary_labels' && key !== 'price_tiers' && key !== 'timestamps' && key !== 'course_firing') {
-      camel[cKey] = (typeof value === 'object' && value !== null) ? toCamelCase(value) : value;
-    } else {
-      camel[cKey] = value;
-    }
-  }
-  return camel;
-}
+  if (payload.menu) _cache['menu'] = payload.menu.map(toCamelCase);
+  if (payload.inventory) _cache['inventory'] = payload.inventory.map(toCamelCase);
+  if (payload.orders) _cache['orders'] = payload.orders.map(toCamelCase);
+  if (payload.settings) _cache['settings'] = payload.settings;
 
-// ─── Seed Data ─────────────────────────────────────────────
-const SEEDS = {
-  settings: {
-    restaurant: {
-      name: 'Kitchgoo',
-      tagline: 'A Fine Dining Experience',
-      address: '12, MG Road, Bengaluru, Karnataka 560001',
-      phone: '+91 80 1234 5678',
-      email: 'hello@kitchgoo.in',
-      gstin: '29AABCT1332L1ZY',
-      fssai: '10012345678901',
-      currency: '₹',
-      timezone: 'Asia/Kolkata',
-    },
-    billing: {
-      gstRate: 5,
-      serviceCharge: 0,
-      enableServiceCharge: false,
-      roundingMode: 'nearest',
-      billPrefix: 'INV',
-      billStartNumber: 1001,
-      receiptHeader: 'Thank you for visiting Kitchgoo!',
-      receiptFooter: 'For feedback: feedback@kitchgoo.in',
-      showGstBreakdown: true,
-      autoGratuityEnabled: true,
-      autoGratuityThreshold: 6,
-      autoGratuityPercent: 18,
-      autoGratuityPreTax: true,
-    },
-    payments: {
-      cash: true,
-      upi: true,
-      card: true,
-      wallet: false,
-      onlineGateway: false,
-      upiId: 'kitchgoo@upi',
-      upiPayeeName: '',
-      upiRemarks: '',
-      showUpiQr: false,
-      applePay: false,
-      googlePay: false,
-      qrPayAtTable: false,
-    },
-    delivery: {
-      zomatoEnabled: false,
-      zomatoApiKey: '',
-      zomatoResId: '',
-      swiggyEnabled: false,
-      swiggyApiKey: '',
-      swiggyResId: '',
-      dunzoEnabled: false,
-      uberEatsEnabled: false,
-      doordashEnabled: false,
-      grubhubEnabled: false,
-      packagingCharge: 20,
-      deliveryZones: [],
-      inHouseDelivery: false,
-    },
-    operations: {
-      tables: 20,
-      openingTime: '09:00',
-      closingTime: '23:00',
-      workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-      autoKOT: false,
-      offlineMode: true,
-      lowStockThreshold: 5,
-      voidApprovalThreshold: 0,
-      autoOpenCashDrawer: true,
-      autoPrintReceipt: false,
-    },
-    notifications: {
-      lowStock: true,
-      newDeliveryOrder: true,
-      orderReady: true,
-      dailySummary: false,
-      emailAlerts: false,
-      alertEmail: '',
-      overtimeAlert: true,
-    },
-    printer: {
-      kotPrinter: 'Default',
-      billPrinter: 'Default',
-      autoPrintKOT: false,
-      autoPrintBill: false,
-      paperSize: '80mm',
-      copies: 1,
-    },
-    appearance: {
-      theme: 'light',
-      accentColor: '#1e5e4a',
-      compactMode: false,
-      language: 'en',
-    },
-    roles: [
-      { id: 'owner',   name: 'Owner',   permissions: ['all'] },
-      { id: 'manager', name: 'Manager', permissions: ['pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds', 'reservations', 'guests', 'settings.view'] },
-      { id: 'cashier', name: 'Cashier', permissions: ['pos', 'delivery', 'guests.view'] },
-      { id: 'chef',    name: 'Chef',    permissions: ['inventory', 'menu', 'kds'] },
-      { id: 'waiter',  name: 'Waiter',  permissions: ['pos', 'kds.view', 'reservations.view'] },
-    ],
-    modules: {
-      tableManagement: true,
-      reservations: true,
-      kds: true,
-      delivery: true,
-      onlineOrdering: true,
-      loyalty: true,
-      campaigns: true,
-      multiLocation: false,
-      platformAdmin: false,
-    },
-    naming: {
-      checks: 'Checks',
-      servers: 'Servers',
-      tables: 'Tables',
-      guests: 'Guests',
-    },
-    receipt: {
-      logo: '',
-      headerText: 'Thank you for visiting!',
-      footerText: 'For feedback: feedback@kitchgoo.in',
-      showQR: false,
-      tipSuggestions: [10, 15, 20],
-    },
-    subscription: {
-      tier: 'pro',
-      maxLocations: 5,
-      smsCredits: 1000,
-      smsUsed: 0,
-      onlineOrderFeePercent: 2.5,
-    },
-    menuCategories: {
-      categories: ['Starters', 'Main Course', 'Desserts', 'Beverages', 'Breads', 'Salads', 'Sides', 'Specials'],
-      subcategories: {
-        'Starters': ['Soup', 'Appetizer', 'Finger Food'],
-        'Main Course': ['Curry', 'Rice', 'Noodles', 'Grill'],
-        'Desserts': ['Cake', 'Ice Cream', 'Pastry', 'Traditional'],
-        'Beverages': ['Hot', 'Cold', 'Alcoholic', 'Mocktail'],
-        'Breads': ['Indian', 'Western'],
-        'Salads': ['Green', 'Grain', 'Protein'],
-        'Sides': ['Accompaniment', 'Extra'],
-        'Specials': ['Chef Special', 'Seasonal']
+  if (payload.collections) {
+    FLEX_COLLECTIONS.forEach(col => {
+      if (payload.collections[col] !== undefined) {
+        _cache[col] = payload.collections[col];
+      } else if (_cache[col] === undefined) {
+        _cache[col] = JSON.parse(JSON.stringify(SEEDS[col] !== undefined ? SEEDS[col] : []));
       }
+    });
+    const bc = payload.collections.bill_counter;
+    if (bc && typeof bc.counter === 'number') {
+      _cache['bill_counter'] = bc.counter;
     }
-  },
-
-  staff: [],
-
-  inventory: [],
-
-  menu: [],
-
-  orders:          [],
-  delivery_orders: [],
-  attendance:      [],
-  users:           [],
-  guests: [],
-
-  // New collections
-  kds_tickets: [],
-  reservations: [],
-  waitlist: [],
-  online_orders: [],
-  suppliers: [],
-  purchase_orders: [],
-  recipes: [],
-  waste_log: [],
-  locations: [],
-  audit_log: [],
-  floor_plans: {
-    tables: Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      label: `Table ${i + 1}`,
-      shape: i < 12 ? 'square' : i < 16 ? 'round' : 'bar',
-      seats: i < 12 ? 4 : i < 16 ? 6 : 2,
-      x: (i % 5) * 120 + 20,
-      y: Math.floor(i / 5) * 120 + 20,
-      section: i < 10 ? 'Main Dining' : i < 16 ? 'Private' : 'Bar',
-      server: '',
-    })),
-    sections: ['Main Dining', 'Private', 'Bar', 'Patio'],
-  },
-  modifiers: [],
-  schedules: [],
-  tip_pools: [],
-  loyalty: {
-    enabled: true,
-    pointsPerDollar: 1,
-    pointsPerVisit: 10,
-    redemptionRate: 100,
-    tiers: [
-      { name: 'Bronze', minPoints: 0, perks: 'Earn 1 point per ₹1 spent' },
-      { name: 'Silver', minPoints: 200, perks: '5% discount on all orders' },
-      { name: 'Gold', minPoints: 500, perks: '10% discount + free dessert on birthday' },
-      { name: 'VIP', minPoints: 1000, perks: '15% discount + skip-the-line + hidden menu access' },
-    ],
-  },
-  campaigns: [],
-  cash_drawer: {
-    openingBalance: 0,
-    currentBalance: 0,
-    drops: [],
-    discrepancies: [],
-    shiftStart: null,
-    isClosed: true,
-  },
-  register_closures: [],
-  pos_tables: [],
-  pos_saved_orders: {},
-};
-
-// ─── Asynchronous Helper to load tenant data from Supabase ────
-async function loadTenantDataFromSupabase(tenantName) {
-  const collections = [
-    'staff', 'delivery_orders', 'attendance', 'guests', 'kds_tickets',
-    'reservations', 'waitlist', 'online_orders', 'suppliers', 'purchase_orders',
-    'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
-    'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
-    'pos_tables', 'pos_saved_orders', 'register_closures'
-  ];
-
-  // Core tables queries
-  const [menuRes, inventoryRes, ordersRes, settingsRes, flexRes] = await Promise.all([
-    supabase.from('menu').select('*').eq('account_id', tenantName),
-    supabase.from('inventory').select('*').eq('account_id', tenantName),
-    supabase.from('orders').select('*').eq('account_id', tenantName),
-    supabase.from('settings').select('*').eq('account_id', tenantName),
-    supabase.from('tenant_data').select('*').eq('account_id', tenantName)
-  ]);
-
-  // Load menu
-  _cache['menu'] = (menuRes.data || []).map(toCamelCase);
-
-  // Load inventory
-  _cache['inventory'] = (inventoryRes.data || []).map(toCamelCase);
-
-  // Load orders
-  _cache['orders'] = (ordersRes.data || []).map(toCamelCase);
-
-  // Load settings (reassemble from section rows)
-  const settingsObj = JSON.parse(JSON.stringify(SEEDS.settings));
-  if (settingsRes.data && settingsRes.data.length > 0) {
-    settingsRes.data.forEach(row => {
-      settingsObj[row.section_name] = row.value;
-    });
   }
-  _cache['settings'] = settingsObj;
 
-  // Load flex data collections with fallback seeds
-  collections.forEach(col => {
-    _cache[col] = SEEDS[col] || [];
-  });
-  if (flexRes.data && flexRes.data.length > 0) {
-    flexRes.data.forEach(row => {
-      _cache[row.collection_name] = row.value;
-    });
+  // Platform admin gets the global accounts + users lists; everyone else
+  // only ever sees their own tenant's users.
+  if (payload.accounts) _cache['accounts'] = payload.accounts;
+  if (payload.allUsers) {
+    _cache['users'] = payload.allUsers.map(mapUserRow);
+  } else if (payload.users) {
+    _cache['users'] = payload.users.map(mapUserRow);
   }
 }
 
+// ─── Sync (refresh cache from backend) ──────────────────────
 export async function syncTenantDataFromSupabase(tenantName) {
-  if (!supabase || isDemoMode()) return;
+  if (!isLive()) return;
   try {
-    const collections = [
-      'staff', 'delivery_orders', 'attendance', 'guests', 'kds_tickets',
-      'reservations', 'waitlist', 'online_orders', 'suppliers', 'purchase_orders',
-      'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
-      'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
-      'pos_tables', 'pos_saved_orders', 'register_closures'
-    ];
-
-    const [menuRes, inventoryRes, ordersRes, settingsRes, flexRes] = await Promise.all([
-      supabase.from('menu').select('*').eq('account_id', tenantName),
-      supabase.from('inventory').select('*').eq('account_id', tenantName),
-      supabase.from('orders').select('*').eq('account_id', tenantName),
-      supabase.from('settings').select('*').eq('account_id', tenantName),
-      supabase.from('tenant_data').select('*').eq('account_id', tenantName)
-    ]);
-
-    if (menuRes.data) _cache['menu'] = menuRes.data.map(toCamelCase);
-    if (inventoryRes.data) _cache['inventory'] = inventoryRes.data.map(toCamelCase);
-    if (ordersRes.data) _cache['orders'] = ordersRes.data.map(toCamelCase);
-
-    if (settingsRes.data && settingsRes.data.length > 0) {
-      const settingsObj = JSON.parse(JSON.stringify(SEEDS.settings));
-      settingsRes.data.forEach(row => {
-        settingsObj[row.section_name] = row.value;
-      });
-      _cache['settings'] = settingsObj;
+    if (_guestMode) {
+      const q = _guestTableParam ? `?table=${encodeURIComponent(_guestTableParam)}` : '';
+      const payload = await api.get(`/api/public/qrmenu/${encodeURIComponent(tenantName)}${q}`);
+      applyTenantPayload(payload);
+      return;
     }
-
-    if (flexRes.data) {
-      collections.forEach(col => {
-        const found = flexRes.data.find(row => row.collection_name === col);
-        if (found) {
-          _cache[col] = found.value;
-        }
-      });
-    }
+    const payload = await api.get('/api/data/sync', { tenant: tenantName });
+    applyTenantPayload(payload);
   } catch (err) {
-    console.error('[DB] syncTenantDataFromSupabase error:', err);
+    console.error('[DB] sync error:', err);
   }
 }
 
-// ─── Sanitization Helpers for Supabase Relational Tables ───────
-function sanitizeInsertPayload(table, data) {
-  const tableColumns = {
-    users: ['id', 'accountId', 'name', 'email', 'password', 'role', 'avatar', 'phone', 'createdAt'],
-    menu: ['id', 'accountId', 'name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'image', 'ingredients', 'createdAt'],
-    inventory: ['id', 'accountId', 'name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'lastUpdated'],
-    orders: ['id', 'accountId', 'billNo', 'tableId', 'items', 'subtotal', 'tax', 'taxRate', 'serviceCharge', 'autoGratuity', 'discount', 'comp', 'tip', 'total', 'paymentMethod', 'orderType', 'guestId', 'guestName', 'serverId', 'serverName', 'partySize', 'status', 'voidReason', 'compReason', 'discountReason', 'courseFiring', 'timestamps', 'createdAt']
-  };
-
-  const allowed = tableColumns[table];
-  if (!allowed) return toSnakeCase(data);
-
-  const filtered = {};
-  for (const key of allowed) {
-    if (data[key] !== undefined) {
-      filtered[key] = data[key];
-    }
-  }
-  return toSnakeCase(filtered);
-}
-
-function sanitizeUpdatePayload(table, data) {
-  const tableColumns = {
-    users: ['name', 'email', 'password', 'role', 'avatar', 'phone', 'accountId'],
-    menu: ['name', 'price', 'category', 'subcategory', 'reportingGroup', 'type', 'active', 'description', 'preparationTime', 'station', 'modifierGroups', 'taxGroup', 'calories', 'allergens', 'dietaryLabels', 'costPrice', 'sold86', 'priceTiers', 'image', 'ingredients'],
-    inventory: ['name', 'category', 'stock', 'unit', 'min', 'cost', 'supplier', 'lastUpdated'],
-    orders: ['billNo', 'tableId', 'items', 'subtotal', 'tax', 'taxRate', 'serviceCharge', 'autoGratuity', 'discount', 'comp', 'tip', 'total', 'paymentMethod', 'orderType', 'guestId', 'guestName', 'serverId', 'serverName', 'partySize', 'status', 'voidReason', 'compReason', 'discountReason', 'courseFiring', 'timestamps']
-  };
-
-
-  const allowed = tableColumns[table];
-  if (!allowed) return toSnakeCase(data);
-
-  const filtered = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (allowed.includes(key)) {
-      filtered[key] = value;
-    }
-  }
-  return toSnakeCase(filtered);
-}
-
-// ─── Init — load accounts and active user session ─────────
+// ─── Init — demo seeds or nothing (live waits for login) ────
 export async function initDB() {
-  if (!supabase || isDemoMode()) {
+  if (!isLive()) {
     // Demo mode initialization
     const collections = [
       'settings', 'staff', 'inventory', 'menu', 'orders', 'delivery_orders',
@@ -532,60 +224,18 @@ export async function initDB() {
     return;
   }
 
-  try {
-    // 1. Load accounts and global users list
-    const { data: accounts } = await supabase.from('accounts').select('*');
-    const { data: users } = await supabase.from('users').select('*');
-    
-    _cache['accounts'] = accounts || [];
-    _cache['users'] = (users || []).map(row => {
-      const u = toCamelCase(row);
-      u.restaurantName = u.accountId; // Keep frontend compatibility
-      return u;
-    });
-
-    // 2. Ensure default Kitchgoo admin exists in the database
-    let adminAccount = _cache['accounts'].find(a => a.name.toLowerCase() === 'kitchgoo');
-    if (!adminAccount) {
-      const newAcc = { id: 'Kitchgoo', name: 'Kitchgoo', status: 'active', plan: 'pro' };
-      await supabase.from('accounts').insert(newAcc);
-      _cache['accounts'].push(newAcc);
-    }
-
-    let adminUser = _cache['users'].find(u => u.email.toLowerCase() === 'admin@kitchgoo.in');
-    if (!adminUser) {
-      const newAdmin = {
-        id: genId(),
-        account_id: 'Kitchgoo',
-        name: 'Admin',
-        email: 'admin@kitchgoo.in',
-        password: simpleHash('admin123'),
-        role: 'Owner',
-        avatar: 'A',
-        created_at: new Date().toISOString()
-      };
-      await supabase.from('users').insert(newAdmin);
-      const adminCamel = toCamelCase(newAdmin);
-      adminCamel.restaurantName = adminCamel.accountId;
-      _cache['users'].push(adminCamel);
-    }
-
-    // 3. Load active Kitchgoo tenant data into cache
-    _currentTenant = 'Kitchgoo';
-    await loadTenantDataFromSupabase('Kitchgoo');
-
-  } catch (err) {
-    console.error('[DB] initDB error:', err);
-  }
+  // Live mode: there is no session yet at boot — the authenticated bootstrap
+  // happens in initTenantDB() once AuthContext restores the session.
 }
 
-// ─── Tenant DB Initializer ─────────────────────────────────
+// ─── Tenant DB Initializer (authenticated) ──────────────────
 export async function initTenantDB(tenantName) {
   if (!tenantName) return;
-  
-  _currentTenant = tenantName;
 
-  if (!supabase || isDemoMode()) {
+  _currentTenant = tenantName;
+  _guestMode = false;
+
+  if (!isLive()) {
     // Restore from localStorage under prefix, fallback to SEEDS
     const collections = [
       'settings', 'staff', 'inventory', 'menu', 'orders', 'delivery_orders',
@@ -621,60 +271,38 @@ export async function initTenantDB(tenantName) {
   }
 
   try {
-    // 1. Ensure account exists in the accounts table
-    const { data: existingAccounts } = await supabase.from('accounts').select('*').eq('id', tenantName);
-    if (!existingAccounts || existingAccounts.length === 0) {
-      await supabase.from('accounts').insert({ id: tenantName, name: tenantName, status: 'active', plan: 'pro' });
-    }
-
-    // 2. Fetch all rows for this tenant
-    await loadTenantDataFromSupabase(tenantName);
-
-    // 3. If no settings sections exist, it's a new tenant! Seed standard templates
-    const { data: existingSettings } = await supabase.from('settings').select('section_name').eq('account_id', tenantName);
-    if (!existingSettings || existingSettings.length === 0) {
-      console.log(`[DB] Seeding new tenant: ${tenantName}`);
-      
-      // Seed Settings
-      const settingsObj = {
-        ...SEEDS.settings,
-        restaurant: {
-          ...SEEDS.settings.restaurant,
-          name: tenantName,
-          email: `contact@${tenantName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
-        }
-      };
-      
-      const settingsPromises = Object.entries(settingsObj).map(([section, val]) =>
-         supabase.from('settings').insert({ account_id: tenantName, section_name: section, value: val })
-      );
-      await Promise.all(settingsPromises);
-
-      // Seed Menu
-      const menuPromises = SEEDS.menu.map(item =>
-        supabase.from('menu').insert(sanitizeInsertPayload('menu', { ...item, accountId: tenantName }))
-      );
-      await Promise.all(menuPromises);
-
-      // Seed Inventory
-      const invPromises = SEEDS.inventory.map(item =>
-        supabase.from('inventory').insert(sanitizeInsertPayload('inventory', { ...item, accountId: tenantName }))
-      );
-      await Promise.all(invPromises);
-
-      // Seed flex data
-      const flexCollections = ['staff', 'suppliers', 'recipes', 'floor_plans', 'modifiers', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer', 'register_closures'];
-      const flexPromises = flexCollections.map(col =>
-        supabase.from('tenant_data').insert({ account_id: tenantName, collection_name: col, value: SEEDS[col] })
-      );
-      await Promise.all(flexPromises);
-
-      // Reload tenant data to make sure cache holds seeded values
-      await loadTenantDataFromSupabase(tenantName);
-    }
+    // One round trip: ensures the account exists, seeds new tenants, and
+    // returns everything the cache needs. Tenant scoping happens server-side.
+    const payload = await api.get('/api/data/bootstrap', { tenant: tenantName });
+    applyTenantPayload(payload);
   } catch (err) {
     console.error('[DB] initTenantDB error:', err);
   }
+}
+
+// ─── Guest (public QR menu) initializer ─────────────────────
+export async function initGuestTenantDB(tenantName, tableParam = '') {
+  if (!tenantName) return;
+  _currentTenant = tenantName;
+  _guestMode = true;
+  _guestTableParam = tableParam || '';
+
+  if (!isLive()) {
+    return initTenantDB(tenantName);
+  }
+
+  const q = _guestTableParam ? `?table=${encodeURIComponent(_guestTableParam)}` : '';
+  const payload = await api.get(`/api/public/qrmenu/${encodeURIComponent(tenantName)}${q}`);
+
+  // Guests get a minimal payload; every other collection falls back to seeds
+  FLEX_COLLECTIONS.forEach(col => {
+    _cache[col] = JSON.parse(JSON.stringify(SEEDS[col] !== undefined ? SEEDS[col] : []));
+  });
+  applyTenantPayload(payload);
+}
+
+export function isGuestMode() {
+  return _guestMode;
 }
 
 // ─── Generic Collection CRUD ────────────────────────────────
@@ -694,47 +322,30 @@ export async function insert(collection, data) {
   if (!newItem.id || String(newItem.id).trim() === '') {
     newItem.id = genId();
   }
-  
+
   if (collection === 'users') {
     newItem.accountId = newItem.restaurantName || 'Kitchgoo';
     newItem.restaurantName = newItem.accountId; // Keep compatibility
   }
-  
+
   const items = getAll(collection);
   _cache[collection] = [...items, newItem];
-  
+
   localBackup(`${_currentTenant}_${collection}`, _cache[collection]);
-  
-  if (supabase && !isDemoMode()) {
+
+  if (isLive()) {
     try {
-      if (collection === 'users') {
-        const tenantName = newItem.restaurantName || 'Kitchgoo';
-        const { data: existing, error: existErr } = await supabase.from('accounts').select('id').eq('id', tenantName);
-        if (existErr) throw existErr;
-        if (!existing || existing.length === 0) {
-          const { error: accError } = await supabase.from('accounts').insert({ id: tenantName, name: tenantName, status: 'active', plan: 'pro' });
-          if (accError) throw accError;
+      if (_guestMode) {
+        // Guests may only fire KDS tickets; the server appends atomically.
+        if (collection === 'kds_tickets') {
+          await api.post(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/kds`, { ticket: newItem });
         }
-        const { error: userError } = await supabase.from('users').insert(sanitizeInsertPayload('users', { ...newItem, accountId: tenantName }));
-        if (userError) throw userError;
-      } else if (collection === 'menu') {
-        const { error: menuError } = await supabase.from('menu').insert(sanitizeInsertPayload('menu', { ...newItem, accountId: _currentTenant }));
-        if (menuError) throw menuError;
-      } else if (collection === 'inventory') {
-        const { error: invError } = await supabase.from('inventory').insert(sanitizeInsertPayload('inventory', { ...newItem, accountId: _currentTenant }));
-        if (invError) throw invError;
-      } else if (collection === 'orders') {
-        const { error: orderError } = await supabase.from('orders').insert(sanitizeInsertPayload('orders', { ...newItem, accountId: _currentTenant }));
-        if (orderError) throw orderError;
+      } else if (ROW_TABLES.includes(collection)) {
+        await api.post(`/api/data/rows/${collection}`, { item: newItem }, { tenant: _currentTenant });
       } else {
-        const { error: tdError } = await supabase.from('tenant_data').upsert({
-          account_id: _currentTenant,
-          collection_name: collection,
-          value: _cache[collection]
-        });
-        if (tdError) throw tdError;
+        await api.put(`/api/data/collections/${collection}`, { value: _cache[collection] }, { tenant: _currentTenant });
       }
-      markMutation(); // Update again after DB call finishes
+      markMutation(); // Update again after the API call finishes
     } catch (err) {
       console.error(`[DB] Error inserting to ${collection}:`, err);
     }
@@ -767,14 +378,10 @@ export async function update(collection, id, data) {
     const updated = { ...items, ...data };
     _cache[collection] = updated;
     localBackup(`${_currentTenant}_${collection}`, updated);
-    
-    if (supabase && !isDemoMode()) {
+
+    if (isLive() && !_guestMode) {
       try {
-        await supabase.from('tenant_data').upsert({
-          account_id: _currentTenant,
-          collection_name: collection,
-          value: updated
-        });
+        await api.put(`/api/data/collections/${collection}`, { value: updated }, { tenant: _currentTenant });
       } catch (err) {
         console.error(`[DB] Error updating non-array ${collection}:`, err);
       }
@@ -797,22 +404,12 @@ export async function update(collection, id, data) {
   _cache[collection] = updated;
   localBackup(`${_currentTenant}_${collection}`, updated);
 
-  if (supabase && !isDemoMode() && updatedItem) {
+  if (isLive() && !_guestMode && updatedItem) {
     try {
-      if (collection === 'users') {
-        await supabase.from('users').update(sanitizeUpdatePayload('users', data)).eq('id', id);
-      } else if (collection === 'menu') {
-        await supabase.from('menu').update(sanitizeUpdatePayload('menu', data)).eq('id', id);
-      } else if (collection === 'inventory') {
-        await supabase.from('inventory').update(sanitizeUpdatePayload('inventory', data)).eq('id', id);
-      } else if (collection === 'orders') {
-        await supabase.from('orders').update(sanitizeUpdatePayload('orders', data)).eq('id', id);
+      if (ROW_TABLES.includes(collection)) {
+        await api.patch(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant });
       } else {
-        await supabase.from('tenant_data').upsert({
-          account_id: _currentTenant,
-          collection_name: collection,
-          value: updated
-        });
+        await api.put(`/api/data/collections/${collection}`, { value: updated }, { tenant: _currentTenant });
       }
       markMutation();
     } catch (err) {
@@ -828,22 +425,12 @@ export async function remove(collection, id) {
   _cache[collection] = items;
   localBackup(`${_currentTenant}_${collection}`, items);
 
-  if (supabase && !isDemoMode()) {
+  if (isLive() && !_guestMode) {
     try {
-      if (collection === 'users') {
-        await supabase.from('users').delete().eq('id', id);
-      } else if (collection === 'menu') {
-        await supabase.from('menu').delete().eq('id', id);
-      } else if (collection === 'inventory') {
-        await supabase.from('inventory').delete().eq('id', id);
-      } else if (collection === 'orders') {
-        await supabase.from('orders').delete().eq('id', id);
+      if (ROW_TABLES.includes(collection)) {
+        await api.delete(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { tenant: _currentTenant });
       } else {
-        await supabase.from('tenant_data').upsert({
-          account_id: _currentTenant,
-          collection_name: collection,
-          value: items
-        });
+        await api.put(`/api/data/collections/${collection}`, { value: items }, { tenant: _currentTenant });
       }
       markMutation();
     } catch (err) {
@@ -871,24 +458,12 @@ export async function clearCollection(collection) {
   _cache[collection] = [];
   localBackup(`${_currentTenant}_${collection}`, []);
 
-  if (supabase && !isDemoMode()) {
+  if (isLive() && !_guestMode) {
     try {
-      if (collection === 'menu') {
-        const { error } = await supabase.from('menu').delete().eq('account_id', _currentTenant);
-        if (error) throw error;
-      } else if (collection === 'inventory') {
-        const { error } = await supabase.from('inventory').delete().eq('account_id', _currentTenant);
-        if (error) throw error;
-      } else if (collection === 'orders') {
-        const { error } = await supabase.from('orders').delete().eq('account_id', _currentTenant);
-        if (error) throw error;
+      if (['menu', 'inventory', 'orders'].includes(collection)) {
+        await api.delete(`/api/data/rows/${collection}`, { tenant: _currentTenant });
       } else {
-        const { error } = await supabase.from('tenant_data').upsert({
-          account_id: _currentTenant,
-          collection_name: collection,
-          value: []
-        });
-        if (error) throw error;
+        await api.put(`/api/data/collections/${collection}`, { value: [] }, { tenant: _currentTenant });
       }
       markMutation();
     } catch (err) {
@@ -902,62 +477,25 @@ export async function setCollection(collection, data) {
   _cache[collection] = data;
   localBackup(`${_currentTenant}_${collection}`, data);
 
-  if (supabase && !isDemoMode()) {
+  if (isLive()) {
     try {
-      let payload = data;
-      const isGuestDevice = typeof window !== 'undefined' && !window.localStorage.getItem('kitchgoo_session');
-      const guestTableId = typeof window !== 'undefined' ? window.sessionStorage.getItem('kitchgoo_guest_table') : null;
-
-      if (isGuestDevice && guestTableId) {
+      const gtId = guestTableId();
+      if (_guestMode && gtId && (collection === 'pos_tables' || collection === 'pos_saved_orders')) {
+        // Guests write ONLY their own table; the server merges into the
+        // latest stored state so concurrent guests can't clobber each other.
         if (collection === 'pos_tables') {
-          const { data: latestRow } = await supabase
-            .from('tenant_data')
-            .select('value')
-            .eq('account_id', _currentTenant)
-            .eq('collection_name', collection)
-            .maybeSingle();
-
-          if (latestRow && Array.isArray(latestRow.value)) {
-            const dbTables = latestRow.value;
-            payload = dbTables.map(dbTable => {
-              if (String(dbTable.id) === String(guestTableId)) {
-                const localTable = data.find(t => String(t.id) === String(guestTableId));
-                return localTable || dbTable;
-              }
-              return dbTable;
-            });
+          const table = (data || []).find(t => String(t.id) === String(gtId));
+          if (table) {
+            await api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(gtId)}`, { table });
           }
-        } else if (collection === 'pos_saved_orders') {
-          const { data: latestRow } = await supabase
-            .from('tenant_data')
-            .select('value')
-            .eq('account_id', _currentTenant)
-            .eq('collection_name', collection)
-            .maybeSingle();
-
-          if (latestRow && latestRow.value && typeof latestRow.value === 'object' && !Array.isArray(latestRow.value)) {
-            const dbOrders = latestRow.value;
-            payload = { ...dbOrders };
-            if (data[guestTableId]) {
-              payload[guestTableId] = data[guestTableId];
-            } else {
-              delete payload[guestTableId];
-            }
-          }
+        } else {
+          const savedOrder = data && data[gtId] !== undefined ? data[gtId] : null;
+          await api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(gtId)}`, { savedOrder });
         }
+      } else if (!_guestMode) {
+        await api.put(`/api/data/collections/${collection}`, { value: data }, { tenant: _currentTenant });
       }
-
-      const { error } = await supabase.from('tenant_data').upsert({
-        account_id: _currentTenant,
-        collection_name: collection,
-        value: payload
-      });
-      if (error) throw error;
-      markMutation(); // Update again after DB call finishes
-      
-      // Update cache and localStorage with the merged payload
-      _cache[collection] = payload;
-      localBackup(`${_currentTenant}_${collection}`, payload);
+      markMutation(); // Update again after the API call finishes
     } catch (err) {
       console.error(`[DB] Error setCollection ${collection}:`, err);
       throw err;
@@ -997,17 +535,12 @@ export async function updateSettings(section, data) {
       : data;
   const updated = { ...settings, [section]: newSectionValue };
   _cache['settings'] = updated;
-  
+
   localBackup(`${_currentTenant}_settings`, updated);
 
-  if (supabase && !isDemoMode()) {
+  if (isLive() && !_guestMode) {
     try {
-      const { error } = await supabase.from('settings').upsert({
-        account_id: _currentTenant,
-        section_name: section,
-        value: newSectionValue
-      });
-      if (error) throw error;
+      await api.put(`/api/data/settings/${section}`, { value: newSectionValue }, { tenant: _currentTenant });
     } catch (err) {
       console.error('[DB] Error updating settings row:', err);
     }
@@ -1031,8 +564,8 @@ export async function updateSettings(section, data) {
 // ─── Orders / Transactions ──────────────────────────────────
 export async function createOrder(tableId, items, paymentMethod, extra = {}) {
   const bcKey = `${_currentTenant}_bill_counter`;
-  const counter = (_cache['bill_counter'] = (localRestore(bcKey) || 1001));
-  
+  const counter = (_cache['bill_counter'] = (localRestore(bcKey) || _cache['bill_counter'] || 1001));
+
   const settings = getSettings();
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * (settings.billing.gstRate / 100);
@@ -1092,18 +625,14 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
   localBackup(`${_currentTenant}_orders`, newOrders);
   localBackup(bcKey, counter + 1);
 
-  if (supabase && !isDemoMode()) {
+  if (isLive() && !_guestMode) {
     try {
       await Promise.all([
-        supabase.from('orders').insert(toSnakeCase({ ...order, accountId: _currentTenant })),
-        supabase.from('tenant_data').upsert({
-          account_id: _currentTenant,
-          collection_name: 'bill_counter',
-          value: { counter: counter + 1 }
-        })
+        api.post('/api/data/rows/orders', { item: order }, { tenant: _currentTenant }),
+        api.put('/api/data/collections/bill_counter', { value: { counter: counter + 1 } }, { tenant: _currentTenant }),
       ]);
     } catch (err) {
-      console.error('[DB] createOrder Supabase error:', err);
+      console.error('[DB] createOrder API error:', err);
     }
   }
 
@@ -1306,16 +835,12 @@ export async function updateCashDrawer(data) {
   const current = getAll('cash_drawer') || SEEDS.cash_drawer;
   const updated = { ...current, ...data };
   _cache['cash_drawer'] = updated;
-  
+
   localBackup(`${_currentTenant}_cash_drawer`, updated);
 
-  if (supabase && !isDemoMode()) {
+  if (isLive() && !_guestMode) {
     try {
-      await supabase.from('tenant_data').upsert({
-        account_id: _currentTenant,
-        collection_name: 'cash_drawer',
-        value: updated
-      });
+      await api.put('/api/data/collections/cash_drawer', { value: updated }, { tenant: _currentTenant });
     } catch (err) {
       console.error('[DB] Error updating cash drawer:', err);
     }

@@ -3,7 +3,7 @@
  * Uses HttpOnly cookies (via /api endpoints) for sessions instead of localStorage.
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getAll, insert, update as dbUpdate, setCurrentTenant, initTenantDB } from './database';
+import { update as dbUpdate, setCurrentTenant, initTenantDB } from './database';
 
 const AuthContext = createContext(null);
 
@@ -109,58 +109,45 @@ export function AuthProvider({ children }) {
   };
 
   /**
-   * Register a new user account.
-   * This is still done via the database layer since we haven't built a full /api/register yet,
-   * but if it's their first time, we force them to login via the server immediately after.
+   * Register a new user account — fully server-side. The backend creates the
+   * account (tenant) if needed, scrypt-hashes the password, and sets the
+   * HttpOnly session cookie in the same round trip.
    */
   const register = async (data) => {
-    const users = getAll('users');
-    if (users.find(u => u.email.toLowerCase() === data.email.toLowerCase())) {
-      return { success: false, error: 'An account with this email already exists.' };
-    }
-    
-    // Simple hash for the DB (legacy compatibility)
-    const simpleHash = (str) => {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantName: data.restaurantName || 'Kitchgoo',
+          name: data.name,
+          email: data.email,
+          password: data.password,
+          phone: data.phone || '',
+          role: data.role,
+        }),
+      });
+      const result = await res.json();
+      if (!result.success) {
+        return { success: false, error: result.error || 'Registration failed.' };
       }
-      return hash.toString(16);
-    };
 
-    const newUser = await insert('users', {
-      name: data.name,
-      email: data.email,
-      password: simpleHash(data.password),
-      role: users.length === 0 ? 'Owner' : (data.role || 'Cashier'),
-      avatar: data.name.charAt(0).toUpperCase(),
-      restaurantName: data.restaurantName || 'Kitchgoo',
-      phone: data.phone || '',
-      createdAt: new Date().toISOString(),
-    });
-
-    if (!user) {
-      // Login via the server to establish HttpOnly cookie
-      return await login(data.restaurantName || 'Kitchgoo', data.email, data.password);
+      if (!user) {
+        setCurrentTenant(result.user.restaurantName);
+        await initTenantDB(result.user.restaurantName);
+        setUser(result.user);
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error during registration' };
     }
-    return { success: true };
   };
 
   const updateProfile = async (data) => {
     if (!user) return { success: false, error: 'Not logged in.' };
-    
-    const simpleHash = (str) => {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
-      }
-      return hash.toString(16);
-    };
 
-    const updated = await dbUpdate('users', user.id, {
-      ...data,
-      ...(data.password ? { password: simpleHash(data.password) } : {}),
-    });
+    // Password goes over as plaintext (HTTPS) — the backend scrypt-hashes it.
+    const updated = await dbUpdate('users', user.id, data);
     
     if (!updated) return { success: false, error: 'User not found.' };
     const sessionUser = { ...updated, password: undefined };

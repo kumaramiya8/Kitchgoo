@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
-import { initTenantDB } from '../db/database';
+import { initGuestTenantDB } from '../db/database';
 import { 
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award
 } from 'lucide-react';
@@ -69,7 +69,7 @@ const QRMenu = () => {
   useEffect(() => {
     async function load() {
       try {
-        await initTenantDB(tenantId);
+        await initGuestTenantDB(tenantId, tableParam);
         await reload();
       } catch (err) {
         console.error('[QRMenu] Error loading tenant database:', err);

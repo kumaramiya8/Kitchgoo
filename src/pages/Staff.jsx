@@ -8,7 +8,7 @@ import {
   ArrowRight, Briefcase, IndianRupee, Timer, PieChart, Zap
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
-import { getAll, insert as dbInsert, update as dbUpdate, remove as dbRemove, getCurrentTenant, simpleHash } from '../db/database';
+import { getAll, insert as dbInsert, update as dbUpdate, remove as dbRemove, getCurrentTenant } from '../db/database';
 
 // ─── Constants ──────────────────────────────────────────────
 const ROLES = ['Owner', 'Manager', 'Chef', 'Cashier', 'Waiter', 'Delivery Boy', 'Host'];
@@ -273,7 +273,8 @@ const Staff = () => {
               accountId: tenant,
             };
             if (form.loginPassword) {
-              userPayload.password = simpleHash(form.loginPassword);
+              // Plaintext over HTTPS — the backend scrypt-hashes it
+              userPayload.password = form.loginPassword;
             }
             if (match) {
               await dbUpdate('users', match.id, userPayload);
@@ -284,7 +285,7 @@ const Staff = () => {
               }
               await dbInsert('users', {
                 ...userPayload,
-                password: simpleHash(form.loginPassword),
+                password: form.loginPassword,
               });
             }
           } else {
@@ -309,7 +310,7 @@ const Staff = () => {
             const userPayload = {
               name: form.name.trim(),
               email: form.email.trim().toLowerCase(),
-              password: simpleHash(form.loginPassword),
+              password: form.loginPassword,
               role: form.loginRole,
               phone: form.phone.trim(),
               restaurantName: tenant,

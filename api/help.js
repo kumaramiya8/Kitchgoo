@@ -1,14 +1,22 @@
+/**
+ * Kitchgoo Copilot — LLM proxy.
+ *
+ * All LLM traffic goes through Zenoti's internal gateway (Zeenie) per org
+ * policy — never a provider API directly. Get a key by raising a Jira
+ * ticket for LLM API access, then set ZEENIE_API_KEY in the environment.
+ */
+const ZEENIE_URL = 'https://zeenie-llm-api.zenotibeta.com/GenericLLM';
+const MODEL = process.env.ZEENIE_MODEL || 'claude-4.5-haiku';
+
 export default async function handler(req, res) {
-  // Read request method
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Parse body
   let body;
   try {
     body = await getRequestBody(req);
-  } catch (err) {
+  } catch {
     return res.status(400).json({ error: 'Invalid JSON request body' });
   }
 
@@ -17,13 +25,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Message is required' });
   }
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.ZEENIE_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'Groq API key is not configured on the server. Please check your environment variables.' });
+    return res.status(500).json({ error: 'ZEENIE_API_KEY is not configured on the server. Raise a Jira ticket for Zenoti LLM API access and set the key in your environment.' });
   }
 
   try {
-    // Construct payload for Gemini API
     const systemPrompt = `You are the Kitchgoo AI Assistant, a helpful co-pilot for restaurant managers, servers, and owners using the Kitchgoo POS & restaurant management SaaS.
 
 Kitchgoo has the following main views and sections:
@@ -101,99 +108,90 @@ The response MUST be a JSON object with the following schema:
   ]
 }
 
-Ensure the output is strictly valid JSON matching the above structure, and no other text is returned outside the JSON.`;
+Respond with ONLY the raw JSON object — no markdown code fences, no commentary outside the JSON.`;
 
-    const messagesList = [
-      { role: 'system', content: systemPrompt }
-    ];
-
+    const messagesList = [];
     if (chatHistory && Array.isArray(chatHistory)) {
       chatHistory.forEach(msg => {
         messagesList.push({
           role: msg.sender === 'user' ? 'user' : 'assistant',
-          content: msg.text
+          content: msg.text,
         });
       });
     }
-    
-    // Add the new user query with context snapshot
     messagesList.push({
       role: 'user',
-      content: `User query: "${message}"\n\nContext Data (current state of the application):\n${JSON.stringify(contextData || {}, null, 2)}`
+      content: `User query: "${message}"\n\nContext Data (current state of the application):\n${JSON.stringify(contextData || {}, null, 2)}`,
     });
 
-    // Call Groq API with retries
-    const callGroqWithRetry = async () => {
+    const callZeenieWithRetry = async () => {
       let retries = 2;
       let delay = 1000;
       let lastError = null;
 
       while (retries >= 0) {
         try {
-          console.log(`[API] Querying Groq model llama-3.3-70b-versatile (retries left: ${retries})`);
-          const response = await fetch(
-            'https://api.groq.com/openai/v1/chat/completions',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-              },
-              body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
-                messages: messagesList,
-                response_format: {
-                  type: 'json_object'
-                },
-                temperature: 0.1
-              }),
-            }
-          );
+          console.log(`[API] Querying Zeenie model ${MODEL} (retries left: ${retries})`);
+          const response = await fetch(ZEENIE_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+            },
+            body: JSON.stringify({
+              model_name: MODEL,
+              system: systemPrompt,
+              messages: messagesList,
+              temperature: 0.1,
+              max_tokens: 4000,
+            }),
+          });
 
           if (response.ok) {
             const data = await response.json();
-            const text = data.choices?.[0]?.message?.content;
+            const content = data?.response?.content;
+            const text = Array.isArray(content)
+              ? content.filter(b => b.type === 'text').map(b => b.text).join('')
+              : content;
             if (text) return text;
           }
 
           const errText = await response.text();
-          lastError = new Error(`Groq API error: ${response.status} - ${errText}`);
-          
-          if (response.status !== 503 && response.status !== 429) {
-            throw lastError; // Non-retryable error
+          lastError = new Error(`Zeenie API error: ${response.status} - ${errText}`);
+
+          if (response.status !== 500 && response.status !== 429) {
+            throw lastError; // Non-retryable error (e.g. 403 bad key, 400 bad request)
           }
         } catch (err) {
           lastError = err;
         }
 
         if (retries > 0) {
-          console.log(`[API] Temporary failure on Groq API, retrying in ${delay}ms...`);
+          console.log(`[API] Temporary failure on Zeenie API, retrying in ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
         }
         retries--;
       }
-      throw lastError || new Error('Groq API completions failed');
+      throw lastError || new Error('Zeenie API request failed');
     };
 
-    const responseText = await callGroqWithRetry();
+    const responseText = await callZeenieWithRetry();
 
-    // Try parsing JSON response from Groq
+    // The model is instructed to return raw JSON; tolerate stray code fences
     let resultObj;
     try {
-      resultObj = JSON.parse(responseText);
-    } catch (e) {
-      console.warn('[API] Groq response was not valid JSON, returning raw text:', responseText);
-      resultObj = {
-        text: responseText,
-        suggestions: []
-      };
+      const cleaned = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      resultObj = JSON.parse(cleaned);
+    } catch {
+      console.warn('[API] Zeenie response was not valid JSON, returning raw text');
+      resultObj = { text: responseText, suggestions: [] };
     }
 
     return res.status(200).json(resultObj);
 
   } catch (err) {
-    console.error('[API] Error calling Groq API:', err);
+    console.error('[API] Error calling Zeenie API:', err);
     return res.status(500).json({ error: err.message || 'Internal server error' });
   }
 }
