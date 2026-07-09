@@ -164,8 +164,13 @@ function sortByCreatedAt(list) {
 // ranges are pulled on demand via ensureOrdersSince().
 let _ordersLoadedFrom = null;
 
+// When the cache last received a full payload — used to skip the redundant
+// sync AppContext fires right after boot/login (it was doubling boot time).
+let _lastPayloadAppliedAt = 0;
+
 function applyTenantPayload(payload) {
   if (!payload) return;
+  _lastPayloadAppliedAt = Date.now();
 
   if (payload.menu) _cache['menu'] = payload.menu.map(toCamelCase);
   if (payload.inventory) _cache['inventory'] = payload.inventory.map(toCamelCase);
@@ -213,6 +218,9 @@ function applyTenantPayload(payload) {
 // ─── Sync (refresh cache from backend) ──────────────────────
 export async function syncTenantDataFromSupabase(tenantName) {
   if (!isLive()) return;
+  // A full payload just landed (boot/login/impersonation) — refetching the
+  // exact same data would only slow the first paint down.
+  if (Date.now() - _lastPayloadAppliedAt < 3000) return;
   try {
     const mutationsBefore = lastDbMutationAt;
     let payload;
@@ -352,6 +360,19 @@ export async function initGuestTenantDB(tenantName, tableParam = '') {
 
 export function isGuestMode() {
   return _guestMode;
+}
+
+/**
+ * Boot fast path: AuthContext fetches /api/data/bootstrap once (it carries
+ * the session user AND the tenant payload) and hands the payload here.
+ * Returns false in demo mode so the caller falls back to initTenantDB.
+ */
+export function applyBootstrapPayload(payload) {
+  if (!isLive()) return false;
+  if (payload?.tenant) _currentTenant = payload.tenant;
+  _guestMode = false;
+  applyTenantPayload(payload);
+  return true;
 }
 
 // ─── On-demand historical orders ─────────────────────────────

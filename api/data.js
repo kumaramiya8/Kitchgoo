@@ -55,25 +55,35 @@ function requireDb() {
 
 // ── Reads ───────────────────────────────────────────────────
 
-// Full tenant payload; seeds brand-new tenants (first login after register)
+// Full tenant payload; seeds brand-new tenants (first login after register).
+// Also returns the session user so the client can boot with ONE request
+// instead of /api/session followed by this (each may be a separate lambda
+// cold start in production).
 app.get('/api/data/bootstrap', wrap(async (req, res) => {
   const db = requireDb();
   const tenant = resolveTenant(req);
 
-  await ensureAccount(tenant);
-  await seedTenantIfNew(tenant);
-  const payload = await loadTenantPayload(tenant);
+  // The payload load doesn't depend on account/seed checks for existing
+  // tenants — run everything concurrently and only re-load when we just
+  // seeded a brand-new tenant.
+  const admin = isPlatformAdmin(req.user);
+  const [firstPayload, seeded, accountsRes, allUsersRes] = await Promise.all([
+    loadTenantPayload(tenant),
+    (async () => {
+      await ensureAccount(tenant);
+      return seedTenantIfNew(tenant);
+    })(),
+    admin ? db.from('accounts').select('*') : null,
+    admin ? db.from('users').select('id, account_id, name, email, role, avatar, phone, created_at') : null,
+  ]);
+  const payload = seeded ? await loadTenantPayload(tenant) : firstPayload;
 
-  if (isPlatformAdmin(req.user)) {
-    const [{ data: accounts }, { data: allUsers }] = await Promise.all([
-      db.from('accounts').select('*'),
-      db.from('users').select('id, account_id, name, email, role, avatar, phone, created_at'),
-    ]);
-    payload.accounts = accounts || [];
-    payload.allUsers = allUsers || [];
+  if (admin) {
+    payload.accounts = accountsRes?.data || [];
+    payload.allUsers = allUsersRes?.data || [];
   }
 
-  res.json({ success: true, tenant, ...payload });
+  res.json({ success: true, tenant, user: req.user, ...payload });
 }));
 
 // Same payload without the seeding checks — used for refresh/polling

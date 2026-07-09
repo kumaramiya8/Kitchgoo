@@ -2,8 +2,9 @@
  * AuthContext — Handles login, logout, register, and session persistence securely via backend.
  * Uses HttpOnly cookies (via /api endpoints) for sessions instead of localStorage.
  */
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { update as dbUpdate, setCurrentTenant, initTenantDB } from './database';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { update as dbUpdate, setCurrentTenant, initTenantDB, applyBootstrapPayload } from './database';
+import { api, ApiError } from '../lib/api';
 
 const AuthContext = createContext(null);
 
@@ -15,19 +16,30 @@ export function AuthProvider({ children }) {
   const [adminSession, setAdminSession] = useState(null);
   const [impersonatedTenant, setImpersonatedTenant] = useState(null);
 
+  const didInit = useRef(false);
   useEffect(() => {
+    // StrictMode double-invokes effects in dev — don't boot twice
+    if (didInit.current) return;
+    didInit.current = true;
     const init = async () => {
       try {
-        const res = await fetch('/api/session');
-        const data = await res.json();
-        
+        // One round trip: bootstrap carries the session user AND the full
+        // tenant payload (the old session -> bootstrap sequence paid two
+        // network hops and, in production, two lambda cold starts).
+        const data = await api.get('/api/data/bootstrap');
         if (data.success && data.user) {
           setCurrentTenant(data.user.restaurantName);
-          await initTenantDB(data.user.restaurantName);
+          if (!applyBootstrapPayload(data)) {
+            // Demo mode ignores server payloads — hydrate from localStorage
+            await initTenantDB(data.user.restaurantName);
+          }
           setUser(data.user);
         }
       } catch (err) {
-        console.error('[Auth] Failed to verify session via server:', err);
+        if (!(err instanceof ApiError && err.status === 401)) {
+          console.error('[Auth] Failed to restore session via server:', err);
+        }
+        // 401 simply means "not logged in" — land on the login screen
       } finally {
         setLoading(false);
       }

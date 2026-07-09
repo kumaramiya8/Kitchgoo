@@ -27,10 +27,36 @@ const PageLoader = () => (
   </div>
 );
 
+// Shown while the session + tenant payload load — a blank white page makes
+// a 1-second boot feel like five.
+const BootSplash = () => (
+  <div style={{
+    height: '100vh', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center', gap: 14,
+    background: 'var(--canvas, #f1f3ef)',
+  }}>
+    <div style={{
+      width: 52, height: 52, borderRadius: 12, background: '#1e5e4a',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/>
+        <line x1="6" x2="18" y1="17" y2="17"/>
+      </svg>
+    </div>
+    <div style={{ fontFamily: "'Young Serif', Georgia, serif", fontSize: '1.15rem', color: '#1c2420' }}>
+      Kitchgoo
+    </div>
+    <div className="animate-pulse" style={{ fontSize: '0.78rem', color: 'var(--text-muted, #87938c)' }}>
+      Setting the table…
+    </div>
+  </div>
+);
+
 // Route guard
 const Protected = ({ children, allowAdmin = false }) => {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading) return <BootSplash />;
   if (!user) return <Navigate to="/login" replace />;
   
   // If the user is Kitchgoo and not impersonating, only allow access to platform admin allowed routes
@@ -50,13 +76,13 @@ const RootElement = () => {
 };
 
 function App() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   return (
     <Suspense fallback={<PageLoader />}>
     <Routes>
       {/* Public */}
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/login" element={user ? <Navigate to="/" replace /> : (loading ? <BootSplash /> : <Login />)} />
       <Route path="/qrmenu/:tenantId" element={<QRMenu />} />
 
       {/* Protected — Operations */}
