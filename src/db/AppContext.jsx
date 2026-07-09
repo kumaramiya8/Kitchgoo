@@ -120,6 +120,7 @@ export function AppProvider({ children }) {
   const lastMutationAt = useRef(0);
   const realtimeConnectedRef = useRef(false);
   const subscribedOnceRef = useRef(false);
+  const lastReconcileAt = useRef(0);
 
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb) return;
@@ -403,9 +404,15 @@ export function AppProvider({ children }) {
     const recentlyMutated = () => Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000;
     const LIVE = ['pos_tables', 'pos_saved_orders', 'kds_tickets'];
 
-    const reconcile = async () => {
+    // Targeted reconcile of the live collections (a few KB). When realtime is
+    // healthy, broadcasts do the real work and this is just a slow safety net
+    // (~every 60s); when the socket is down it becomes the primary sync (~15s).
+    const tick = async () => {
       if (document.visibilityState !== 'visible' || recentlyMutated()) return;
-      if (!realtimeConnectedRef.current) { await reload(); return; } // socket down → full catch-up
+      const connected = realtimeConnectedRef.current;
+      const since = Date.now() - lastReconcileAt.current;
+      if (connected && since < 55000) return; // broadcasts cover us; don't poll hard
+      lastReconcileAt.current = Date.now();
       const before = LIVE.map(n => stableStringify(getAll(n)));
       for (const n of LIVE) { await syncOneCollection(n); }
       const after = LIVE.map(n => stableStringify(getAll(n)));
@@ -417,7 +424,7 @@ export function AppProvider({ children }) {
       reload(); // returning to foreground: catch up fully (socket may have slept)
     };
 
-    const interval = setInterval(reconcile, 20000);
+    const interval = setInterval(tick, 15000);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);

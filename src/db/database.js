@@ -17,6 +17,7 @@ import { api } from '../lib/api';
 import { SEEDS, FLEX_COLLECTIONS, ROW_TABLES } from '../../shared/seeds';
 import { toCamelCase } from '../../shared/mappers';
 import { localDayStr, todayLocalStr } from '../../shared/dates';
+import { stripItems } from '../../shared/items';
 
 export function genId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -727,7 +728,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     id: genId(),
     billNo: `${settings.billing.billPrefix}-${getTenantCode(_currentTenant)}-${counter}`,
     tableId,
-    items,
+    items: stripItems(items), // store names/prices, not the ordered items' menu images
     subtotal,
     tax,
     taxRate: settings.billing.gstRate,
@@ -884,7 +885,7 @@ export async function createKDSTicket(orderId, items, tableId, orderType) {
   const ticketStation = stations.length === 1 ? stations[0] : 'all';
   return insert('kds_tickets', {
     orderId,
-    items: items.map(i => ({ ...i, status: 'pending', bumpedAt: null })),
+    items: stripItems(items.map(i => ({ ...i, status: 'pending', bumpedAt: null }))),
     tableId,
     orderType: orderType || 'dine-in',
     status: 'active',
@@ -1017,11 +1018,14 @@ export async function saveTableState(tableId, table) {
 export async function saveTableOrder(tableId, savedOrder) {
   markMutation();
   if (!isLive()) return;
+  // Store the ordered lines lean (no menu images) — a table's saved order
+  // otherwise carries a base64 image per line into pos_saved_orders.
+  const lean = Array.isArray(savedOrder) ? stripItems(savedOrder) : (savedOrder ?? null);
   try {
     if (_guestMode) {
-      await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(tableId)}`, { savedOrder: savedOrder ?? null }));
+      await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(tableId)}`, { savedOrder: lean }));
     } else {
-      await tracked(api.put(`/api/data/table-orders/${encodeURIComponent(tableId)}`, { savedOrder: savedOrder ?? null }, { tenant: _currentTenant }));
+      await tracked(api.put(`/api/data/table-orders/${encodeURIComponent(tableId)}`, { savedOrder: lean }, { tenant: _currentTenant }));
     }
   } catch (err) {
     console.error('[DB] Error saving table order:', err);

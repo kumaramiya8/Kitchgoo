@@ -10,6 +10,7 @@ import jwt from 'jsonwebtoken';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { SEEDS, FLEX_COLLECTIONS } from '../../shared/seeds.js';
+import { stripItems, stripCollectionItems } from '../../shared/items.js';
 
 // ── Env ─────────────────────────────────────────────────────
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -268,8 +269,10 @@ export async function seedTenantIfNew(tenant) {
 // accumulates 100k+ rows a year and shipping all of them to every device
 // on every sync is the app's memory ceiling. Older ranges are fetched on
 // demand via GET /api/data/orders.
-export const ORDERS_WINDOW_DAYS = 60;
-export const ORDERS_WINDOW_LIMIT = 3000;
+// The live payload only needs enough order history for the dashboard's
+// recent view; Reports fetch wider ranges on demand (GET /api/data/orders).
+export const ORDERS_WINDOW_DAYS = 7;
+export const ORDERS_WINDOW_LIMIT = 1000;
 
 export function ordersWindowStart() {
   const d = new Date(Date.now() - ORDERS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
@@ -304,13 +307,22 @@ export async function loadTenantPayload(tenant) {
     collections[col] = SEEDS[col] !== undefined ? JSON.parse(JSON.stringify(SEEDS[col])) : [];
   });
   (flexRes.data || []).forEach(row => {
-    collections[row.collection_name] = row.value;
+    // Strip heavy line-item fields (base64 images etc.) from ticket/saved-order
+    // snapshots so a sync ships names+prices, not menu images.
+    let value = stripCollectionItems(row.collection_name, row.value);
+    // The audit log grows unbounded; only the recent tail is needed live
+    // (older entries trim on the next write via capCollection).
+    if (row.collection_name === 'audit_log' && Array.isArray(value) && value.length > 300) {
+      value = value.slice(value.length - 300);
+    }
+    collections[row.collection_name] = value;
   });
 
   return {
     menu: menuRes.data || [],
     inventory: inventoryRes.data || [],
-    orders: ordersRes.data || [],
+    // Order snapshots also carried the ordered items' images — strip them
+    orders: (ordersRes.data || []).map(o => (o && Array.isArray(o.items) ? { ...o, items: stripItems(o.items) } : o)),
     ordersFrom, // clients fetch older ranges on demand
     settings: settingsObj,
     users: usersRes.data || [],

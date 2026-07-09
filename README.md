@@ -45,8 +45,11 @@ Backend (Vercel serverless, Express)          Supabase (Postgres)
   ~1 KB) instead of the full ~84 KB payload. Polling only runs while realtime
   is disconnected. Images live in Supabase Storage (public bucket
   `kitchgoo-media`), not as base64 inside rows, so photos don't re-ship on
-  every sync — run `node migrate-images.mjs` once (needs
-  `SUPABASE_SERVICE_ROLE_KEY`) to move any existing embedded images.
+  every sync. Order/ticket line items are stored lean (no menu images or
+  definitions), and the live payload trims audit log + old KDS tickets.
+  One-time cleanups (need `SUPABASE_SERVICE_ROLE_KEY`): `node migrate-images.mjs`
+  moves embedded menu images to Storage; `node clean-item-bloat.mjs` strips
+  base64 images out of already-stored orders/tickets.
 - **Code splitting**: each page ships as its own chunk (entry ~280 KB
   instead of a single 1.25 MB bundle).
 - **Tests**: `npm test` (vitest) covers the date logic, payload

@@ -25,6 +25,7 @@ import {
 } from './_lib/core.js';
 import { sanitizeInsertPayload, sanitizeUpdatePayload } from '../shared/mappers.js';
 import { FLEX_COLLECTIONS, ROW_TABLES, SEEDS } from '../shared/seeds.js';
+import { stripItems, stripCollectionItems } from '../shared/items.js';
 
 const app = express();
 
@@ -111,7 +112,8 @@ app.get('/api/data/collection/:name', wrap(async (req, res) => {
         .gte('created_at', ordersFrom)
         .order('created_at', { ascending: false })
         .limit(ORDERS_WINDOW_LIMIT);
-      return res.json({ success: true, name, rows: data || [], ordersFrom });
+      const rows = (data || []).map(o => (o && Array.isArray(o.items) ? { ...o, items: stripItems(o.items) } : o));
+      return res.json({ success: true, name, rows, ordersFrom });
     }
     const { data } = await db.from(name).select('*').eq('account_id', tenant);
     return res.json({ success: true, name, rows: data || [] });
@@ -127,7 +129,7 @@ app.get('/api/data/collection/:name', wrap(async (req, res) => {
   if (FLEX_COLLECTIONS.includes(name)) {
     const fallback = Array.isArray(SEEDS[name]) ? [] : (SEEDS[name] ?? []);
     const value = await getFlex(db, tenant, name, fallback);
-    return res.json({ success: true, name, value });
+    return res.json({ success: true, name, value: stripCollectionItems(name, value) });
   }
 
   return res.status(400).json({ success: false, error: `Unknown collection: ${name}` });
@@ -387,11 +389,15 @@ app.post('/api/data/kds-append', wrap(async (req, res) => {
 // and get shipped to every device on every sync.
 function capCollection(name, arr) {
   if (name === 'audit_log') {
-    // Newest last; keep the most recent 1000 entries
-    return arr.length > 1000 ? arr.slice(arr.length - 1000) : arr;
+    // Newest last; keep the most recent 300 entries (the audit view shows
+    // recent activity; full history isn't needed in the live cache).
+    return arr.length > 300 ? arr.slice(arr.length - 300) : arr;
   }
   if (name === 'kds_tickets') {
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    // Active tickets always; completed ones only for a few hours (long enough
+    // for recall during a shift). Keeps this collection — which the KDS pulls
+    // and the reconcile checks — small instead of a week's backlog.
+    const cutoff = Date.now() - 4 * 60 * 60 * 1000;
     return arr.filter(t => {
       if (t.status !== 'completed') return true;
       const ts = new Date(t.updatedAt || t.firedAt || t.createdAt || 0).getTime();
