@@ -206,6 +206,39 @@ function assertRowTable(table) {
   }
 }
 
+// A payload can reference a column the live table doesn't have (schema drift
+// between supabase-schema.sql and a DB that predates a column, e.g. `menu`
+// missing `ingredients`). Postgres/PostgREST then rejects the WHOLE write,
+// so a single missing optional column silently breaks every save. Strip the
+// offending column and retry, so writes degrade gracefully instead of 500ing.
+function missingColumnName(error) {
+  if (!error) return null;
+  const msg = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`;
+  const m = /Could not find the '([^']+)' column/i.exec(msg)
+    || /column "?([a-zA-Z0-9_]+)"? of relation/i.exec(msg)
+    || /column ([a-zA-Z0-9_]+) does not exist/i.exec(msg);
+  return m ? m[1] : null;
+}
+
+async function writeWithColumnFallback(runOnce, payload) {
+  let p = { ...payload };
+  const dropped = [];
+  for (let i = 0; i < 8; i++) {
+    const { error } = await runOnce(p);
+    if (!error) return { dropped };
+    const col = missingColumnName(error);
+    if (col && Object.prototype.hasOwnProperty.call(p, col)) {
+      delete p[col];
+      dropped.push(col);
+      continue;
+    }
+    throw error;
+  }
+  const err = new Error('Too many unknown columns in payload');
+  err.statusCode = 500;
+  throw err;
+}
+
 app.post('/api/data/rows/:table', wrap(async (req, res) => {
   const db = requireDb();
   const { table } = req.params;
@@ -229,8 +262,11 @@ app.post('/api/data/rows/:table', wrap(async (req, res) => {
     item.accountId = tenant;
   }
 
-  const { error } = await db.from(table).insert(sanitizeInsertPayload(table, item));
-  if (error) throw error;
+  const { dropped } = await writeWithColumnFallback(
+    (p) => db.from(table).insert(p),
+    sanitizeInsertPayload(table, item)
+  );
+  if (dropped.length) console.warn(`[Data API] ${table} insert dropped unknown column(s): ${dropped.join(', ')}`);
 
   broadcastChange(tenant, table);
   res.json({ success: true });
@@ -252,8 +288,11 @@ app.patch('/api/data/rows/:table/:id', wrap(async (req, res) => {
     return res.json({ success: true, noop: true });
   }
 
-  const { error } = await db.from(table).update(payload).eq('id', id).eq('account_id', tenant);
-  if (error) throw error;
+  const { dropped } = await writeWithColumnFallback(
+    (p) => db.from(table).update(p).eq('id', id).eq('account_id', tenant),
+    payload
+  );
+  if (dropped.length) console.warn(`[Data API] ${table} update dropped unknown column(s): ${dropped.join(', ')}`);
 
   broadcastChange(tenant, table);
   res.json({ success: true });
