@@ -151,6 +151,50 @@ export function resolveTenant(req) {
   return own;
 }
 
+// ── Image storage ───────────────────────────────────────────
+// Images used to be embedded as base64 inside menu rows / settings JSON, so
+// every payload re-shipped every image byte. They now live in a public
+// Storage bucket; rows hold only a URL, which the browser/CDN cache.
+const MEDIA_BUCKET = 'kitchgoo-media';
+let _bucketReady = false;
+
+async function ensureMediaBucket(db) {
+  if (_bucketReady) return;
+  try {
+    const { data } = await db.storage.getBucket(MEDIA_BUCKET);
+    if (!data) {
+      await db.storage.createBucket(MEDIA_BUCKET, { public: true, fileSizeLimit: '5MB' });
+    }
+  } catch {
+    // getBucket throws when absent on some versions — try to create
+    try { await db.storage.createBucket(MEDIA_BUCKET, { public: true, fileSizeLimit: '5MB' }); } catch { /* already exists */ }
+  }
+  _bucketReady = true;
+}
+
+/**
+ * Store a base64 data: URL as a file and return its public URL.
+ * Throws a 400 for anything that isn't an image data URL.
+ */
+export async function uploadDataUrl(tenant, kind, dataUrl) {
+  const db = getAdminClient();
+  if (!db) { const e = new Error('Storage not configured'); e.statusCode = 500; throw e; }
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUrl || '');
+  if (!m) { const e = new Error('Invalid image data'); e.statusCode = 400; throw e; }
+
+  await ensureMediaBucket(db);
+  const mime = m[1];
+  const buf = Buffer.from(m[2], 'base64');
+  const ext = mime.split('/')[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+  const safeTenant = String(tenant).replace(/[^a-zA-Z0-9]/g, '_');
+  const safeKind = String(kind || 'misc').replace(/[^a-zA-Z0-9]/g, '_');
+  const path = `${safeTenant}/${safeKind}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+  const { error } = await db.storage.from(MEDIA_BUCKET).upload(path, buf, { contentType: mime, upsert: false });
+  if (error) throw error;
+  return db.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
 // ── Change signal ───────────────────────────────────────────
 // Fire-and-forget realtime broadcast so other devices resync. Carries no
 // data — clients call GET /api/data/sync when they hear it.

@@ -9,7 +9,8 @@ import {
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import { parseCSV, arrayToCSV, downloadCSV } from '../utils/csv';
-import { getAll } from '../db/database';
+import { getAll, getCurrentTenant } from '../db/database';
+import { uploadImage } from '../lib/api';
 
 /* ── Constants ─────────────────────────────────────────────────── */
 const CATEGORIES = ['Starters', 'Main Course', 'Desserts', 'Beverages', 'Breads', 'Salads', 'Sides', 'Specials'];
@@ -733,8 +734,12 @@ const MenuScreen = () => {
                 const file = e.target.files[0];
                 if (file) {
                   const reader = new FileReader();
-                  reader.onloadend = () => {
+                  reader.onloadend = async () => {
+                    // Instant local preview, then upload to Storage and swap
+                    // in the URL so base64 never gets saved into the menu row.
                     setForm(f => ({ ...f, image: reader.result }));
+                    const url = await uploadImage(reader.result, 'menu', getCurrentTenant());
+                    if (url) setForm(f => ({ ...f, image: url }));
                   };
                   reader.readAsDataURL(file);
                 }

@@ -241,6 +241,39 @@ export async function syncTenantDataFromSupabase(tenantName) {
   }
 }
 
+// ─── Targeted single-collection sync ────────────────────────
+// Refetch only the collection named in a db_changed broadcast, instead of
+// pulling the whole tenant payload. Returns false when it can't (demo,
+// guest, or unknown name) so callers fall back to a full sync.
+export async function syncOneCollection(name) {
+  if (!isLive() || _guestMode || !name) return false;
+  try {
+    const res = await api.get(`/api/data/collection/${encodeURIComponent(name)}`, { tenant: _currentTenant });
+    if (ROW_TABLES.includes(name)) {
+      if (name === 'users') {
+        _cache['users'] = (res.rows || []).map(mapUserRow);
+      } else if (name === 'orders') {
+        const windowRows = (res.rows || []).map(toCamelCase);
+        const from = res.ordersFrom;
+        // Keep any older orders already fetched for a report view
+        const older = (_cache['orders'] || []).filter(o => o.createdAt && from && o.createdAt < from);
+        const ids = new Set(windowRows.map(o => o.id));
+        _cache['orders'] = sortByCreatedAt([...windowRows, ...older.filter(o => !ids.has(o.id))]);
+      } else {
+        _cache[name] = (res.rows || []).map(toCamelCase);
+      }
+    } else if (name === 'settings') {
+      _cache['settings'] = res.value;
+    } else {
+      _cache[name] = res.value;
+    }
+    return true;
+  } catch (err) {
+    console.error(`[DB] syncOneCollection(${name}) error:`, err);
+    return false;
+  }
+}
+
 // ─── Init — demo seeds or nothing (live waits for login) ────
 export async function initDB() {
   if (!isLive()) {

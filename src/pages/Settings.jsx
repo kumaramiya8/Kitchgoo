@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
-import { getAll, update as dbUpdate, remove as dbRemove } from '../db/database';
+import { getAll, update as dbUpdate, remove as dbRemove, getCurrentTenant } from '../db/database';
+import { uploadImage } from '../lib/api';
 import {
   Store, CreditCard, Truck, Bell, Printer, Palette, Shield,
   Clock, Save, ToggleLeft, ToggleRight, X, Edit2, ChevronLeft, ChevronRight,
@@ -86,8 +87,11 @@ const RestaurantSection = ({ data, onChange, isMobile }) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
+        // Preview immediately, then upload and store the URL (not base64)
         onChange('logo', reader.result);
+        const url = await uploadImage(reader.result, 'logo', getCurrentTenant());
+        if (url) onChange('logo', url);
       };
       reader.readAsDataURL(file);
     }

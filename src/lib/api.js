@@ -42,3 +42,22 @@ export const api = {
   patch: (path, body, opts) => request(path, { ...opts, method: 'PATCH', body }),
   delete: (path, opts) => request(path, { ...opts, method: 'DELETE' }),
 };
+
+/**
+ * Upload a base64 image data URL to Storage and return its public URL.
+ * Used by the menu-photo and logo pickers so image bytes never get saved
+ * inside DB rows (which would re-ship on every sync). Returns null on
+ * failure — callers keep the local data URL as a still-working fallback.
+ * Demo mode has no backend, so the data URL is used as-is.
+ */
+export async function uploadImage(dataUrl, kind, tenant) {
+  const isDemo = typeof window !== 'undefined' && window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+  if (isDemo || !dataUrl || !dataUrl.startsWith('data:image/')) return null;
+  try {
+    const res = await request('/api/data/upload-image', { method: 'POST', body: { dataUrl, kind }, tenant });
+    return res?.url || null;
+  } catch (err) {
+    console.error('[api] image upload failed, keeping local copy:', err);
+    return null;
+  }
+}

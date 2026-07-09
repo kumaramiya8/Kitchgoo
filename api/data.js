@@ -19,9 +19,12 @@ import {
   ensureAccount,
   seedTenantIfNew,
   loadTenantPayload,
+  uploadDataUrl,
+  ordersWindowStart,
+  ORDERS_WINDOW_LIMIT,
 } from './_lib/core.js';
 import { sanitizeInsertPayload, sanitizeUpdatePayload } from '../shared/mappers.js';
-import { FLEX_COLLECTIONS, ROW_TABLES } from '../shared/seeds.js';
+import { FLEX_COLLECTIONS, ROW_TABLES, SEEDS } from '../shared/seeds.js';
 
 const app = express();
 
@@ -84,6 +87,63 @@ app.get('/api/data/bootstrap', wrap(async (req, res) => {
   }
 
   res.json({ success: true, tenant, user: req.user, ...payload });
+}));
+
+// A SINGLE collection — the targeted-sync path. Clients hear which
+// collection changed (broadcastChange carries the name) and refetch only
+// that one instead of the whole ~58 KB payload, so one KOT costs a couple
+// of KB of egress across the floor instead of tens of KB per device.
+app.get('/api/data/collection/:name', wrap(async (req, res) => {
+  const db = requireDb();
+  const tenant = resolveTenant(req);
+  const { name } = req.params;
+
+  if (ROW_TABLES.includes(name)) {
+    if (name === 'users') {
+      const { data } = await db.from('users')
+        .select('id, account_id, name, email, role, avatar, phone, created_at')
+        .eq('account_id', tenant);
+      return res.json({ success: true, name, rows: data || [] });
+    }
+    if (name === 'orders') {
+      const ordersFrom = ordersWindowStart();
+      const { data } = await db.from('orders').select('*').eq('account_id', tenant)
+        .gte('created_at', ordersFrom)
+        .order('created_at', { ascending: false })
+        .limit(ORDERS_WINDOW_LIMIT);
+      return res.json({ success: true, name, rows: data || [], ordersFrom });
+    }
+    const { data } = await db.from(name).select('*').eq('account_id', tenant);
+    return res.json({ success: true, name, rows: data || [] });
+  }
+
+  if (name === 'settings') {
+    const { data } = await db.from('settings').select('*').eq('account_id', tenant);
+    const obj = JSON.parse(JSON.stringify(SEEDS.settings));
+    (data || []).forEach(row => { obj[row.section_name] = row.value; });
+    return res.json({ success: true, name, value: obj });
+  }
+
+  if (FLEX_COLLECTIONS.includes(name)) {
+    const fallback = Array.isArray(SEEDS[name]) ? [] : (SEEDS[name] ?? []);
+    const value = await getFlex(db, tenant, name, fallback);
+    return res.json({ success: true, name, value });
+  }
+
+  return res.status(400).json({ success: false, error: `Unknown collection: ${name}` });
+}));
+
+// Store a menu photo / logo in Storage and return its URL — keeps base64
+// image bytes out of the DB rows (and therefore out of every sync payload).
+app.post('/api/data/upload-image', wrap(async (req, res) => {
+  const tenant = resolveTenant(req);
+  const { dataUrl, kind } = req.body || {};
+  const safeKind = ['menu', 'logo', 'receipt'].includes(kind) ? kind : 'misc';
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return res.status(400).json({ success: false, error: 'An image dataUrl is required' });
+  }
+  const url = await uploadDataUrl(tenant, safeKind, dataUrl);
+  res.json({ success: true, url });
 }));
 
 // Same payload without the seeding checks — used for refresh/polling

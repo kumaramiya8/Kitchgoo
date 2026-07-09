@@ -40,6 +40,13 @@ Backend (Vercel serverless, Express)          Supabase (Postgres)
 - **Atomic writes**: list collections are never written whole — every
   insert/update/delete merges a single item server-side
   (`/api/data/flex/:name`), so concurrent devices can't clobber each other.
+- **Low egress**: a change broadcasts only the *name* of the collection that
+  changed; clients refetch just that one collection (`GET /api/data/collection/:name`,
+  ~1 KB) instead of the full ~84 KB payload. Polling only runs while realtime
+  is disconnected. Images live in Supabase Storage (public bucket
+  `kitchgoo-media`), not as base64 inside rows, so photos don't re-ship on
+  every sync — run `node migrate-images.mjs` once (needs
+  `SUPABASE_SERVICE_ROLE_KEY`) to move any existing embedded images.
 - **Code splitting**: each page ships as its own chunk (entry ~280 KB
   instead of a single 1.25 MB bundle).
 - **Tests**: `npm test` (vitest) covers the date logic, payload

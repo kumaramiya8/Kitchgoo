@@ -36,6 +36,7 @@ import {
   getCurrentTenant,
   getTenantCode,
   syncTenantDataFromSupabase,
+  syncOneCollection,
   lastDbMutationAt,
   setLocalCollection,
   saveTableState,
@@ -93,6 +94,8 @@ export function AppProvider({ children }) {
   const [activeTenant, setActiveTenant] = useState(null);
   const channelRef = useRef(null);
   const lastMutationAt = useRef(0);
+  const realtimeConnectedRef = useRef(false);
+  const subscribedOnceRef = useRef(false);
 
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb) return;
@@ -201,12 +204,11 @@ export function AppProvider({ children }) {
     setReady(true);
   }, []);
 
-  const reload = async () => {
+  // Push whatever is already in the in-memory cache into React state.
+  // Pure local work — no network, so it's cheap to call after a targeted
+  // single-collection fetch.
+  const hydrateFromCache = () => {
     const tenant = getCurrentTenant();
-    if (tenant) {
-      await syncTenantDataFromSupabase(tenant);
-    }
-
     setStaff(getAll('staff'));
     setInventory(getAll('inventory').map(i => ({ ...i, status: computeStockStatus(i.stock, i.min) })));
     setMenu(getAll('menu'));
@@ -223,19 +225,7 @@ export function AppProvider({ children }) {
     setRecipes(getAll('recipes'));
     setWasteLog(getAll('waste_log'));
     setLocations(getAll('locations'));
-    const isDemo = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
-    if (tenant === 'Kitchgoo' && user && supabase && !isDemo) {
-      try {
-        // Combined cross-tenant audit log — platform admin only, via the backend
-        const { auditLog: combinedLogs } = await api.get('/api/data/audit-all');
-        setAuditLog(combinedLogs || []);
-      } catch (err) {
-        console.error('[DB] Failed to fetch all audit logs:', err);
-        setAuditLog(getAll('audit_log'));
-      }
-    } else {
-      setAuditLog(getAll('audit_log'));
-    }
+    setAuditLog(getAll('audit_log'));
     const fp = getAll('floor_plans');
     setFloorPlans(fp && fp.tables ? fp : { tables: [], sections: [] });
     setModifiers(getAll('modifiers'));
@@ -248,30 +238,57 @@ export function AppProvider({ children }) {
     setRegisterClosures(getAll('register_closures') || []);
 
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
-
-    // Sync posTables and posSavedOrders
     if (!supabase || isDemoMode) {
       try {
         const savedTables = localStorage.getItem(`${tenant}_pos_tables`);
         setPosTables(savedTables ? JSON.parse(savedTables) : []);
-      } catch {
-        setPosTables([]);
-      }
+      } catch { setPosTables([]); }
       try {
         const savedOrders = localStorage.getItem(`${tenant}_pos_saved_orders`);
         setPosSavedOrders(savedOrders ? JSON.parse(savedOrders) : {});
-      } catch {
-        setPosSavedOrders({});
-      }
+      } catch { setPosSavedOrders({}); }
     } else {
-      const dbTables = getAll('pos_tables');
-      setPosTables(dbTables || []);
-      const dbOrders = getAll('pos_saved_orders');
-      setPosSavedOrders(dbOrders || {});
+      setPosTables(getAll('pos_tables') || []);
+      setPosSavedOrders(getAll('pos_saved_orders') || {});
     }
 
     setActiveTenant(tenant);
     setHasLoadedFromDb(true);
+  };
+
+  // Platform admin's cross-tenant audit log — a separate, admin-only fetch.
+  const refreshAdminAuditLog = async () => {
+    const tenant = getCurrentTenant();
+    const isDemo = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+    if (tenant === 'Kitchgoo' && user && supabase && !isDemo) {
+      try {
+        const { auditLog: combinedLogs } = await api.get('/api/data/audit-all');
+        setAuditLog(combinedLogs || []);
+      } catch (err) {
+        console.error('[DB] Failed to fetch all audit logs:', err);
+      }
+    }
+  };
+
+  // Full sync: pull the entire tenant payload, then hydrate. Used on boot,
+  // login, tenant switch, and as the realtime-disconnected fallback.
+  const reload = async () => {
+    const tenant = getCurrentTenant();
+    if (tenant) {
+      await syncTenantDataFromSupabase(tenant);
+    }
+    hydrateFromCache();
+    await refreshAdminAuditLog();
+  };
+
+  // Targeted refresh: fetch ONLY the changed collection, then hydrate from
+  // cache. Falls back to a full reload if the single-collection fetch can't
+  // run (e.g. guest mode). This is what a db_changed broadcast triggers.
+  const refreshCollection = async (name) => {
+    const ok = await syncOneCollection(name);
+    if (!ok) { await reload(); return; }
+    hydrateFromCache();
+    if (name === 'audit_log') await refreshAdminAuditLog();
   };
   // Apply Appearance Settings globally
   useEffect(() => {
@@ -325,44 +342,51 @@ export function AppProvider({ children }) {
       return () => window.removeEventListener('storage', handleStorage);
     }
 
-    const debouncedReload = () => {
-      // Ignore realtime events if we mutated locally in the last 2 seconds
-      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) {
-        return;
-      }
-      reload();
+    // A db_changed broadcast names the collection that changed, so we refetch
+    // ONLY that collection instead of the whole payload. Skip our own echo
+    // (a local mutation within the last 2s already updated state optimistically).
+    const onChange = (msg) => {
+      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
+      const table = msg?.payload?.table;
+      if (table) refreshCollection(table);
+      else reload();
     };
 
-    // The backend broadcasts a data-free "db_changed" signal after every
-    // mutation; clients hear it and pull fresh state through the API. The
-    // anon key no longer has table access, so postgres_changes is gone.
+    // The backend broadcasts "db_changed" (with the collection name) after
+    // every mutation. The anon key has no table access, so postgres_changes
+    // is gone — this is a lightweight signal, not the data itself.
     const channel = supabase
       .channel(`kitchgoo_changes_${activeTenant}`)
-      .on('broadcast', { event: 'db_changed' }, () => {
-        debouncedReload();
-      })
+      .on('broadcast', { event: 'db_changed' }, onChange)
       .on('broadcast', { event: 'order_created' }, (payload) => {
-        console.log('[Realtime] Received order_created broadcast:', payload);
         const event = new CustomEvent('kitchgoo_order_created', { detail: payload.payload });
         window.dispatchEvent(event);
       })
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
-          console.log(`[Realtime] Subscribed to changes for tenant: ${activeTenant}`);
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error(`[Realtime] Failed to subscribe to changes for tenant: ${activeTenant}`, err);
+          realtimeConnectedRef.current = true;
+          // Resync once on RE-connect (not the first connect — boot already
+          // has fresh data) to catch anything missed while the socket was down.
+          if (subscribedOnceRef.current) reload();
+          subscribedOnceRef.current = true;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          realtimeConnectedRef.current = false;
+          console.warn(`[Realtime] ${status} for tenant: ${activeTenant}`, err || '');
         }
       });
 
     channelRef.current = channel;
 
     return () => {
+      realtimeConnectedRef.current = false;
       supabase.removeChannel(channel);
     };
   }, [authLoading, hasLoadedFromDb, activeTenant]);
 
-  // Polling fallback — if the realtime socket drops, a visible tab still
-  // converges within 30s; a hidden tab resyncs the moment it's shown.
+  // Safety net — only pulls a full payload when realtime is actually down,
+  // or when a backgrounded tab (whose socket may have been suspended) comes
+  // back to the foreground. While realtime is connected this does nothing,
+  // so steady-state polling egress is zero.
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb || !activeTenant) return;
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
@@ -370,15 +394,23 @@ export function AppProvider({ children }) {
 
     const maybeReload = () => {
       if (document.visibilityState !== 'visible') return;
+      if (realtimeConnectedRef.current) return; // realtime already covers us
       if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
       reload();
     };
 
-    const interval = setInterval(maybeReload, 30000);
-    document.addEventListener('visibilitychange', maybeReload);
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
+      // Coming back to the foreground: catch up once (socket may have slept)
+      reload();
+    };
+
+    const interval = setInterval(maybeReload, 60000);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', maybeReload);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [authLoading, hasLoadedFromDb, activeTenant]);
 
