@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
-import { initGuestTenantDB } from '../db/database';
+import { useAuth } from '../db/AuthContext';
+import { initGuestTenantDB, initTenantDB, exitGuestMode } from '../db/database';
 import { 
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award
 } from 'lucide-react';
@@ -12,6 +13,7 @@ const QRMenu = () => {
   const tableParam = searchParams.get('table') || '';
 
   const { menu, settings, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
@@ -66,32 +68,60 @@ const QRMenu = () => {
     }
   }, [showCart]);
 
+  // Re-init whenever the tenant OR table changes — a QR page navigated from
+  // ?table=1 to ?table=13 must reload as a fresh guest, not keep table 1's
+  // scoped data, name, or cart.
   useEffect(() => {
+    let cancelled = false;
     async function load() {
+      setLoading(true);
+      setCart({});
+      setShowCart(false);
+      setOrderSuccess(false);
+      setCustomerName('');
+      setTableNumber(tableParam);
       try {
         await initGuestTenantDB(tenantId, tableParam);
-        await reload();
+        if (!cancelled) await reload();
       } catch (err) {
         console.error('[QRMenu] Error loading tenant database:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, [tenantId]);
+    return () => { cancelled = true; };
+  }, [tenantId, tableParam]);
 
-  // No longer polling every 60 seconds since we have realtime websockets
-  // The database triggers postgres_changes and broadcast events.
-
-  // Prefill guest name if table is already occupied
+  // Leaving the QR page: drop guest-mode scoping so an authenticated session
+  // in the same browser gets its full data back (otherwise POS sees this
+  // one table's slice and other tables look empty). Refs keep the cleanup
+  // stable without re-running on every render.
+  const userRef = useRef(user);
+  const reloadRef = useRef(reload);
+  userRef.current = user;
+  reloadRef.current = reload;
   useEffect(() => {
+    return () => {
+      exitGuestMode();
+      const u = userRef.current;
+      if (u?.restaurantName) {
+        initTenantDB(u.restaurantName).then(() => reloadRef.current?.()).catch(() => {});
+      }
+    };
+  }, []);
+
+  // Prefill the guest's name only when they haven't typed one yet, and only
+  // from THIS table's record — never carry a name across tables.
+  useEffect(() => {
+    if (customerName) return;
     if (tableNumber && posTables) {
       const targetTable = posTables.find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
       if (targetTable && targetTable.guestName) {
         setCustomerName(targetTable.guestName);
       }
     }
-  }, [tableNumber, posTables]);
+  }, [tableNumber, posTables, customerName]);
 
   // Sync guest table ID to sessionStorage for concurrency-safe database merging
   useEffect(() => {

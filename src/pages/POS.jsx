@@ -1333,10 +1333,14 @@ const POS = () => {
   // Party size for auto-gratuity
   const [partySize, setPartySize] = useState(1);
 
-  // ── Shift Open overlay check ────────────────────────────────
+  // ── Shift Open overlay ──────────────────────────────────────
+  // Built here, but RETURNED AFTER all hooks (just before the main return).
+  // A conditional early-return in the middle of the hook list changes the
+  // hook count whenever the register opens/closes — or cashDrawer arrives on
+  // a reload — which crashes React with a "change in order of Hooks" error
+  // and blanks the screen. All hooks must run unconditionally first.
   const isRegisterClosed = cashDrawer?.isClosed || !cashDrawer?.shiftStart;
-  if (isRegisterClosed) {
-    return (
+  const registerClosedScreen = (
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -1435,8 +1439,7 @@ const POS = () => {
           </form>
         </div>
       </div>
-    );
-  }
+  );
 
   // ── Derived data ──────────────────────────────────────────
   const menuItems = useMemo(() => {
@@ -2351,6 +2354,9 @@ const POS = () => {
   // ═══════════════════════════════════════════════════════════
   const currentGuest = activeTable?.guestName || customerName;
   const unfiredCourses = [...new Set(cart.filter(i => !firedCourses.has(i.course)).map(i => i.course))].sort();
+
+  // Safe to return now — every hook above has already run this render.
+  if (isRegisterClosed) return registerClosedScreen;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>

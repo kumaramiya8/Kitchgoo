@@ -362,6 +362,17 @@ export function isGuestMode() {
   return _guestMode;
 }
 
+// Leave the public QR page. Guest mode scopes the shared cache to a single
+// table; if it's left on, an authenticated session in the same browser
+// reads that partial state (e.g. other tables' carts look empty).
+export function exitGuestMode() {
+  _guestMode = false;
+  _guestTableParam = '';
+  try {
+    if (typeof window !== 'undefined') window.sessionStorage.removeItem('kitchgoo_guest_table');
+  } catch {}
+}
+
 /**
  * Boot fast path: AuthContext fetches /api/data/bootstrap once (it carries
  * the session user AND the tenant payload) and hands the payload here.
