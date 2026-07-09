@@ -56,6 +56,30 @@ function stableStringify(v) {
   return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
 }
 
+// The floor shown in POS = the floor-plan LAYOUT (all tables) merged with
+// saved per-table state (status/guest). Used both by the floorPlans effect
+// and by hydrateFromCache so a targeted pos_tables refresh always rebuilds
+// the full floor — never leaves it as a partial saved-state array.
+function buildPosTables(fp, savedTables) {
+  const base = ((fp && fp.tables) || []).map(t => ({
+    id: t.id || t.number,
+    number: t.number || t.id,
+    seats: t.seats || t.capacity || 4,
+    shape: t.shape || 'square',
+    section: t.section || t.sectionId || null,
+    status: 'available',
+    guestName: null,
+    guestId: null,
+    seatedAt: null,
+    serverId: t.serverId || null,
+  }));
+  const saved = savedTables || [];
+  return base.map(t => {
+    const existing = saved.find(p => String(p.id) === String(t.id));
+    return existing ? { ...t, ...existing } : t;
+  });
+}
+
 export function AppProvider({ children }) {
   const [ready, setReady] = useState(false);
   const [staff, setStaff] = useState([]);
@@ -156,43 +180,21 @@ export function AppProvider({ children }) {
     changedIds.forEach(id => { saveTableOrder(id, (posSavedOrders || {})[id] ?? null); });
   }, [posSavedOrders, authLoading, hasLoadedFromDb]);
 
-  // Build posTables from floorPlans
+  // Rebuild the displayed floor whenever the layout changes
   useEffect(() => {
     if (authLoading) return;
-    const fp = floorPlans || { tables: [], sections: [] };
-    const floorTables = (fp.tables || []).map(t => ({
-      id: t.id || t.number,
-      number: t.number || t.id,
-      seats: t.seats || t.capacity || 4,
-      shape: t.shape || 'square',
-      section: t.section || t.sectionId || null,
-      status: 'available',
-      guestName: null,
-      guestId: null,
-      seatedAt: null,
-      serverId: t.serverId || null,
-    }));
-    
-    setPosTables(prev => {
-      const tenant = getCurrentTenant();
-      let currentSaved = [];
-      
-      const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
-      if (!supabase || isDemoMode) {
-        try {
-          const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
-          if (savedStr) currentSaved = JSON.parse(savedStr);
-        } catch {}
-      } else {
-        const dbTables = getAll('pos_tables');
-        currentSaved = dbTables || [];
-      }
-
-      return floorTables.map(t => {
-        const existing = currentSaved.find(p => String(p.id) === String(t.id));
-        return existing ? { ...t, ...existing } : t;
-      });
-    });
+    const tenant = getCurrentTenant();
+    let currentSaved = [];
+    const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
+    if (!supabase || isDemoMode) {
+      try {
+        const savedStr = localStorage.getItem(`${tenant}_pos_tables`);
+        if (savedStr) currentSaved = JSON.parse(savedStr);
+      } catch {}
+    } else {
+      currentSaved = getAll('pos_tables') || [];
+    }
+    setPosTables(buildPosTables(floorPlans || { tables: [] }, currentSaved));
   }, [floorPlans, authLoading]);
 
   useEffect(() => {
@@ -248,7 +250,9 @@ export function AppProvider({ children }) {
         setPosSavedOrders(savedOrders ? JSON.parse(savedOrders) : {});
       } catch { setPosSavedOrders({}); }
     } else {
-      setPosTables(getAll('pos_tables') || []);
+      // Always the full floor (layout + saved state), never the raw partial
+      // saved-state array — otherwise a targeted refresh could shrink the floor.
+      setPosTables(buildPosTables(getAll('floor_plans'), getAll('pos_tables')));
       setPosSavedOrders(getAll('pos_saved_orders') || {});
     }
 
@@ -383,30 +387,37 @@ export function AppProvider({ children }) {
     };
   }, [authLoading, hasLoadedFromDb, activeTenant]);
 
-  // Safety net — only pulls a full payload when realtime is actually down,
-  // or when a backgrounded tab (whose socket may have been suspended) comes
-  // back to the foreground. While realtime is connected this does nothing,
-  // so steady-state polling egress is zero.
+  // Self-healing safety net. Realtime broadcasts are near-instant but not
+  // guaranteed — a dropped pos_tables message used to leave the floor stale
+  // until the *next* one (e.g. a table that only appeared after its KOT was
+  // bumped). Every 20s a visible tab reconciles just the live collections
+  // (tables, saved orders, KDS tickets — a couple of KB total), so a missed
+  // broadcast self-corrects quickly without pulling the full payload. If the
+  // socket is actually down, or the tab was backgrounded, fall back to a
+  // full reload.
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb || !activeTenant) return;
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
     if (isDemoMode) return;
 
-    const maybeReload = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (realtimeConnectedRef.current) return; // realtime already covers us
-      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
-      reload();
+    const recentlyMutated = () => Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000;
+    const LIVE = ['pos_tables', 'pos_saved_orders', 'kds_tickets'];
+
+    const reconcile = async () => {
+      if (document.visibilityState !== 'visible' || recentlyMutated()) return;
+      if (!realtimeConnectedRef.current) { await reload(); return; } // socket down → full catch-up
+      const before = LIVE.map(n => stableStringify(getAll(n)));
+      for (const n of LIVE) { await syncOneCollection(n); }
+      const after = LIVE.map(n => stableStringify(getAll(n)));
+      if (before.join('|') !== after.join('|')) hydrateFromCache();
     };
 
     const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
-      // Coming back to the foreground: catch up once (socket may have slept)
-      reload();
+      if (document.visibilityState !== 'visible' || recentlyMutated()) return;
+      reload(); // returning to foreground: catch up fully (socket may have slept)
     };
 
-    const interval = setInterval(maybeReload, 60000);
+    const interval = setInterval(reconcile, 20000);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);
