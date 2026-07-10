@@ -65,6 +65,8 @@
   --t-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --t-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --t-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Overshoot easing — approximates a spring pop for tooltips/dialogs/menus */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* Legacy blur tokens — glass retired, kept so old references resolve */
   --blur-glass: none;
@@ -636,13 +638,15 @@ body {
   border-radius: var(--r-md);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all var(--t-fast);
+  transition: transform var(--t-fast), background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast), color var(--t-fast), opacity var(--t-fast);
   text-decoration: none;
   outline: none;
   white-space: nowrap;
 }
 
-.btn:active { transform: scale(0.98); }
+/* Animate UI button feel: grow on hover, press in on tap */
+.btn:hover:not(:disabled) { transform: scale(1.05); }
+.btn:active:not(:disabled) { transform: scale(0.95); }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .btn-primary {
@@ -842,6 +846,18 @@ tbody tr:hover {
   50% { opacity: 0.65; }
 }
 
+/* Dialog entrance — drops in from the top with a spring overshoot */
+@keyframes dialogIn {
+  from { opacity: 0; transform: translateY(-24px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Menu / dropdown / tooltip pop — grows from its anchor edge */
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 .animate-fade-up {
   animation: fadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
@@ -873,7 +889,8 @@ tbody tr:hover {
   max-height: calc(100dvh - 40px);
   display: flex;
   flex-direction: column;
-  animation: fadeUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform-origin: top center;
+  animation: dialogIn 0.32s var(--ease-spring) forwards;
 }
 
 .modal-header {
@@ -1386,6 +1403,98 @@ tbody tr:hover {
   }
 }
 
+/* ========== ANIMATE: DROPDOWNS / MENUS ========== */
+/* Applied to portal dropdowns (header user menu, search results, etc.) so
+   they pop from their anchor edge instead of appearing instantly. */
+.animate-menu {
+  transform-origin: top right;
+  animation: popIn 0.2s var(--ease-spring) forwards;
+}
+.animate-menu-left { transform-origin: top left; }
+
+/* ========== ANIMATE: TOOLTIP ========== */
+.tt-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.tt-bubble {
+  position: fixed;
+  z-index: 12000;
+  pointer-events: none;
+  background: var(--text-primary);
+  color: var(--canvas);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  transform-origin: var(--tt-origin, bottom center);
+  animation: popIn 0.16s var(--ease-spring) forwards;
+}
+.tt-bubble::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+.tt-bubble[data-side="top"]::after    { bottom: -3px; left: 50%; margin-left: -3px; }
+.tt-bubble[data-side="bottom"]::after { top: -3px;    left: 50%; margin-left: -3px; }
+.tt-bubble[data-side="left"]::after   { right: -3px;  top: 50%;  margin-top: -3px; }
+.tt-bubble[data-side="right"]::after  { left: -3px;   top: 50%;  margin-top: -3px; }
+
+/* ========== ANIMATE: THEME TOGGLE (View Transitions) ========== */
+/* A circular wipe reveals the new theme from the toggle button. Falls back
+   to an instant swap where the View Transitions API isn't supported. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) { z-index: 1; }
+::view-transition-new(root) { z-index: 9999; }
+
+/* ========== ANIMATE: LOGIN BUBBLE BACKGROUND ========== */
+/* Brand-tuned (pine / brass / porcelain) drifting gradient blobs — a calm,
+   living backdrop for the sign-in screen. */
+.bubble-bg {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+.bubble-bg span {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.bubble-bg span:nth-child(1) { width: 44vmax; height: 44vmax; left: -8vmax;  top: -10vmax; background: radial-gradient(circle at 30% 30%, rgba(30,94,74,0.55), transparent 70%); animation: bubbleDrift 26s ease-in-out infinite; }
+.bubble-bg span:nth-child(2) { width: 38vmax; height: 38vmax; right: -10vmax; top: 10vmax;  background: radial-gradient(circle at 30% 30%, rgba(183,126,35,0.42), transparent 70%); animation: bubbleDrift 32s ease-in-out infinite reverse; }
+.bubble-bg span:nth-child(3) { width: 34vmax; height: 34vmax; left: 20vmax;   bottom: -14vmax; background: radial-gradient(circle at 30% 30%, rgba(46,125,91,0.45), transparent 70%); animation: bubbleDrift 29s ease-in-out infinite 2s; }
+.bubble-bg span:nth-child(4) { width: 26vmax; height: 26vmax; right: 6vmax;   bottom: -8vmax;  background: radial-gradient(circle at 30% 30%, rgba(157,195,180,0.5), transparent 70%); animation: bubbleDrift 24s ease-in-out infinite 1s reverse; }
+
+@keyframes bubbleDrift {
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(6vmax, 4vmax) scale(1.08); }
+  66%  { transform: translate(-4vmax, 7vmax) scale(0.96); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+/* ========== ANIMATE: SIDEBAR NAV MOTION ========== */
+/* Nav items ease in on hover; the active rail marker springs to full height. */
+.nav-item { transition: background var(--t-fast), color var(--t-fast), transform var(--t-fast); }
+.nav-item:hover { transform: translateX(2px); }
+.nav-item:active { transform: translateX(1px) scale(0.99); }
+.nav-item::before { transition: opacity var(--t-fast), transform var(--t-normal); transform: scaleY(0.4); }
+.nav-item.active::before { transform: scaleY(1); }
+
 /* ========== REDUCED MOTION ========== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -1393,4 +1502,5 @@ tbody tr:hover {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .bubble-bg span { animation: none !important; }
 }

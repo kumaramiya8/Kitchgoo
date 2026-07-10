@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { Bell, Search, ChevronLeft, LogOut, Settings, Users, Menu, Sparkles } from 'lucide-react';
+import { Search, ChevronLeft, LogOut, Settings, Users, Menu, Sparkles, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../db/AuthContext';
+import { useApp } from '../../db/AppContext';
 import { useNavigate } from 'react-router-dom';
 import HelpDrawer from '../ui/HelpDrawer';
+import Tooltip from '../ui/Tooltip';
+import { toggleThemeWithReveal } from '../../lib/theme';
 
 const SEARCHABLE_ITEMS = [
   // Pages
@@ -38,9 +41,19 @@ const SEARCHABLE_ITEMS = [
 
 const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const { user, logout } = useAuth();
+  const { settings, updateSettingsSection } = useApp();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  const currentTheme = settings?.appearance?.theme || 'light';
+  const isDark = currentTheme === 'dark'
+    || (currentTheme === 'auto' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const handleThemeToggle = (e) => {
+    const next = isDark ? 'light' : 'dark';
+    toggleThemeWithReveal(next, e.currentTarget);   // animated DOM swap now
+    updateSettingsSection('appearance', { theme: next }); // persist
+  };
   const btnRef = useRef(null);
   const dropRef = useRef(null);
   const [dropPos, setDropPos] = useState({ top: 0, right: 0 });
@@ -118,13 +131,13 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const dropdown = dropdownOpen ? ReactDOM.createPortal(
     <div
       ref={dropRef}
+      className="animate-menu"
       style={{
         position: 'fixed',
         top: dropPos.top,
         right: dropPos.right,
-        background: 'rgba(255,255,255,0.96)',
-        backdropFilter: 'blur(24px)',
-        border: '1px solid rgba(255,255,255,0.9)',
+        background: 'var(--modal-bg)',
+        border: '1px solid var(--border)',
         borderRadius: '18px',
         boxShadow: '0 16px 48px rgba(0,0,0,0.14), 0 4px 16px rgba(30, 94, 74,0.08)',
         minWidth: '220px',
@@ -158,13 +171,17 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
 
   return (
     <header className="page-header">
-      <button className="header-menu-btn" onClick={onMenuClick}>
-        <Menu size={18} />
-      </button>
+      <Tooltip label="Menu" side="bottom">
+        <button className="header-menu-btn" onClick={onMenuClick}>
+          <Menu size={18} />
+        </button>
+      </Tooltip>
 
-      <button className="header-back-btn" onClick={() => navigate(-1)}>
-        <ChevronLeft size={16} />
-      </button>
+      <Tooltip label="Back" side="bottom">
+        <button className="header-back-btn" onClick={() => navigate(-1)}>
+          <ChevronLeft size={16} />
+        </button>
+      </Tooltip>
 
       <div className="header-search-wrapper" ref={searchWrapperRef}>
         <Search size={15} className="header-search-icon" />
@@ -178,6 +195,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
         />
         {searchFocused && searchResults.length > 0 && (
           <div
+            className="animate-menu animate-menu-left"
             style={{
               position: 'absolute',
               top: 'calc(100% + 8px)',
@@ -255,11 +273,23 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
       <div className="header-spacer" />
 
       <div className="header-actions">
+        {/* Theme toggle — gradual circular reveal via View Transitions */}
+        <Tooltip label={isDark ? 'Light mode' : 'Dark mode'} side="bottom">
+          <button
+            className="header-icon-btn"
+            onClick={handleThemeToggle}
+            aria-label="Toggle theme"
+            style={{ overflow: 'hidden' }}
+          >
+            {isDark ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+        </Tooltip>
+
         {/* Help / AI Copilot Button */}
-        <button 
-          className="header-icon-btn animate-pulse" 
+        <Tooltip label="Kitchgoo Copilot" side="bottom">
+        <button
+          className="header-icon-btn animate-pulse"
           onClick={() => setHelpOpen(true)}
-          title="Kitchgoo Copilot Help"
           style={{
             position: 'relative',
             background: 'linear-gradient(135deg, rgba(30, 94, 74,0.06), rgba(46, 125, 91,0.06))',
@@ -287,8 +317,10 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
         >
           <Sparkles size={16} />
         </button>
+        </Tooltip>
 
         {/* User avatar button */}
+        <Tooltip label="Account" side="bottom">
         <button
           ref={btnRef}
           className="header-user"
@@ -301,6 +333,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
             <span className="header-user-role">{user?.role || 'Owner'}</span>
           </div>
         </button>
+        </Tooltip>
       </div>
 
       {dropdown}

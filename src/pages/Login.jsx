@@ -46,14 +46,22 @@ const Login = () => {
       fontFamily: "'Hanken Grotesk', system-ui, sans-serif",
       padding: '20px',
       position: 'relative',
+      overflow: 'hidden',
     }}>
+      {/* Animated brand-tuned bubble backdrop (pine / brass / porcelain) */}
+      <div className="bubble-bg" aria-hidden="true">
+        <span /><span /><span /><span />
+      </div>
+
       {/* The rail */}
       <div style={{
         position: 'fixed', top: 0, left: 0, right: 0, height: '3px',
         background: 'linear-gradient(90deg, #1e5e4a 0%, #1e5e4a 62%, #b77e23 100%)',
+        zIndex: 2,
       }} />
 
       <div style={{
+        zIndex: 1,
         width: '100%', maxWidth: '410px',
         background: '#ffffff',
         borderRadius: '16px',
