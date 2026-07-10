@@ -31,6 +31,16 @@ const fmtTime = (secs) => {
   return `${m}:${String(s).padStart(2, '0')}`;
 };
 
+const timeAgo = (iso) => {
+  if (!iso) return '—';
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+};
+
 const timerColor = (secs) => {
   if (secs < 300) return 'var(--success)';
   if (secs < 600) return 'var(--warning)';
@@ -73,9 +83,9 @@ const s = {
     display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap',
   },
   statBox: {
-    flex: '1 1 160px', background: 'rgba(255,255,255,0.68)', backdropFilter: 'blur(12px)',
-    borderRadius: 'var(--r-lg)', padding: '14px 18px',
-    border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 12,
+    flex: '1 1 160px', background: 'var(--card-bg)',
+    borderRadius: 'var(--r-lg)', padding: '14px 18px', boxShadow: 'var(--shadow-card)',
+    border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12,
   },
   statIcon: {
     width: 42, height: 42, borderRadius: 'var(--r-md)',
@@ -85,42 +95,44 @@ const s = {
     display: 'flex', gap: 6, flexWrap: 'wrap',
   },
   tab: (active) => ({
-    padding: '8px 16px', borderRadius: 'var(--r-md)', border: 'none', cursor: 'pointer',
+    padding: '8px 16px', borderRadius: 'var(--r-md)', cursor: 'pointer',
     fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6,
-    background: active ? 'var(--primary)' : 'rgba(255,255,255,0.55)',
-    color: active ? '#fff' : 'var(--text-secondary)',
+    background: active ? 'var(--primary)' : 'var(--card-bg)',
+    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+    border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
     transition: 'all .15s',
-    backdropFilter: 'blur(8px)',
   }),
   viewTab: (active) => ({
-    padding: '8px 18px', borderRadius: 'var(--r-md)', border: 'none', cursor: 'pointer',
+    padding: '8px 18px', borderRadius: 'var(--r-md)', cursor: 'pointer',
     fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6,
-    background: active ? 'var(--accent-blue)' : 'rgba(255,255,255,0.55)',
-    color: active ? '#fff' : 'var(--text-secondary)',
-    transition: 'all .15s', backdropFilter: 'blur(8px)',
+    background: active ? 'var(--accent-blue)' : 'var(--card-bg)',
+    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+    border: active ? '1px solid var(--accent-blue)' : '1px solid var(--border)',
+    transition: 'all .15s',
   }),
   grid: {
     display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
     gap: 16, marginTop: 16,
   },
   card: (borderCol, overdue) => ({
-    background: 'rgba(26,26,46,0.92)', borderRadius: 'var(--r-xl)',
-    border: `3px solid ${borderCol}`, padding: 0, overflow: 'hidden',
-    backdropFilter: 'blur(14px)', color: '#e2e8f0',
+    background: 'var(--card-bg)', borderRadius: 'var(--r-xl)',
+    border: '1px solid var(--border)', borderTop: `4px solid ${borderCol}`,
+    padding: 0, overflow: 'hidden', color: 'var(--text-primary)',
+    boxShadow: 'var(--shadow-card)',
     animation: overdue ? 'kds-pulse 1.5s infinite' : 'none',
-    transition: 'border-color .3s, box-shadow .3s',
+    transition: 'border-color .3s, box-shadow .3s, transform var(--t-fast)',
   }),
   cardHeader: {
     padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    borderBottom: '1px solid var(--border-subtle)',
   },
   cardBody: { padding: '10px 16px 14px' },
   itemRow: {
     display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0',
-    borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.95rem',
+    borderBottom: '1px solid var(--border-subtle)', fontSize: '0.95rem',
   },
   checkbox: (checked) => ({
-    width: 22, height: 22, borderRadius: 4, border: `2px solid ${checked ? 'var(--success)' : 'rgba(255,255,255,0.3)'}`,
+    width: 22, height: 22, borderRadius: 4, border: `2px solid ${checked ? 'var(--success)' : 'var(--border)'}`,
     background: checked ? 'var(--success)' : 'transparent', cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s',
   }),
@@ -130,9 +142,9 @@ const s = {
     cursor: 'pointer', letterSpacing: '0.08em', transition: 'background .15s',
   },
   allergenBanner: {
-    background: 'rgba(239,68,68,0.2)', color: '#fca5a5', padding: '6px 14px',
+    background: 'var(--danger-light)', color: '#dc2626', padding: '6px 14px',
     fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
-    animation: 'kds-flash 1s infinite', borderBottom: '1px solid rgba(239,68,68,0.3)',
+    animation: 'kds-flash 1s infinite', borderBottom: '1px solid rgba(239,68,68,0.25)',
   },
   badge: (bg, text) => ({
     display: 'inline-block', padding: '2px 8px', borderRadius: 'var(--r-sm)',
@@ -140,18 +152,19 @@ const s = {
   }),
   modal: {
     position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
+    background: 'rgba(17, 22, 19, 0.45)',
   },
   modalContent: {
-    background: 'rgba(26,26,46,0.96)', borderRadius: 'var(--r-xl)', padding: '28px 32px',
-    maxWidth: 520, width: '90%', color: '#e2e8f0', border: '1px solid rgba(255,255,255,0.1)',
-    maxHeight: '80vh', overflowY: 'auto',
+    background: 'var(--modal-bg)', borderRadius: 'var(--r-2xl)', padding: '24px 28px',
+    maxWidth: 520, width: '90%', color: 'var(--text-primary)', border: '1px solid var(--border)',
+    boxShadow: 'var(--shadow-lg)', maxHeight: '80vh', overflowY: 'auto',
+    transformOrigin: 'top center', animation: 'dialogIn 0.32s var(--ease-spring) forwards',
   },
   kbd: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    padding: '2px 7px', borderRadius: 4, background: 'rgba(255,255,255,0.1)',
-    border: '1px solid rgba(255,255,255,0.15)', fontSize: '0.72rem', fontWeight: 600,
-    color: 'rgba(255,255,255,0.6)', minWidth: 22,
+    padding: '2px 7px', borderRadius: 4, background: 'var(--primary-light)',
+    border: '1px solid var(--border)', fontSize: '0.72rem', fontWeight: 600,
+    color: 'var(--text-secondary)', minWidth: 22, fontFamily: 'var(--font-mono)',
   },
 };
 
@@ -164,11 +177,11 @@ const RecipeModal = ({ item, recipes, menu, onClose }) => {
     <div style={s.modal} onClick={onClose}>
       <div style={s.modalContent} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#fff' }}>
+          <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)' }}>
             <BookOpen size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
             {item?.name}
           </h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <X size={20} />
           </button>
         </div>
@@ -181,7 +194,7 @@ const RecipeModal = ({ item, recipes, menu, onClose }) => {
             )}
             <div style={{ marginBottom: 14 }}>
               <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: 'var(--accent-blue)' }}>Ingredients</h4>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.85rem', lineHeight: 1.7, color: '#cbd5e1' }}>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.85rem', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
                 {(recipe.ingredients || []).map((ing, i) => (
                   <li key={i}>{typeof ing === 'string' ? ing : `${ing.name} - ${ing.qty} ${ing.unit || ''}`}</li>
                 ))}
@@ -190,19 +203,19 @@ const RecipeModal = ({ item, recipes, menu, onClose }) => {
             </div>
             <div style={{ marginBottom: 14 }}>
               <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: 'var(--success)' }}>Instructions</h4>
-              <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.7, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>
+              <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
                 {recipe.instructions || recipe.steps || 'No instructions available.'}
               </p>
             </div>
             {recipe.plating && (
               <div>
-                <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: '#6faa93' }}>Plating</h4>
-                <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.7, color: '#cbd5e1' }}>{recipe.plating}</p>
+                <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: 'var(--primary)' }}>Plating</h4>
+                <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.7, color: 'var(--text-secondary)' }}>{recipe.plating}</p>
               </div>
             )}
           </>
         ) : (
-          <div style={{ textAlign: 'center', padding: '32px 0', color: '#64748b' }}>
+          <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
             <Utensils size={36} style={{ marginBottom: 10, opacity: 0.4 }} />
             <p style={{ margin: 0, fontSize: '0.9rem' }}>No recipe found for this item.</p>
             {menuItem?.category && <p style={{ margin: '6px 0 0', fontSize: '0.8rem' }}>Category: {menuItem.category}</p>}
@@ -210,7 +223,7 @@ const RecipeModal = ({ item, recipes, menu, onClose }) => {
         )}
         {item?.allergens?.length > 0 && (
           <div style={{ marginTop: 16, padding: '10px 14px', borderRadius: 'var(--r-md)', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#fca5a5' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#dc2626' }}>
               <AlertTriangle size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} />
               ALLERGENS: {item.allergens.join(', ')}
             </span>
@@ -232,43 +245,69 @@ const RecallPanel = ({ tickets, onRecall, onClose }) => {
     <div style={s.modal} onClick={onClose}>
       <div style={{ ...s.modalContent, maxWidth: 600 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
             <RotateCcw size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
             Recall Completed Tickets
           </h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <X size={20} />
           </button>
         </div>
         {completed.length === 0 ? (
-          <p style={{ color: '#64748b', textAlign: 'center', padding: '24px 0' }}>No completed tickets to recall.</p>
+          <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>No completed tickets to recall.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {completed.map(t => (
-              <div key={t.id} style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '10px 14px', borderRadius: 'var(--r-md)',
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-              }}>
-                <div>
-                  <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>#{t.orderId}</span>
-                  <span style={{ margin: '0 8px', color: '#64748b' }}>|</span>
-                  <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-                    Table {t.tableId} - {t.items.length} items
-                  </span>
+            {completed.map(t => {
+              const ot = ORDER_TYPE_COLORS[t.orderType] || ORDER_TYPE_COLORS['dine-in'];
+              // When was it bumped? Use the latest item bump time, else fired time.
+              const bumpTimes = (t.items || []).map(i => i.bumpedAt).filter(Boolean);
+              const doneAt = bumpTimes.length ? new Date(Math.max(...bumpTimes.map(x => new Date(x)))) : null;
+              const prepSecs = doneAt && t.firedAt ? Math.floor((doneAt - new Date(t.firedAt)) / 1000) : null;
+              return (
+                <div key={t.id} style={{
+                  padding: '12px 14px', borderRadius: 'var(--r-md)',
+                  background: 'var(--card-bg)', border: '1px solid var(--border)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-primary)' }}>
+                        <Hash size={13} style={{ verticalAlign: 'middle' }} />{t.orderId}
+                      </span>
+                      <span style={s.badge(ot.bg, ot.text)}>{(t.orderType || 'dine-in').toUpperCase()}</span>
+                      {t.tableId && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Table {t.tableId}</span>}
+                    </div>
+                    <button
+                      onClick={() => onRecall(t.id)}
+                      style={{
+                        padding: '6px 14px', borderRadius: 'var(--r-sm)', border: 'none',
+                        background: 'var(--warning)', color: '#1a1a2e', fontWeight: 700,
+                        fontSize: '0.78rem', cursor: 'pointer', letterSpacing: '0.04em', flexShrink: 0,
+                      }}
+                    >
+                      RECALL
+                    </button>
+                  </div>
+                  {/* Items that were made */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                    {(t.items || []).map((item, i) => (
+                      <span key={i} style={{
+                        fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: 'var(--r-sm)',
+                        background: 'var(--border-subtle)', color: 'var(--text-secondary)',
+                      }}>
+                        {item.name} <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>×{item.qty || 1}</span>
+                      </span>
+                    ))}
+                  </div>
+                  {/* Timing */}
+                  <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    <span><Timer size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />Fired {timeAgo(t.firedAt)}</span>
+                    {prepSecs != null && (
+                      <span><CheckCircle size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />Done in {fmtTime(prepSecs)}</span>
+                    )}
+                  </div>
                 </div>
-                <button
-                  onClick={() => onRecall(t.id)}
-                  style={{
-                    padding: '6px 14px', borderRadius: 'var(--r-sm)', border: 'none',
-                    background: 'var(--warning)', color: '#1a1a2e', fontWeight: 700,
-                    fontSize: '0.78rem', cursor: 'pointer', letterSpacing: '0.04em',
-                  }}
-                >
-                  RECALL
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -576,11 +615,11 @@ export default function KDS() {
                 {/* Header */}
                 <div style={s.cardHeader}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontWeight: 800, fontSize: '1.05rem', color: '#fff' }}>
+                    <span style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
                       <Hash size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />
                       {ticket.orderId}
                     </span>
-                    <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>T{ticket.tableId}</span>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>T{ticket.tableId}</span>
                     <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
                     {isPaymentPending(ticket) ? (
                       <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
@@ -614,7 +653,7 @@ export default function KDS() {
                         <span
                           style={{
                             flex: 1, cursor: 'pointer', textDecoration: bumped ? 'line-through' : 'none',
-                            fontWeight: 600, color: bumped ? '#64748b' : '#e2e8f0',
+                            fontWeight: 600, color: bumped ? 'var(--text-muted)' : 'var(--text-primary)',
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -623,7 +662,7 @@ export default function KDS() {
                         >
                           {item.name}
                         </span>
-                        <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                           x{item.qty || 1}
                         </span>
                         {item.modifiers?.length > 0 && (
@@ -679,17 +718,17 @@ export default function KDS() {
 
               return (
                 <div key={ticket.id} className="animate-fade-up" style={{
-                  background: 'rgba(26,26,46,0.88)', borderRadius: 'var(--r-lg)',
+                  background: 'var(--card-bg)', borderRadius: 'var(--r-lg)',
                   border: `2px solid ${bc}`, padding: '14px 20px',
-                  backdropFilter: 'blur(14px)', color: '#e2e8f0',
+                  boxShadow: 'var(--shadow-card)', color: 'var(--text-primary)',
                   display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
                 }}>
                   {/* Order info */}
                   <div style={{ minWidth: 120 }}>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#fff' }}>
+                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
                       #{ticket.orderId}
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: 2 }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
                       Table {ticket.tableId} <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
                       {isPaymentPending(ticket) ? (
                         <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
@@ -702,11 +741,11 @@ export default function KDS() {
                   {/* Progress bar */}
                   <div style={{ flex: 1, minWidth: 200 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '0.78rem' }}>
-                      <span style={{ color: '#94a3b8' }}>{done}/{total} items</span>
-                      <span style={{ fontWeight: 700, color: pct === 100 ? 'var(--success)' : '#fff' }}>{pct}%</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{done}/{total} items</span>
+                      <span style={{ fontWeight: 700, color: pct === 100 ? 'var(--success)' : 'var(--text-primary)' }}>{pct}%</span>
                     </div>
                     <div style={{
-                      height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.1)', overflow: 'hidden',
+                      height: 8, borderRadius: 4, background: 'var(--border)', overflow: 'hidden',
                     }}>
                       <div style={{
                         height: '100%', borderRadius: 4, width: `${pct}%`,
@@ -721,8 +760,8 @@ export default function KDS() {
                     {(ticket.items || []).map((item, idx) => (
                       <span key={idx} style={{
                         padding: '3px 8px', borderRadius: 'var(--r-sm)', fontSize: '0.75rem', fontWeight: 600,
-                        background: item.status === 'bumped' ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)',
-                        color: item.status === 'bumped' ? 'var(--success)' : '#cbd5e1',
+                        background: item.status === 'bumped' ? 'rgba(34,197,94,0.2)' : 'var(--border-subtle)',
+                        color: item.status === 'bumped' ? 'var(--success)' : 'var(--text-secondary)',
                         textDecoration: item.status === 'bumped' ? 'line-through' : 'none',
                       }}>
                         {item.name} x{item.qty || 1}
@@ -775,24 +814,24 @@ export default function KDS() {
           }}>
             {allDaySummary.map(item => (
               <div key={item.name} className="animate-fade-up" style={{
-                background: 'rgba(26,26,46,0.9)', borderRadius: 'var(--r-lg)',
-                padding: '20px 22px', border: '1px solid rgba(255,255,255,0.08)',
-                backdropFilter: 'blur(14px)', textAlign: 'center',
+                background: 'var(--card-bg)', borderRadius: 'var(--r-lg)',
+                padding: '20px 22px', border: '1px solid var(--border-subtle)',
+                boxShadow: 'var(--shadow-card)', textAlign: 'center',
               }}>
                 <div style={{
-                  fontSize: '2.4rem', fontWeight: 900, color: '#fff', lineHeight: 1,
+                  fontSize: '2.4rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1,
                   marginBottom: 6,
                 }}>
                   {item.count}
                 </div>
                 <div style={{
-                  fontSize: '0.95rem', fontWeight: 700, color: '#e2e8f0',
+                  fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)',
                   marginBottom: 4,
                 }}>
                   {item.name}
                 </div>
                 <div style={{
-                  fontSize: '0.72rem', fontWeight: 600, color: '#64748b',
+                  fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)',
                   textTransform: 'uppercase', letterSpacing: '0.05em',
                 }}>
                   {item.station}

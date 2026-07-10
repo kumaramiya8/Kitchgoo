@@ -266,7 +266,7 @@ const Empty = ({ text = 'No data for this period.' }) => (
 
 const RangePicker = ({ range, setRange, dateFrom, setDateFrom, dateTo, setDateTo }) => (
   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-    <div style={{ display: 'flex', gap: 3, background: 'rgba(255,255,255,0.6)', padding: 4, borderRadius: 10, border: '1px solid var(--border)' }}>
+    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', background: 'var(--card-bg)', padding: 4, borderRadius: 10, border: '1px solid var(--border)' }}>
       {RANGES.map(r => (
         <button key={r} onClick={() => setRange(r)}
           style={{
@@ -1228,7 +1228,7 @@ const SalesInvoicingTab = ({ orders }) => {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button className={`btn ${subTab === 'daily' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setSubTab('daily')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
           Daily Sales Summary
@@ -1610,7 +1610,7 @@ const InventoryMgmtTab = ({ inventory, wasteLog, orders, menu }) => {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button className={`btn ${subTab === 'stock' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setSubTab('stock')} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
           Stock Status &amp; Reorder Report
@@ -2257,8 +2257,8 @@ const Reports = () => {
         </div>
       </div>
 
-      {/* Tab Nav */}
-      <div style={{ display: 'flex', gap: 3, marginBottom: 20, background: 'rgba(255,255,255,0.55)', padding: 5, borderRadius: 14, border: '1px solid var(--border)', overflowX: 'auto' }}>
+      {/* Tab Nav — wraps on small screens so no tab is hidden/cut off */}
+      <div style={{ display: 'flex', gap: 3, marginBottom: 20, background: 'var(--card-bg)', padding: 5, borderRadius: 14, border: '1px solid var(--border)', flexWrap: 'wrap' }}>
         {TABS.map(t => {
           const Icon = t.icon;
           const active = activeTab === t.id;

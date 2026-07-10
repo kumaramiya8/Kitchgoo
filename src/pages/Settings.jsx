@@ -1390,30 +1390,25 @@ const Settings = () => {
               {showSep && (
                 <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '6px 10px' }} />
               )}
-              <button onClick={() => {
-                setActiveSection(s.id);
-                if (isMobile) {
-                  setMobileView('content');
-                }
-              }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
-                  padding: isMobile ? '12px 14px' : '9px 12px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                  background: active ? (isMobile ? 'rgba(30, 94, 74, 0.08)' : 'white') : 'transparent',
-                  boxShadow: !isMobile && active ? 'var(--shadow-md)' : 'none',
-                  color: active ? 'var(--primary)' : 'var(--text-secondary)',
-                  fontWeight: active ? 700 : 500, fontSize: isMobile ? '0.88rem' : '0.82rem',
-                  marginBottom: '2px', textAlign: 'left',
-                  transition: 'all 0.15s',
-                  justifyContent: 'space-between'
+              <button
+                onClick={() => {
+                  setActiveSection(s.id);
+                  if (isMobile) {
+                    setMobileView('content');
+                  }
                 }}
-                onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; }}
-                onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+                className={`nav-item${active ? ' active' : ''}`}
+                style={{
+                  width: '100%', justifyContent: 'space-between',
+                  padding: isMobile ? '12px 14px' : '9px 12px',
+                  fontSize: isMobile ? '0.88rem' : '0.82rem',
+                  background: 'none', textAlign: 'left', font: 'inherit',
+                }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                  <Icon size={16} style={{ flexShrink: 0 }} />
+                <span style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <span className="nav-item-icon"><Icon size={16} /></span>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-                </div>
+                </span>
                 {isMobile && <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />}
               </button>
             </React.Fragment>
