@@ -222,6 +222,52 @@ const QRMenu = () => {
     if (showAiChat) aiEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiMessages, showAiChat]);
 
+  // Core order placement — used by both the cart form and the AI chat flow.
+  const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems) => {
+    const targetTable = (posTables || []).find(
+      t => String(t.number || t.id).trim().toLowerCase() === tableNum.trim().toLowerCase()
+    );
+    if (!targetTable) return { ok: false, error: `Table "${tableNum}" was not found.` };
+
+    const newItems = cartItems.map(c => {
+      const itemId = c.item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
+      return {
+        id: itemId,
+        name: c.item.name,
+        price: c.item.price,
+        qty: c.qty,
+        _cartKey: `${itemId}_`,
+        modifiers: [],
+        specialInstructions: c.notes || '',
+        modifierGroups: c.item.modifierGroups || [],
+        course: 1,
+        seat: 1,
+      };
+    });
+
+    const existingItems = (posSavedOrders || {})[targetTable.id] || [];
+    const mergedItems = [...existingItems];
+    newItems.forEach(newItem => {
+      const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
+      if (idx >= 0) mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + newItem.qty };
+      else mergedItems.push(newItem);
+    });
+
+    setPosTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
+      ...t, status: 'ordered', guestName: guestName.trim(),
+      seatedAt: t.seatedAt || new Date().toISOString(),
+    } : t));
+    setPosSavedOrders(prev => ({ ...(prev || {}), [targetTable.id]: mergedItems }));
+
+    const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
+    await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in');
+    await broadcastOrderCreated(targetTable.id, kdsOrderId);
+    // Also dispatch locally so KDS on the same device (e.g. staff tablet) reacts immediately
+    window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
+
+    return { ok: true };
+  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated]);
+
   const sendAiMessage = useCallback(async (text) => {
     if (!text.trim() || aiLoading) return;
     setAiInput('');
@@ -352,52 +398,6 @@ const QRMenu = () => {
       };
     });
   };
-
-  // Core order placement — used by both the cart form and the AI chat flow.
-  const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems) => {
-    const targetTable = (posTables || []).find(
-      t => String(t.number || t.id).trim().toLowerCase() === tableNum.trim().toLowerCase()
-    );
-    if (!targetTable) return { ok: false, error: `Table "${tableNum}" was not found.` };
-
-    const newItems = cartItems.map(c => {
-      const itemId = c.item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
-      return {
-        id: itemId,
-        name: c.item.name,
-        price: c.item.price,
-        qty: c.qty,
-        _cartKey: `${itemId}_`,
-        modifiers: [],
-        specialInstructions: c.notes || '',
-        modifierGroups: c.item.modifierGroups || [],
-        course: 1,
-        seat: 1,
-      };
-    });
-
-    const existingItems = (posSavedOrders || {})[targetTable.id] || [];
-    const mergedItems = [...existingItems];
-    newItems.forEach(newItem => {
-      const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
-      if (idx >= 0) mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + newItem.qty };
-      else mergedItems.push(newItem);
-    });
-
-    setPosTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
-      ...t, status: 'ordered', guestName: guestName.trim(),
-      seatedAt: t.seatedAt || new Date().toISOString(),
-    } : t));
-    setPosSavedOrders(prev => ({ ...(prev || {}), [targetTable.id]: mergedItems }));
-
-    const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
-    await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in');
-    await broadcastOrderCreated(targetTable.id, kdsOrderId);
-    // Also dispatch locally so KDS on the same device (e.g. staff tablet) reacts immediately
-    window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
-
-    return { ok: true };
-  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated]);
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
