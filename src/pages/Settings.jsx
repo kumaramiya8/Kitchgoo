@@ -1307,6 +1307,11 @@ const AttendanceSection = ({ data, onChange, isMobile }) => {
     );
   };
 
+  const hasLocation = data.lat && data.lng && !isNaN(Number(data.lat)) && !isNaN(Number(data.lng));
+  const mapSrc = hasLocation
+    ? `https://maps.google.com/maps?q=${Number(data.lat).toFixed(6)},${Number(data.lng).toFixed(6)}&z=17&output=embed`
+    : null;
+
   return (
     <div>
       <Toggle
@@ -1356,10 +1361,35 @@ const AttendanceSection = ({ data, onChange, isMobile }) => {
             <MapPin size={15} />
             {locating ? 'Detecting…' : 'Use my current location'}
           </button>
-          {data.lat && data.lng && (
-            <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', fontSize: 13, color: 'var(--text-secondary)' }}>
-              <MapPin size={13} style={{ marginRight: 6, verticalAlign: 'middle', color: 'var(--success)' }} />
-              Location set: {Number(data.lat).toFixed(5)}, {Number(data.lng).toFixed(5)} · {data.radius || 100} m radius
+
+          {hasLocation && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ marginBottom: 10, padding: '10px 14px', borderRadius: 10, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <MapPin size={13} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                <span>
+                  <strong style={{ color: 'var(--text-primary)' }}>Location set</strong>
+                  {'  '}
+                  {Number(data.lat).toFixed(5)}, {Number(data.lng).toFixed(5)}
+                </span>
+                <span style={{ marginLeft: 'auto', background: 'var(--primary-light)', color: 'var(--primary)', padding: '2px 10px', borderRadius: 20, fontWeight: 600, fontSize: 12 }}>
+                  {data.radius || 100} m radius
+                </span>
+              </div>
+              <div style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border-subtle)', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+                <iframe
+                  title="Restaurant location"
+                  src={mapSrc}
+                  width="100%"
+                  height={isMobile ? 220 : 300}
+                  style={{ border: 0, display: 'block' }}
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                />
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
+                Map shows the pinned location. The coloured circle (geofence boundary) is enforced at clock-in/out.
+              </p>
             </div>
           )}
         </div>
