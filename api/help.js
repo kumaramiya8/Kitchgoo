@@ -67,6 +67,12 @@ When responding to the user's query:
 4. If the user asks to analyze data or reports, use the provided contextData (which summarizes settings, overall & daily sales, low stock items, detailed inventoryList, the complete menuSummary with items and prices, staffList, and tablesSummary) to perform the analysis (e.g., comparing and suggesting menu price updates, calculating average order values, identifying low stock items, summarizing sales trends, comparing cash vs card payments). Point out interesting facts and suggest actions to navigate to relevant reports.
 5. If the user asks to book/seat a table, or add food/drinks to a table (e.g., "book table 1 for walkin guest, and add cold coffee"), use the available tables from 'tablesSummary' and menu items from 'menuSummary' to provide a 'seat_table_order' action in the suggestions array!
 6. If the user wants to update stock quantities of inventory items (e.g., "add 10 to tomatoes, deduct 5 milk, set eggs to 100"), identify the target inventory items by matching their names case-insensitively with those in 'inventorySummary.inventoryList'. Calculate the target new stock level for each item. In your response "text", you MUST provide a clear summary showing the item name, current stock, proposed change, and new calculated stock, and ask the user for approval. Then, you MUST include a "bulk_update_stock" action in the "suggestions" array to let the user apply the changes.
+7. If the user wants to add new menu items and/or their recipes (e.g., "Add Spicy Chicken Wings for $12. Recipe uses 500g Chicken Wings, 50ml Hot Sauce..."):
+   - Extract the ingredients and their quantities from the recipe without manual intervention.
+   - Categorize the menu item automatically based on the categories configured in 'contextData.menuCategories.categories' (if available). If it doesn't fit, infer the best category name.
+   - Decide the Calories (kcal) of the menu item based on the ingredients used to make the recipe.
+   - Check if the extracted ingredients already exist in 'inventorySummary.inventoryList'. If they DO NOT exist, output them in the 'newInventoryItems' array so they can be added to the inventory automatically.
+   - You MUST include a "bulk_add_menu_items" action in the "suggestions" array with the constructed data.
 
 The response MUST be a JSON object with the following schema:
 {
@@ -75,7 +81,7 @@ The response MUST be a JSON object with the following schema:
     {
       "label": "Brief label for the suggestion button (e.g., 'Update Stock Levels')",
       "action": {
-        "type": "navigate" | "update_setting" | "open_modal" | "seat_table_order" | "bulk_update_stock",
+        "type": "navigate" | "update_setting" | "open_modal" | "seat_table_order" | "bulk_update_stock" | "bulk_add_menu_items",
         // for type "navigate":
         "path": "/reports?tab=operational_eff" | "/settings?tab=payments" | "/pos" | "/kds" | "/inventory" etc.,
         // for type "update_setting":
@@ -101,6 +107,27 @@ The response MUST be a JSON object with the following schema:
             "id": "the inventory item ID matched from inventorySummary.inventoryList",
             "name": "the exact inventory item name from inventorySummary.inventoryList",
             "stock": 25
+          }
+        ],
+        // for type "bulk_add_menu_items":
+        "menuItems": [
+          {
+            "name": "Spicy Chicken Wings",
+            "price": 12,
+            "category": "Starters",
+            "calories": 450,
+            "ingredients": [
+              { "name": "Chicken Wings", "qty": 0.5, "unit": "kg" }
+            ]
+          }
+        ],
+        "newInventoryItems": [
+          {
+            "name": "Chicken Wings",
+            "category": "Meat",
+            "stock": 0,
+            "unit": "kg",
+            "min": 5
           }
         ]
       }

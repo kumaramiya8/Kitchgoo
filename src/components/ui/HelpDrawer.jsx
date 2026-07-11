@@ -37,7 +37,7 @@ const parseMarkdown = (text) => {
 };
 
 const HelpDrawer = ({ isOpen, onClose }) => {
-  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem, fireToKDS, broadcastOrderCreated } = useApp();
+  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem, addInventoryItem, addMenuItem, fireToKDS, broadcastOrderCreated } = useApp();
   const navigate = useNavigate();
   const [messages, setMessages] = useState(() => {
     try {
@@ -122,6 +122,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
         openingTime: settings.operations.openingTime,
         closingTime: settings.operations.closingTime,
       } : null,
+      menuCategories: settings.menuCategories || null,
     } : null;
 
     // Menu summary containing all items, categories, status, prices, and cost prices
@@ -469,6 +470,81 @@ const HelpDrawer = ({ isOpen, onClose }) => {
         console.error('[HELP DRAWER] Failed to bulk update stock:', err);
         alert('Failed to update stock: ' + err.message);
       }
+    } else if (action.type === 'bulk_add_menu_items') {
+      try {
+        const { newInventoryItems = [], menuItems = [] } = action;
+        
+        // 1. First add any new inventory items proposed
+        const inventoryIdMap = {};
+        for (const inv of newInventoryItems) {
+          const added = await addInventoryItem({
+            name: inv.name,
+            category: inv.category || 'Raw Materials',
+            stock: inv.stock || 0,
+            unit: inv.unit || 'kg',
+            min: inv.min || 5
+          });
+          if (added && added.id) {
+             inventoryIdMap[inv.name.toLowerCase()] = { id: added.id, unit: added.unit };
+          }
+        }
+
+        // 2. Add menu items and link ingredients
+        for (const item of menuItems) {
+          const linkedIngredients = (item.ingredients || []).map(ing => {
+            // Find in our newly added items first
+            let matchedId = inventoryIdMap[ing.name.toLowerCase()]?.id;
+            let matchedUnit = inventoryIdMap[ing.name.toLowerCase()]?.unit || ing.unit;
+            
+            // If not found in newly added, try to find in existing inventory
+            if (!matchedId) {
+               const existing = (inventory || []).find(i => i.name.toLowerCase() === ing.name.toLowerCase());
+               if (existing) {
+                 matchedId = existing.id;
+                 matchedUnit = existing.unit;
+               }
+            }
+
+            return {
+              itemId: matchedId || '', // could be empty if somehow not found/created, but AI should provide it in newInventoryItems
+              qty: ing.qty || 0,
+              unit: matchedUnit || ing.unit || ''
+            };
+          }).filter(ing => ing.itemId); // Ensure we don't link empty IDs if possible
+
+          await addMenuItem({
+            name: item.name,
+            price: Number(item.price) || 0,
+            category: item.category || 'Starters',
+            subcategory: item.subcategory || '',
+            reportingGroup: 'Food Sales',
+            type: 'food',
+            active: true,
+            description: item.description || '',
+            calories: item.calories || null,
+            ingredients: linkedIngredients
+          });
+        }
+
+        // Show inline feedback in the chat message
+        setMessages(prev => {
+          const next = [...prev];
+          const targetMsg = { ...next[index] };
+          const targetSuggestions = [...targetMsg.suggestions];
+          targetSuggestions[suggestionIndex] = {
+            ...targetSuggestions[suggestionIndex],
+            executed: true,
+            statusText: `Added ${menuItems.length} Menu Items & ${newInventoryItems.length} Ingredients!`
+          };
+          targetMsg.suggestions = targetSuggestions;
+          next[index] = targetMsg;
+          return next;
+        });
+
+      } catch (err) {
+        console.error('[HELP DRAWER] Failed to bulk add menu items:', err);
+        alert('Failed to add menu items: ' + err.message);
+      }
     }
   };
 
@@ -688,7 +764,9 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                               <Icon size={13} color={isNav ? '#0ea5e9' : '#1e5e4a'} />
                             </div>
                             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              {isNav ? "AI Suggests Navigating" : (isStock ? "AI Suggests Stock Update" : "AI Suggests Setting Update")}
+                              {isNav ? "AI Suggests Navigating" : 
+                               (isStock ? "AI Suggests Stock Update" : 
+                               (sug.action.type === 'bulk_add_menu_items' ? "AI Suggests Adding Menu Items" : "AI Suggests Setting Update"))}
                             </span>
                           </div>
                           
@@ -733,6 +811,33 @@ const HelpDrawer = ({ isOpen, onClose }) => {
                                   </div>
                                 );
                               })}
+                            </div>
+                          )}
+
+                          {sug.action.type === 'bulk_add_menu_items' && !sug.executed && (
+                            <div style={{ 
+                              background: 'rgba(0,0,0,0.03)', 
+                              padding: '8px 12px', 
+                              borderRadius: '8px', 
+                              fontSize: '0.74rem', 
+                              color: 'var(--text-secondary)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px'
+                            }}>
+                              {sug.action.menuItems?.map((mItem, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontWeight: 600 }}>{mItem.name}</span>
+                                  <span style={{ fontSize: '0.7rem' }}>
+                                    <strong style={{ color: 'var(--primary)', fontSize: '0.74rem' }}>{settings?.restaurant?.currency || '$'}{mItem.price}</strong>
+                                  </span>
+                                </div>
+                              ))}
+                              {sug.action.newInventoryItems?.length > 0 && (
+                                <div style={{ fontSize: '0.68rem', marginTop: '4px', color: 'var(--text-muted)' }}>
+                                  + {sug.action.newInventoryItems.length} new inventory ingredients
+                                </div>
+                              )}
                             </div>
                           )}
 
