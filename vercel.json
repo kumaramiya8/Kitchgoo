@@ -9,6 +9,10 @@
       "destination": "/api/data"
     },
     {
+      "source": "/api/admin/(.*)",
+      "destination": "/api/data"
+    },
+    {
       "source": "/api/public/(.*)",
       "destination": "/api/public"
     },
