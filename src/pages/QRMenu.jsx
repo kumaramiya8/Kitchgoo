@@ -35,8 +35,10 @@ const QRMenu = () => {
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const aiEndRef = useRef(null);
-  // When AI suggests items but guest name is unknown, hold items here until name is given
+  // Pending AI order: items waiting to be confirmed once table + name are collected.
+  // pendingAiStep tracks what info the chat is currently collecting: 'table' | 'name' | null
   const [pendingAiOrder, setPendingAiOrder] = useState(null);
+  const [pendingAiStep, setPendingAiStep] = useState(null);
 
   // Override global scroll lock styles from index.css for the public QR Menu page
   useEffect(() => {
@@ -275,26 +277,69 @@ const QRMenu = () => {
     if (!text.trim() || aiLoading) return;
     setAiInput('');
 
-    // If awaiting a name for a pending AI order, treat this message as the guest name
+    // Pending order — collecting missing info before placing
     if (pendingAiOrder) {
-      const name = text.trim();
-      setAiMessages(prev => [...prev, { role: 'user', text: name }]);
-      setCustomerName(name);
-      setAiLoading(true);
-      try {
-        const result = await doPlaceOrder(name, tableNumber, pendingAiOrder);
-        if (result.ok) {
-          setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Got it, ${name}! Your order is on its way to the kitchen. Enjoy! 🍽️` }]);
-        } else {
-          setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
+      const input = text.trim();
+      setAiMessages(prev => [...prev, { role: 'user', text: input }]);
+
+      if (pendingAiStep === 'table') {
+        // Validate the table exists in this restaurant's floor plan
+        const tableMatch = (posTables || []).find(
+          t => String(t.number || t.id).trim().toLowerCase() === input.toLowerCase()
+        );
+        if (!tableMatch) {
+          setAiMessages(prev => [...prev, {
+            role: 'assistant',
+            text: `I couldn't find table "${input}" in this restaurant. Could you double-check the number on your table? 🙏`,
+          }]);
+          return;
         }
-      } catch {
-        setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart to place your order.' }]);
-      } finally {
-        setPendingAiOrder(null);
-        setAiLoading(false);
+        setTableNumber(input);
+        // Table confirmed — now check if name is needed
+        if (!customerName.trim()) {
+          setPendingAiStep('name');
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Got table ${input}! What name should I put on the order? 😊` }]);
+          return;
+        }
+        // Have everything — place the order now (pass input directly, state update is async)
+        setAiLoading(true);
+        try {
+          const result = await doPlaceOrder(customerName, input, pendingAiOrder);
+          if (result.ok) {
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Order placed for table ${input}! The kitchen is on it. Enjoy! 🍽️` }]);
+          } else {
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
+          }
+        } catch {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart to place your order.' }]);
+        } finally {
+          setPendingAiOrder(null);
+          setPendingAiStep(null);
+          setAiLoading(false);
+        }
+        return;
       }
-      return;
+
+      if (pendingAiStep === 'name') {
+        const name = input;
+        setCustomerName(name);
+        setAiLoading(true);
+        try {
+          const result = await doPlaceOrder(name, tableNumber, pendingAiOrder);
+          if (result.ok) {
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Got it, ${name}! Your order is on its way to the kitchen. Enjoy! 🍽️` }]);
+          } else {
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
+          }
+        } catch {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart to place your order.' }]);
+        } finally {
+          setPendingAiOrder(null);
+          setPendingAiStep(null);
+          setAiLoading(false);
+        }
+        return;
+      }
     }
 
     setAiMessages(prev => [...prev, { role: 'user', text: text.trim() }]);
@@ -322,9 +367,10 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiLoading, aiMessages, menuItems, settings, topSellers, pendingAiOrder, tableNumber, doPlaceOrder]);
+  }, [aiLoading, aiMessages, menuItems, settings, topSellers, pendingAiOrder, pendingAiStep, tableNumber, customerName, posTables, doPlaceOrder]);
 
-  // Place the order suggested by the AI. Collects name via chat if not yet known.
+  // Place the order suggested by the AI.
+  // Collects table number and/or guest name in-chat if not already known.
   const handleAiOrder = useCallback(async (aiItems) => {
     const cartItems = aiItems.map(aiItem => {
       const match = menuItems.find(m => m.id === aiItem.id || m.name.toLowerCase() === aiItem.name.toLowerCase());
@@ -332,29 +378,34 @@ const QRMenu = () => {
     }).filter(Boolean);
     if (!cartItems.length) return;
 
+    // Collect missing info in the chat — never send the guest away to a form
     if (!tableNumber.trim()) {
-      setAiMessages(prev => [...prev, { role: 'assistant', text: "I need your table number to send this order to the kitchen. Please enter it in the Table No. field and try again." }]);
+      setPendingAiOrder(cartItems);
+      setPendingAiStep('table');
+      setAiMessages(prev => [...prev, { role: 'assistant', text: "What's your table number? I'll fire the order straight to the kitchen! 🍽️" }]);
       return;
     }
 
-    if (customerName.trim()) {
-      setAiLoading(true);
-      try {
-        const result = await doPlaceOrder(customerName, tableNumber, cartItems);
-        if (result.ok) {
-          setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Order placed! The kitchen is preparing it now. Enjoy your meal! 🍽️` }]);
-        } else {
-          setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error} Please use the cart to order.` }]);
-        }
-      } catch {
-        setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart below to place your order.' }]);
-      } finally {
-        setAiLoading(false);
-      }
-    } else {
-      // Name unknown — hold items and ask
+    if (!customerName.trim()) {
       setPendingAiOrder(cartItems);
+      setPendingAiStep('name');
       setAiMessages(prev => [...prev, { role: 'assistant', text: 'Almost there! What name should I put on your order? 😊' }]);
+      return;
+    }
+
+    // All info present — place immediately
+    setAiLoading(true);
+    try {
+      const result = await doPlaceOrder(customerName, tableNumber, cartItems);
+      if (result.ok) {
+        setAiMessages(prev => [...prev, { role: 'assistant', text: '✅ Order placed! The kitchen is preparing it now. Enjoy your meal! 🍽️' }]);
+      } else {
+        setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
+      }
+    } catch {
+      setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart below to place your order.' }]);
+    } finally {
+      setAiLoading(false);
     }
   }, [menuItems, tableNumber, customerName, doPlaceOrder]);
 
@@ -871,7 +922,11 @@ const QRMenu = () => {
                 <div style={{ padding: '10px 14px 14px', display: 'flex', gap: 8, alignItems: 'flex-end', background: '#fff', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
                   <input
                     type="text"
-                    placeholder={pendingAiOrder ? 'Type your name to confirm the order…' : 'Ask about the menu…'}
+                    placeholder={
+                      pendingAiStep === 'table' ? 'Type your table number…' :
+                      pendingAiStep === 'name'  ? 'Type your name to confirm…' :
+                      'Ask about the menu…'
+                    }
                     value={aiInput}
                     onChange={e => setAiInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(aiInput); } }}
