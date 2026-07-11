@@ -237,14 +237,44 @@ const AccountsTab = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [flagsMap, setFlagsMap] = useState({});
+  const [flagsLoading, setFlagsLoading] = useState({});
 
   const loadUsers = () => {
     setUsers(getAll('users') || []);
   };
 
+  const loadFlags = async () => {
+    try {
+      const res = await fetch('/api/admin/accounts/flags', { credentials: 'include' });
+      const data = await res.json();
+      if (data.success) setFlagsMap(data.flagsMap || {});
+    } catch { /* silently ignore */ }
+  };
+
   useEffect(() => {
     loadUsers();
+    loadFlags();
   }, []);
+
+  const handleToggleAuditLog = async (accountId, currentDisabled) => {
+    setFlagsLoading(prev => ({ ...prev, [accountId]: true }));
+    try {
+      const newFlags = { ...(flagsMap[accountId] || {}), audit_log_disabled: !currentDisabled };
+      const res = await fetch(`/api/admin/accounts/${encodeURIComponent(accountId)}/flags`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flags: newFlags }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFlagsMap(prev => ({ ...prev, [accountId]: newFlags }));
+      }
+    } finally {
+      setFlagsLoading(prev => ({ ...prev, [accountId]: false }));
+    }
+  };
 
   const tenantAccounts = useMemo(() => {
     return users.filter(u => 
@@ -345,13 +375,14 @@ const AccountsTab = () => {
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Owner Name</th>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Email Address</th>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Created At</th>
+                <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Audit Log</th>
                 <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {tenantAccounts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     No tenant accounts found. Click "Create Account" to add one.
                   </td>
                 </tr>
@@ -371,15 +402,47 @@ const AccountsTab = () => {
                       {account.createdAt ? new Date(account.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '--'}
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      {(() => {
+                        const accountId = account.restaurantName?.toLowerCase();
+                        const disabled = !!(flagsMap[accountId]?.audit_log_disabled);
+                        const busy = !!flagsLoading[accountId];
+                        return (
+                          <button
+                            onClick={() => handleToggleAuditLog(accountId, disabled)}
+                            disabled={busy}
+                            title={disabled ? 'Audit log disabled — click to enable' : 'Audit log enabled — click to disable'}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: busy ? 'wait' : 'pointer',
+                              padding: '2px',
+                              opacity: busy ? 0.5 : 1,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '0.75rem',
+                              color: disabled ? 'var(--text-muted)' : 'var(--primary)',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {disabled
+                              ? <><ToggleLeft size={20} /> Off</>
+                              : <><ToggleRight size={20} /> On</>
+                            }
+                          </button>
+                        );
+                      })()}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                        <button 
+                        <button
                           className="btn btn-sm btn-primary"
                           onClick={() => handleOpenAccount(account.restaurantName)}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
                         >
                           <ExternalLink size={12} /> Open Account
                         </button>
-                        <button 
+                        <button
                           className="btn btn-sm btn-danger"
                           onClick={() => handleDeleteAccount(account.id, account.name)}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}

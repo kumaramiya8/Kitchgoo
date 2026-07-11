@@ -35,6 +35,7 @@ app.use(cookieParser());
 app.set('trust proxy', 1);
 
 app.use('/api/data', requireAuth);
+app.use('/api/admin', requireAuth);
 
 // Collections writable via PUT /collections — flex blobs plus the bill counter
 const WRITABLE_COLLECTIONS = new Set([...FLEX_COLLECTIONS, 'bill_counter']);
@@ -185,15 +186,68 @@ app.get('/api/data/audit-all', wrap(async (req, res) => {
   if (!isPlatformAdmin(req.user)) {
     return res.status(403).json({ success: false, error: 'Platform admin only' });
   }
-  const { data } = await db.from('tenant_data').select('*').eq('collection_name', 'audit_log');
+  const [{ data: auditRows }, { data: flagRows }] = await Promise.all([
+    db.from('tenant_data').select('*').eq('collection_name', 'audit_log'),
+    db.from('tenant_data').select('account_id, value').eq('collection_name', 'platform_flags'),
+  ]);
+  const disabledAccounts = new Set(
+    (flagRows || []).filter(r => r.value?.audit_log_disabled).map(r => r.account_id)
+  );
   const combined = [];
-  (data || []).forEach(row => {
+  (auditRows || []).forEach(row => {
     if (Array.isArray(row.value)) {
-      row.value.forEach(log => combined.push({ ...log, accountId: row.account_id }));
+      row.value.forEach(log => combined.push({
+        ...log,
+        accountId: row.account_id,
+        auditLogDisabled: disabledAccounts.has(row.account_id),
+      }));
     }
   });
   combined.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   res.json({ success: true, auditLog: combined });
+}));
+
+// ── Platform admin per-account flags ────────────────────────
+
+// GET /api/admin/accounts/flags — fetch flags for all accounts (must precede the :accountId route)
+app.get('/api/admin/accounts/flags', wrap(async (req, res) => {
+  const db = requireDb();
+  if (!isPlatformAdmin(req.user)) {
+    return res.status(403).json({ success: false, error: 'Platform admin only' });
+  }
+  const { data } = await db.from('tenant_data').select('account_id, value').eq('collection_name', 'platform_flags');
+  const flagsMap = {};
+  (data || []).forEach(row => { flagsMap[row.account_id] = row.value || {}; });
+  res.json({ success: true, flagsMap });
+}));
+
+// GET /api/admin/accounts/:accountId/flags — fetch flags for one account
+app.get('/api/admin/accounts/:accountId/flags', wrap(async (req, res) => {
+  const db = requireDb();
+  if (!isPlatformAdmin(req.user)) {
+    return res.status(403).json({ success: false, error: 'Platform admin only' });
+  }
+  const { accountId } = req.params;
+  const flags = await getFlex(db, accountId, 'platform_flags', {});
+  res.json({ success: true, flags: flags || {} });
+}));
+
+// PUT /api/admin/accounts/:accountId/flags  body: { flags } — overwrite flags for an account
+app.put('/api/admin/accounts/:accountId/flags', wrap(async (req, res) => {
+  const db = requireDb();
+  if (!isPlatformAdmin(req.user)) {
+    return res.status(403).json({ success: false, error: 'Platform admin only' });
+  }
+  const { accountId } = req.params;
+  const flags = req.body?.flags;
+  if (!flags || typeof flags !== 'object' || Array.isArray(flags)) {
+    return res.status(400).json({ success: false, error: 'flags object required' });
+  }
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: accountId, collection_name: 'platform_flags', value: flags,
+  });
+  if (error) throw error;
+  res.json({ success: true, flags });
 }));
 
 // ── Row-table writes (users / menu / inventory / orders) ────
@@ -463,6 +517,14 @@ app.post('/api/data/flex/:name', wrap(async (req, res) => {
   const item = req.body?.item;
   if (!item || typeof item !== 'object') {
     return res.status(400).json({ success: false, error: 'item payload required' });
+  }
+
+  // Platform admin may disable audit logging for an account — silently no-op
+  if (name === 'audit_log') {
+    const flags = await getFlex(db, tenant, 'platform_flags', {});
+    if (flags?.audit_log_disabled) {
+      return res.json({ success: true, item, disabled: true });
+    }
   }
 
   const current = (await getFlex(db, tenant, name, [])) || [];
