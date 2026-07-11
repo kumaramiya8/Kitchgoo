@@ -2571,7 +2571,15 @@ const POS = () => {
               >
                 <div style={{ position: 'relative', height: 70, width: '100%', overflow: 'hidden', background: 'rgba(30, 94, 74,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
                   {item.image ? (
-                    <img src={item.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
+                      <div 
+                        className="svg-img-container" 
+                        style={{ width: '100%', height: '100%', overflow: 'hidden' }}
+                        dangerouslySetInnerHTML={{ __html: item.image }} 
+                      />
+                    ) : (
+                      <img src={item.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    )
                   ) : (
                     <div style={{ fontSize: '1.5rem', opacity: 0.15 }}>🍳</div>
                   )}

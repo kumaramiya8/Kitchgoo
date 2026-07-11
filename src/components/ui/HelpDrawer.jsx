@@ -520,7 +520,8 @@ const HelpDrawer = ({ isOpen, onClose }) => {
             await editMenuItem(existingMenuItem.id, {
               ...existingMenuItem,
               calories: item.calories || existingMenuItem.calories,
-              ingredients: linkedIngredients
+              ingredients: linkedIngredients,
+              image: item.image || existingMenuItem.image || ''
             });
           } else {
             const added = await addMenuItem({
@@ -533,7 +534,8 @@ const HelpDrawer = ({ isOpen, onClose }) => {
               active: true,
               description: item.description || '',
               calories: item.calories || null,
-              ingredients: linkedIngredients
+              ingredients: linkedIngredients,
+              image: item.image || ''
             });
             if (added && added.id) {
               targetId = added.id;

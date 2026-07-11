@@ -1504,3 +1504,16 @@ tbody tr:hover {
   }
   .bubble-bg span { animation: none !important; }
 }
+
+/* ========== SVG Image Display ========== */
+.svg-img-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.svg-img-container svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}

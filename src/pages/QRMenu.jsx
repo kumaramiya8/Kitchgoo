@@ -710,7 +710,15 @@ const QRMenu = () => {
                 {/* Item Thumbnail Crop */}
                 <div style={{ width: 80, height: 80, borderRadius: 12, overflow: 'hidden', background: 'rgba(30, 94, 74,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   {item.image ? (
-                    <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
+                      <div 
+                        className="svg-img-container" 
+                        style={{ width: '100%', height: '100%', overflow: 'hidden' }}
+                        dangerouslySetInnerHTML={{ __html: item.image }} 
+                      />
+                    ) : (
+                      <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    )
                   ) : (
                     <div style={{ fontSize: '1.8rem', opacity: 0.2 }}>🍔</div>
                   )}

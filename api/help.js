@@ -75,6 +75,7 @@ When responding to the user's query:
    - Decide the Calories (kcal) of the menu item based on the ingredients used to make the recipe.
    - Invent or extract preparation instructions (for 'recipeInstructions') and plating details (for 'recipePlating') based on the item type.
    - Check if the extracted ingredients already exist in 'inventorySummary.inventoryList'. If they DO NOT exist, output them in the 'newInventoryItems' array so they can be added to the inventory automatically.
+   - You MUST generate clean, semantic, modern, self-contained inline SVG code (representing the food/drink visually, styled using inline CSS/attributes with viewBox="0 0 100 100", no HTML tags wrapper, no external imports) and set it in the 'image' property of each menu item (e.g. '"image": "<svg viewBox=\"0 0 100 100\">...</svg>"').
    - You MUST include a "bulk_add_menu_items" action in the "suggestions" array with the constructed data. The system will automatically update the existing item if the name matches, or create a new one.
 
 CRITICAL WARNING ON PAYLOAD SIZE & TRUNCATION:
@@ -129,6 +130,7 @@ The response MUST be a JSON object with the following schema:
             "ingredients": [
               { "name": "Chicken Wings", "qty": 0.5, "unit": "kg" }
             ],
+            "image": "<svg viewBox=\"0 0 100 100\"><circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"#ef4444\" /><path d=\"M30,50 Q50,20 70,50\" stroke=\"#fff\" stroke-width=\"4\" fill=\"none\" /></svg>",
             "recipeInstructions": "Deep fry chicken wings for 10-12 minutes until crispy. Toss in hot buffalo sauce until fully coated.",
             "recipePlating": "Pile wings on a round platter, garnish with sliced celery, and serve with blue cheese dipping sauce."
           }

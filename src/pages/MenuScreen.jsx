@@ -220,6 +220,7 @@ const MenuScreen = () => {
   const [csvError, setCsvError] = useState('');
   const [csvSuccess, setCsvSuccess] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [imageTab, setImageTab] = useState('upload');
 
   const MENU_HEADERS = [
     'id', 'name', 'description', 'price', 'costPrice', 'category',
@@ -580,6 +581,7 @@ const MenuScreen = () => {
 
   const openAdd = () => {
     setForm(emptyForm(dynamicCategories[0] || 'Starters'));
+    setImageTab('upload');
     setAddModal(true);
   };
 
@@ -618,6 +620,8 @@ const MenuScreen = () => {
         recipeInstructions: recipe ? recipe.instructions || '' : '',
         recipePlating: recipe ? recipe.plating || '' : '',
       });
+      const isSvg = typeof item.image === 'string' && item.image.trim().startsWith('<svg');
+      setImageTab(isSvg ? 'svg' : 'upload');
       setEditModal(item);
     } catch (err) {
       console.error('[MenuScreen] Error in openEdit:', err);
@@ -808,30 +812,79 @@ const MenuScreen = () => {
 
         {/* Item Image */}
         <div className="input-group">
-          <label className="input-label">Item Image (URL or File Upload)</label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input className="input-field" value={form.image || ''} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="Paste image URL..." style={{ flex: 1, margin: 0 }} />
-            <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '8px 12px', height: '38px', display: 'flex', alignItems: 'center' }}>
-              Upload Image
-              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
-                const file = e.target.files[0];
-                if (file) {
-                  const reader = new FileReader();
-                  reader.onloadend = async () => {
-                    // Instant local preview, then upload to Storage and swap
-                    // in the URL so base64 never gets saved into the menu row.
-                    setForm(f => ({ ...f, image: reader.result }));
-                    const url = await uploadImage(reader.result, 'menu', getCurrentTenant());
-                    if (url) setForm(f => ({ ...f, image: url }));
-                  };
-                  reader.readAsDataURL(file);
-                }
-              }} />
-            </label>
+          <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Item Image</span>
+          </label>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 8, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 4 }}>
+            <button 
+              type="button" 
+              onClick={() => setImageTab('upload')} 
+              style={{ 
+                background: 'none', border: 'none', 
+                fontSize: '0.76rem', fontWeight: 600, 
+                color: imageTab === 'upload' ? 'var(--primary)' : 'var(--text-muted)', 
+                borderBottom: imageTab === 'upload' ? '2px solid var(--primary)' : '2px solid transparent', 
+                padding: '4px 4px', cursor: 'pointer', transition: 'all 0.15s' 
+              }}
+            >
+              Image URL / Upload
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setImageTab('svg')} 
+              style={{ 
+                background: 'none', border: 'none', 
+                fontSize: '0.76rem', fontWeight: 600, 
+                color: imageTab === 'svg' ? 'var(--primary)' : 'var(--text-muted)', 
+                borderBottom: imageTab === 'svg' ? '2px solid var(--primary)' : '2px solid transparent', 
+                padding: '4px 4px', cursor: 'pointer', transition: 'all 0.15s' 
+              }}
+            >
+              SVG Code
+            </button>
           </div>
+
+          {imageTab === 'upload' ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input className="input-field" value={(form.image && !form.image.trim().startsWith('<svg')) ? form.image : ''} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="Paste image URL..." style={{ flex: 1, margin: 0 }} />
+              <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '8px 12px', height: '38px', display: 'flex', alignItems: 'center' }}>
+                Upload Image
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                      setForm(f => ({ ...f, image: reader.result }));
+                      const url = await uploadImage(reader.result, 'menu', getCurrentTenant());
+                      if (url) setForm(f => ({ ...f, image: url }));
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }} />
+              </label>
+            </div>
+          ) : (
+            <textarea 
+              className="input-field" 
+              value={form.image || ''} 
+              onChange={e => setForm(f => ({ ...f, image: e.target.value }))} 
+              placeholder="e.g. <svg viewBox='0 0 100 100'>...</svg>" 
+              rows="3" 
+              style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', resize: 'vertical' }}
+            />
+          )}
+
           {form.image && (
             <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <img src={form.image} alt="Preview" style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', border: '1px solid var(--border-subtle)' }} />
+              {typeof form.image === 'string' && form.image.trim().startsWith('<svg') ? (
+                <div 
+                  className="svg-img-container" 
+                  style={{ width: 44, height: 44, borderRadius: 6, border: '1px solid var(--border-subtle)', background: 'rgba(30, 94, 74, 0.03)', overflow: 'hidden' }}
+                  dangerouslySetInnerHTML={{ __html: form.image }} 
+                />
+              ) : (
+                <img src={form.image} alt="Preview" style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', border: '1px solid var(--border-subtle)' }} />
+              )}
               <button type="button" className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.08)', padding: '3px 10px' }} onClick={() => setForm(f => ({ ...f, image: '' }))}>Remove Image</button>
             </div>
           )}
@@ -1284,7 +1337,15 @@ const MenuScreen = () => {
                   <td style={{ padding: '10px 8px', fontWeight: 600, color: 'var(--text-primary)', maxWidth: 180 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {item.image ? (
-                        <img src={item.image} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+                        typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
+                          <div 
+                            className="svg-img-container" 
+                            style={{ width: 28, height: 28, borderRadius: 4, flexShrink: 0, overflow: 'hidden' }}
+                            dangerouslySetInnerHTML={{ __html: item.image }} 
+                          />
+                        ) : (
+                          <img src={item.image} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+                        )
                       ) : (
                         <div style={{ width: 28, height: 28, borderRadius: 4, background: 'rgba(30, 94, 74,0.06)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>🍔</div>
                       )}
