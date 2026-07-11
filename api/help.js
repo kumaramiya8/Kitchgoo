@@ -77,6 +77,13 @@ When responding to the user's query:
    - Check if the extracted ingredients already exist in 'inventorySummary.inventoryList'. If they DO NOT exist, output them in the 'newInventoryItems' array so they can be added to the inventory automatically.
    - You MUST include a "bulk_add_menu_items" action in the "suggestions" array with the constructed data. The system will automatically update the existing item if the name matches, or create a new one.
 
+CRITICAL WARNING ON PAYLOAD SIZE & TRUNCATION:
+When generating bulk recipes (e.g. for all existing menu items), the JSON suggestion payload can easily exceed token limits and get truncated (which completely breaks the application). To prevent this:
+- You MUST keep 'recipeInstructions' and 'recipePlating' extremely short and telegraphic (maximum 1 sentence or 10-15 words, e.g., "Boil tea with ginger for 5 min. Strain.").
+- Do not invent elaborate descriptions. Keep ingredients list for each item to a maximum of 3-4 key items.
+- Omit optional ingredients if they bloat the payload.
+- In your markdown "text" explanation, do not list out the full details of all recipes — just summarize which items are being updated (e.g., "I have generated recipes for all 26 items under their respective categories...") to keep the response text short.
+
 The response MUST be a JSON object with the following schema:
 {
   "text": "Your markdown formatted response text here.",
@@ -175,7 +182,7 @@ Respond with ONLY the raw JSON object — no markdown code fences, no commentary
               system: systemPrompt,
               messages: messagesList,
               temperature: 0.1,
-              max_tokens: 4000,
+              max_tokens: 8000,
             }),
           });
 
