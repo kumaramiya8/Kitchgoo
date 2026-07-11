@@ -584,6 +584,7 @@ const MenuScreen = () => {
   };
 
   const openEdit = (item) => {
+    const recipe = (recipes || []).find(r => r.menuItemId === item.id || (r.name && item.name && r.name.toLowerCase() === item.name.toLowerCase()));
     setForm({
       name: item.name || '', description: item.description || '',
       price: item.price || '', category: item.category || dynamicCategories[0] || 'Starters',
