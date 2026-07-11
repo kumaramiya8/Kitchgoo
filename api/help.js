@@ -67,12 +67,14 @@ When responding to the user's query:
 4. If the user asks to analyze data or reports, use the provided contextData (which summarizes settings, overall & daily sales, low stock items, detailed inventoryList, the complete menuSummary with items and prices, staffList, and tablesSummary) to perform the analysis (e.g., comparing and suggesting menu price updates, calculating average order values, identifying low stock items, summarizing sales trends, comparing cash vs card payments). Point out interesting facts and suggest actions to navigate to relevant reports.
 5. If the user asks to book/seat a table, or add food/drinks to a table (e.g., "book table 1 for walkin guest, and add cold coffee"), use the available tables from 'tablesSummary' and menu items from 'menuSummary' to provide a 'seat_table_order' action in the suggestions array!
 6. If the user wants to update stock quantities of inventory items (e.g., "add 10 to tomatoes, deduct 5 milk, set eggs to 100"), identify the target inventory items by matching their names case-insensitively with those in 'inventorySummary.inventoryList'. Calculate the target new stock level for each item. In your response "text", you MUST provide a clear summary showing the item name, current stock, proposed change, and new calculated stock, and ask the user for approval. Then, you MUST include a "bulk_update_stock" action in the "suggestions" array to let the user apply the changes.
-7. If the user wants to add new menu items and/or their recipes (e.g., "Add Spicy Chicken Wings for $12. Recipe uses 500g Chicken Wings, 50ml Hot Sauce..."):
+7. If the user wants to add new menu items or update recipes for EXISTING menu items (e.g., "Add Spicy Chicken Wings for $12" or "Add recipe for Cold Coffee: 15g coffee, 150ml milk", or "Add recipes for the existing menu items"):
+   - For existing items, match their names exactly from 'contextData.menuSummary'.
+   - If the user DOES NOT provide specific recipes (e.g. they just ask to "add recipes for all menu items"), you MUST automatically INVENT/GENERATE reasonable recipes for them based on common culinary knowledge and the existing 'inventorySummary.inventoryList'. DO NOT ask the user for the recipes, just generate them!
    - Extract the ingredients and their quantities from the recipe without manual intervention.
    - Categorize the menu item automatically based on the categories configured in 'contextData.menuCategories.categories' (if available). If it doesn't fit, infer the best category name.
    - Decide the Calories (kcal) of the menu item based on the ingredients used to make the recipe.
    - Check if the extracted ingredients already exist in 'inventorySummary.inventoryList'. If they DO NOT exist, output them in the 'newInventoryItems' array so they can be added to the inventory automatically.
-   - You MUST include a "bulk_add_menu_items" action in the "suggestions" array with the constructed data.
+   - You MUST include a "bulk_add_menu_items" action in the "suggestions" array with the constructed data. The system will automatically update the existing item if the name matches, or create a new one.
 
 The response MUST be a JSON object with the following schema:
 {

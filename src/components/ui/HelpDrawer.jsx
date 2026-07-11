@@ -37,7 +37,7 @@ const parseMarkdown = (text) => {
 };
 
 const HelpDrawer = ({ isOpen, onClose }) => {
-  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem, addInventoryItem, addMenuItem, fireToKDS, broadcastOrderCreated } = useApp();
+  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem, addInventoryItem, addMenuItem, editMenuItem, fireToKDS, broadcastOrderCreated } = useApp();
   const navigate = useNavigate();
   const [messages, setMessages] = useState(() => {
     try {
@@ -512,18 +512,29 @@ const HelpDrawer = ({ isOpen, onClose }) => {
             };
           }).filter(ing => ing.itemId); // Ensure we don't link empty IDs if possible
 
-          await addMenuItem({
-            name: item.name,
-            price: Number(item.price) || 0,
-            category: item.category || 'Starters',
-            subcategory: item.subcategory || '',
-            reportingGroup: 'Food Sales',
-            type: 'food',
-            active: true,
-            description: item.description || '',
-            calories: item.calories || null,
-            ingredients: linkedIngredients
-          });
+          // Check if menu item exists
+          const existingMenuItem = (menu || []).find(m => m.name.toLowerCase() === item.name.toLowerCase());
+
+          if (existingMenuItem) {
+            await editMenuItem(existingMenuItem.id, {
+              ...existingMenuItem,
+              calories: item.calories || existingMenuItem.calories,
+              ingredients: linkedIngredients
+            });
+          } else {
+            await addMenuItem({
+              name: item.name,
+              price: Number(item.price) || 0,
+              category: item.category || 'Starters',
+              subcategory: item.subcategory || '',
+              reportingGroup: 'Food Sales',
+              type: 'food',
+              active: true,
+              description: item.description || '',
+              calories: item.calories || null,
+              ingredients: linkedIngredients
+            });
+          }
         }
 
         // Show inline feedback in the chat message
