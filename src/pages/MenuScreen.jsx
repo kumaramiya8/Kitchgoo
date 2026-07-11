@@ -4,7 +4,8 @@ import {
   Plus, Edit2, Trash2, X, Save, Search, ToggleLeft, ToggleRight,
   QrCode, AlertOctagon, ChevronDown, ChevronUp, Filter, Star,
   TrendingUp, TrendingDown, Zap, Coffee, Layers, Tag, Clock,
-  DollarSign, Flame, ShieldAlert, Check, Info, Grid3X3, Download, Upload
+  DollarSign, Flame, ShieldAlert, Check, Info, Grid3X3, Download, Upload,
+  BookOpen
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -46,6 +47,8 @@ const emptyForm = (defaultCategory = 'Starters') => ({
   modifierGroups: [], priceTiers: { regular: '', happyHour: '', delivery: '' },
   active: true, sold86: false, image: '',
   ingredients: [],
+  recipeInstructions: '',
+  recipePlating: '',
 });
 
 const emptyModifierForm = () => ({
@@ -188,6 +191,7 @@ const MenuScreen = () => {
     addModifier, editModifier, deleteModifier,
     updateSettingsSection,
     addInventoryItem,
+    addRecipe, editRecipe,
   } = useApp();
   const { user } = useAuth();
 
@@ -593,13 +597,17 @@ const MenuScreen = () => {
       active: item.active !== false, sold86: item.sold86 || false,
       image: item.image || '',
       ingredients: item.ingredients || [],
+      recipeInstructions: recipe ? recipe.instructions || '' : '',
+      recipePlating: recipe ? recipe.plating || '' : '',
     });
     setEditModal(item);
   };
 
-  const handleSaveNew = () => {
+  const handleSaveNew = async () => {
     if (!form.name.trim() || !form.price) return;
-    addMenuItem({
+    const customId = 'menu_' + Math.random().toString(36).substr(2, 9);
+    await addMenuItem({
+      id: customId,
       ...form,
       price: parseFloat(form.price),
       costPrice: parseFloat(form.costPrice) || 0,
@@ -611,12 +619,32 @@ const MenuScreen = () => {
         delivery: parseFloat(form.priceTiers.delivery) || 0,
       },
     });
+
+    // Save recipe details
+    const recipeIngredients = (form.ingredients || []).map(ing => {
+      const inventoryItem = inventory.find(i => i.id === ing.itemId);
+      return {
+        name: inventoryItem ? inventoryItem.name : '',
+        qty: ing.qty || 0,
+        unit: ing.unit || ''
+      };
+    }).filter(ing => ing.name);
+
+    await addRecipe({
+      menuItemId: customId,
+      name: form.name,
+      prepTime: parseInt(form.preparationTime) || 15,
+      ingredients: recipeIngredients,
+      instructions: form.recipeInstructions || '',
+      plating: form.recipePlating || ''
+    });
+
     setAddModal(false);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!form.name.trim() || !form.price) return;
-    editMenuItem(editModal.id, {
+    await editMenuItem(editModal.id, {
       ...form,
       price: parseFloat(form.price),
       costPrice: parseFloat(form.costPrice) || 0,
@@ -628,6 +656,39 @@ const MenuScreen = () => {
         delivery: parseFloat(form.priceTiers.delivery) || 0,
       },
     });
+
+    // Save/update recipe details
+    const recipeIngredients = (form.ingredients || []).map(ing => {
+      const inventoryItem = inventory.find(i => i.id === ing.itemId);
+      return {
+        name: inventoryItem ? inventoryItem.name : '',
+        qty: ing.qty || 0,
+        unit: ing.unit || ''
+      };
+    }).filter(ing => ing.name);
+
+    const existingRecipe = recipes.find(r => r.menuItemId === editModal.id || r.name.toLowerCase() === editModal.name.toLowerCase());
+    if (existingRecipe) {
+      await editRecipe(existingRecipe.id, {
+        ...existingRecipe,
+        menuItemId: editModal.id,
+        name: form.name,
+        prepTime: parseInt(form.preparationTime) || 15,
+        ingredients: recipeIngredients,
+        instructions: form.recipeInstructions || '',
+        plating: form.recipePlating || ''
+      });
+    } else {
+      await addRecipe({
+        menuItemId: editModal.id,
+        name: form.name,
+        prepTime: parseInt(form.preparationTime) || 15,
+        ingredients: recipeIngredients,
+        instructions: form.recipeInstructions || '',
+        plating: form.recipePlating || ''
+      });
+    }
+
     setEditModal(null);
   };
 
@@ -945,6 +1006,34 @@ const MenuScreen = () => {
           >
             <Plus size={14} /> Add Ingredient
           </button>
+        </div>
+
+        {/* Recipe Details */}
+        <div className="input-group" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16, marginTop: 16 }}>
+          <h4 style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <BookOpen size={15} /> Recipe Details (shown in KDS)
+          </h4>
+          <div style={{ marginBottom: 12 }}>
+            <label className="input-label">Preparation Instructions</label>
+            <textarea 
+              className="input-field" 
+              value={form.recipeInstructions} 
+              onChange={e => setForm(f => ({ ...f, recipeInstructions: e.target.value }))}
+              placeholder="e.g. Boil water, add tea leaves, simmer for 5 mins..." 
+              rows="3"
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+            />
+          </div>
+          <div>
+            <label className="input-label">Plating Instructions / Plating Style</label>
+            <input 
+              className="input-field" 
+              value={form.recipePlating} 
+              onChange={e => setForm(f => ({ ...f, recipePlating: e.target.value }))}
+              placeholder="e.g. Serve hot in a clay cup (kulhad)" 
+              style={{ width: '100%' }}
+            />
+          </div>
         </div>
       </div>
       <div className="modal-footer">

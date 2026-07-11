@@ -524,8 +524,9 @@ export function AppProvider({ children }) {
 
   // ── Menu ─────────────────────────────────────────────────
   const addMenuItem = useCallback(async (data) => {
-    await insert('menu', { ...data, price: parseFloat(data.price) });
+    const res = await insert('menu', { ...data, price: parseFloat(data.price) });
     setMenu(getAll('menu'));
+    return res;
   }, []);
 
   const editMenuItem = useCallback(async (id, data) => {

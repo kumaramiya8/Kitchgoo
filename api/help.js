@@ -73,6 +73,7 @@ When responding to the user's query:
    - Extract the ingredients and their quantities from the recipe without manual intervention.
    - Categorize the menu item automatically based on the categories configured in 'contextData.menuCategories.categories' (if available). If it doesn't fit, infer the best category name.
    - Decide the Calories (kcal) of the menu item based on the ingredients used to make the recipe.
+   - Invent or extract preparation instructions (for 'recipeInstructions') and plating details (for 'recipePlating') based on the item type.
    - Check if the extracted ingredients already exist in 'inventorySummary.inventoryList'. If they DO NOT exist, output them in the 'newInventoryItems' array so they can be added to the inventory automatically.
    - You MUST include a "bulk_add_menu_items" action in the "suggestions" array with the constructed data. The system will automatically update the existing item if the name matches, or create a new one.
 
@@ -120,7 +121,9 @@ The response MUST be a JSON object with the following schema:
             "calories": 450,
             "ingredients": [
               { "name": "Chicken Wings", "qty": 0.5, "unit": "kg" }
-            ]
+            ],
+            "recipeInstructions": "Deep fry chicken wings for 10-12 minutes until crispy. Toss in hot buffalo sauce until fully coated.",
+            "recipePlating": "Pile wings on a round platter, garnish with sliced celery, and serve with blue cheese dipping sauce."
           }
         ],
         "newInventoryItems": [

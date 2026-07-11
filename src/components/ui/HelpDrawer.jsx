@@ -37,7 +37,7 @@ const parseMarkdown = (text) => {
 };
 
 const HelpDrawer = ({ isOpen, onClose }) => {
-  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem, addInventoryItem, addMenuItem, editMenuItem, fireToKDS, broadcastOrderCreated } = useApp();
+  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem, addInventoryItem, addMenuItem, editMenuItem, recipes, addRecipe, editRecipe, fireToKDS, broadcastOrderCreated } = useApp();
   const navigate = useNavigate();
   const [messages, setMessages] = useState(() => {
     try {
@@ -514,6 +514,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
 
           // Check if menu item exists
           const existingMenuItem = (menu || []).find(m => m.name.toLowerCase() === item.name.toLowerCase());
+          let targetId = existingMenuItem?.id;
 
           if (existingMenuItem) {
             await editMenuItem(existingMenuItem.id, {
@@ -522,7 +523,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
               ingredients: linkedIngredients
             });
           } else {
-            await addMenuItem({
+            const added = await addMenuItem({
               name: item.name,
               price: Number(item.price) || 0,
               category: item.category || 'Starters',
@@ -534,6 +535,40 @@ const HelpDrawer = ({ isOpen, onClose }) => {
               calories: item.calories || null,
               ingredients: linkedIngredients
             });
+            if (added && added.id) {
+              targetId = added.id;
+            }
+          }
+
+          // Also save/update the recipe for KDS lookup
+          if (targetId) {
+            const recipeIngredients = (item.ingredients || []).map(ing => ({
+              name: ing.name,
+              qty: Number(ing.qty) || 0,
+              unit: ing.unit || ''
+            }));
+
+            const existingRecipe = (recipes || []).find(r => r.menuItemId === targetId || r.name.toLowerCase() === item.name.toLowerCase());
+            if (existingRecipe) {
+              await editRecipe(existingRecipe.id, {
+                ...existingRecipe,
+                menuItemId: targetId,
+                name: item.name,
+                prepTime: 15,
+                ingredients: recipeIngredients,
+                instructions: item.recipeInstructions || '',
+                plating: item.recipePlating || ''
+              });
+            } else {
+              await addRecipe({
+                menuItemId: targetId,
+                name: item.name,
+                prepTime: 15,
+                ingredients: recipeIngredients,
+                instructions: item.recipeInstructions || '',
+                plating: item.recipePlating || ''
+              });
+            }
           }
         }
 
