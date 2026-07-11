@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import { initGuestTenantDB, initTenantDB, exitGuestMode } from '../db/database';
-import { 
-  Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award
+import {
+  Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award,
+  Sparkles, Send, Bot, Loader2
 } from 'lucide-react';
 
 const QRMenu = () => {
@@ -12,7 +13,7 @@ const QRMenu = () => {
   const [searchParams] = useSearchParams();
   const tableParam = searchParams.get('table') || '';
 
-  const { menu, settings, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
+  const { menu, settings, orders, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,6 +28,13 @@ const QRMenu = () => {
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
+
+  // AI chat state
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiEndRef = useRef(null);
 
   // Override global scroll lock styles from index.css for the public QR Menu page
   useEffect(() => {
@@ -178,6 +186,78 @@ const QRMenu = () => {
   // Helper values
   const cartItemsCount = Object.values(cart).reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = Object.values(cart).reduce((sum, item) => sum + (item.item.price * item.qty), 0);
+
+  // Derive top-selling items from order history; fall back to first 4 menu items
+  const topSellers = useMemo(() => {
+    const counts = {};
+    (orders || []).forEach(o => {
+      (o.items || []).forEach(it => {
+        counts[it.name] = (counts[it.name] || 0) + (it.qty || 1);
+      });
+    });
+    const withCounts = menuItems.filter(m => counts[m.name]);
+    if (withCounts.length >= 2) {
+      return withCounts.sort((a, b) => (counts[b.name] || 0) - (counts[a.name] || 0)).slice(0, 4);
+    }
+    return menuItems.slice(0, 4);
+  }, [orders, menuItems]);
+
+  const aiOrderingEnabled = settings?.modules?.qrAiOrdering !== false;
+
+  // Initialise welcome message when chat first opens
+  useEffect(() => {
+    if (showAiChat && aiMessages.length === 0) {
+      const restaurantLabel = settings?.restaurant?.name || 'our restaurant';
+      const topNames = topSellers.slice(0, 2).map(i => i.name).join(' and ');
+      setAiMessages([{
+        role: 'assistant',
+        text: `Hi! 👋 I'm your AI food guide at **${restaurantLabel}**. Ask me what to order, I can add items to your cart for you!\n\n${topNames ? `🔥 Popular right now: ${topNames}` : 'What are you in the mood for?'}`,
+      }]);
+    }
+  }, [showAiChat]);
+
+  useEffect(() => {
+    if (showAiChat) aiEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [aiMessages, showAiChat]);
+
+  const sendAiMessage = useCallback(async (text) => {
+    if (!text.trim() || aiLoading) return;
+    setAiMessages(prev => [...prev, { role: 'user', text: text.trim() }]);
+    setAiInput('');
+    setAiLoading(true);
+    try {
+      const res = await fetch('/api/qr-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text.trim(),
+          chatHistory: aiMessages.map(m => ({ role: m.role, text: m.text })),
+          menuItems: menuItems.map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, description: i.description })),
+          restaurantName: settings?.restaurant?.name || '',
+          topSellers: topSellers.map(i => ({ name: i.name })),
+        }),
+      });
+      const data = await res.json();
+      setAiMessages(prev => [...prev, {
+        role: 'assistant',
+        text: data.text || 'Sorry, I had trouble with that. Try asking again.',
+        addToCart: data.add_to_cart?.length ? data.add_to_cart : null,
+      }]);
+    } catch {
+      setAiMessages(prev => [...prev, { role: 'assistant', text: 'Connection issue — please try again.' }]);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiLoading, aiMessages, menuItems, settings, topSellers]);
+
+  const handleAiAddToCart = useCallback((items) => {
+    items.forEach(aiItem => {
+      const match = menuItems.find(m => m.id === aiItem.id || m.name.toLowerCase() === aiItem.name.toLowerCase());
+      if (match) {
+        for (let i = 0; i < (aiItem.qty || 1); i++) handleAddToCart(match);
+      }
+    });
+  }, [menuItems]);
 
   const handleAddToCart = (item) => {
     setCart(prev => {
@@ -622,6 +702,148 @@ const QRMenu = () => {
             <ShoppingCart size={15} /> View Cart <ChevronRight size={15} />
           </button>
         </div>
+      )}
+
+      {/* ── AI Ordering Chat ──────────────────────────────────── */}
+      {aiOrderingEnabled && !orderSuccess && (
+        <>
+          {/* Floating AI button */}
+          <button
+            onClick={() => setShowAiChat(true)}
+            style={{
+              position: 'fixed',
+              bottom: cartItemsCount > 0 ? 82 : 24,
+              right: 16,
+              zIndex: 20,
+              width: 52,
+              height: 52,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+              color: 'white',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(124,58,237,0.4)',
+              transition: 'all 0.2s ease',
+            }}
+            aria-label="AI food assistant"
+          >
+            <Sparkles size={22} />
+          </button>
+
+          {/* AI Chat Panel */}
+          {showAiChat && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 98, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+              {/* Backdrop */}
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(30,27,75,0.4)' }} onClick={() => setShowAiChat(false)} />
+
+              {/* Sheet */}
+              <div style={{
+                position: 'relative',
+                background: '#fff',
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                height: '80vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 -8px 40px rgba(124,58,237,0.15)',
+                overflow: 'hidden',
+              }}>
+                {/* Header */}
+                <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(124,58,237,0.12)', display: 'flex', alignItems: 'center', gap: 10, background: 'linear-gradient(135deg,rgba(124,58,237,0.06),rgba(79,70,229,0.03))' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Bot size={18} color="white" />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#1e1b4b' }}>AI Food Guide</div>
+                    <div style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>Ask me anything about the menu</div>
+                  </div>
+                  <button onClick={() => setShowAiChat(false)} style={{ border: 'none', background: 'rgba(0,0,0,0.05)', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+
+                {/* Messages */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {aiMessages.map((msg, i) => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 6 }}>
+                      <div style={{
+                        maxWidth: '85%',
+                        padding: '10px 13px',
+                        borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '4px 16px 16px 16px',
+                        background: msg.role === 'user' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : '#f4f4f8',
+                        color: msg.role === 'user' ? '#fff' : '#1e1b4b',
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        fontWeight: 500,
+                        whiteSpace: 'pre-wrap',
+                      }}>
+                        {msg.text?.replace(/\*\*(.*?)\*\*/g, '$1')}
+                      </div>
+                      {msg.addToCart && msg.addToCart.length > 0 && (
+                        <button
+                          onClick={() => { handleAiAddToCart(msg.addToCart); setShowAiChat(false); }}
+                          style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 20, border: 'none', background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          <ShoppingCart size={13} />
+                          Add {msg.addToCart.map(i => `${i.qty || 1}× ${i.name}`).join(', ')} to cart
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {aiLoading && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#7c3aed', fontSize: 13 }}>
+                      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Thinking…
+                    </div>
+                  )}
+                  <div ref={aiEndRef} />
+                </div>
+
+                {/* Top sellers quick chips */}
+                {topSellers.length > 0 && (
+                  <div style={{ padding: '8px 14px 0', display: 'flex', gap: 8, overflowX: 'auto', borderTop: '1px solid rgba(0,0,0,0.04)' }} className="scrollbar-hide">
+                    <button
+                      onClick={() => sendAiMessage('What do you recommend?')}
+                      style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, padding: '5px 11px', borderRadius: 20, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      ✨ Recommend
+                    </button>
+                    {topSellers.map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => sendAiMessage(`Tell me about ${item.name} and add it to my cart`)}
+                        style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, padding: '5px 11px', borderRadius: 20, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
+                      >
+                        🔥 {item.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Input */}
+                <div style={{ padding: '10px 14px 14px', display: 'flex', gap: 8, alignItems: 'flex-end', background: '#fff', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                  <input
+                    type="text"
+                    placeholder="Ask about the menu…"
+                    value={aiInput}
+                    onChange={e => setAiInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(aiInput); } }}
+                    style={{ flex: 1, padding: '10px 14px', borderRadius: 20, border: '1.5px solid rgba(124,58,237,0.25)', fontSize: 13, outline: 'none', background: '#f8f7ff' }}
+                  />
+                  <button
+                    onClick={() => sendAiMessage(aiInput)}
+                    disabled={!aiInput.trim() || aiLoading}
+                    style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: !aiInput.trim() || aiLoading ? 0.5 : 1 }}
+                  >
+                    <Send size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Cart Drawer / Modal */}

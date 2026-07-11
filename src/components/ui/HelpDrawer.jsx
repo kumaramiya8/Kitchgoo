@@ -37,7 +37,7 @@ const parseMarkdown = (text) => {
 };
 
 const HelpDrawer = ({ isOpen, onClose }) => {
-  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem } = useApp();
+  const { orders, inventory, staff, settings, wasteLog, menu, posTables, setPosTables, setPosSavedOrders, updateSettingsSection, editInventoryItem, fireToKDS, broadcastOrderCreated } = useApp();
   const navigate = useNavigate();
   const [messages, setMessages] = useState(() => {
     try {
@@ -407,6 +407,11 @@ const HelpDrawer = ({ isOpen, onClose }) => {
               [tableId]: [...currentCart, ...posItems]
             };
           });
+
+          // Fire to KDS so kitchen sees the order immediately
+          const kdsOrderId = `COPILOT-${tableId}-${Date.now().toString().slice(-4)}`;
+          await fireToKDS(kdsOrderId, posItems, tableId, 'dine-in');
+          await broadcastOrderCreated(tableId, kdsOrderId);
         }
 
         // Show inline feedback in the chat message
@@ -417,7 +422,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
           targetSuggestions[suggestionIndex] = {
             ...targetSuggestions[suggestionIndex],
             executed: true,
-            statusText: `Table Seated & Items Added!`
+            statusText: `Table Seated & Order Sent to Kitchen!`
           };
           targetMsg.suggestions = targetSuggestions;
           next[index] = targetMsg;

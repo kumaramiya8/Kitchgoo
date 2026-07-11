@@ -438,6 +438,7 @@ const MODULE_DEFS = [
   { key: 'kds', label: 'Kitchen Display System', desc: 'Digital ticket display for kitchen staff with bump-bar workflow and priority routing.', icon: ChefHat },
   { key: 'delivery', label: 'Delivery', desc: 'Third-party delivery platform integrations and in-house delivery fleet management.', icon: Truck },
   { key: 'onlineOrdering', label: 'Online Ordering', desc: 'Branded online ordering portal with direct pickup and delivery options.', icon: ShoppingBag },
+  { key: 'qrAiOrdering', label: 'AI Ordering (QR Menu)', desc: 'Let guests chat with an AI assistant to discover menu items and place orders directly from the QR menu.', icon: Sparkles },
   { key: 'loyalty', label: 'Loyalty Program', desc: 'Points-based loyalty system with tier rewards, birthday offers, and referral tracking.', icon: Heart },
   { key: 'campaigns', label: 'Campaigns & Marketing', desc: 'Email and SMS marketing campaigns, promo codes, and customer engagement tools.', icon: Megaphone },
   { key: 'multiLocation', label: 'Multi-Location', desc: 'Manage multiple restaurant locations from a single dashboard with consolidated reporting.', icon: Building2 },
