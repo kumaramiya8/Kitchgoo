@@ -375,9 +375,9 @@ const HelpDrawer = ({ isOpen, onClose }) => {
         setPosTables(prev => prev.map(t => String(t.id) === String(tableId)
           ? {
               ...t,
-              status: 'seated',
+              status: 'ordered',
               guestName: guestName,
-              seatedAt: new Date().toISOString(),
+              seatedAt: t.seatedAt || new Date().toISOString(),
             }
           : t
         ));

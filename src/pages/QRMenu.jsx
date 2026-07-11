@@ -224,10 +224,13 @@ const QRMenu = () => {
 
   // Core order placement — used by both the cart form and the AI chat flow.
   const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems) => {
+    const resolvedName = (guestName && guestName.trim()) || 'Walk-in';
+    const resolvedTable = (tableNum && tableNum.trim()) || tableParam;
+    if (!resolvedTable) return { ok: false, error: 'Table number is required.' };
     const targetTable = (posTables || []).find(
-      t => String(t.number || t.id).trim().toLowerCase() === tableNum.trim().toLowerCase()
+      t => String(t.number || t.id).trim().toLowerCase() === resolvedTable.trim().toLowerCase()
     );
-    if (!targetTable) return { ok: false, error: `Table "${tableNum}" was not found.` };
+    if (!targetTable) return { ok: false, error: `Table "${resolvedTable}" was not found.` };
 
     const newItems = cartItems.map(c => {
       const itemId = c.item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
@@ -254,7 +257,7 @@ const QRMenu = () => {
     });
 
     setPosTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
-      ...t, status: 'ordered', guestName: guestName.trim(),
+      ...t, status: 'ordered', guestName: resolvedName,
       seatedAt: t.seatedAt || new Date().toISOString(),
     } : t));
     setPosSavedOrders(prev => ({ ...(prev || {}), [targetTable.id]: mergedItems }));
@@ -266,7 +269,7 @@ const QRMenu = () => {
     window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
 
     return { ok: true };
-  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated]);
+  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated, tableParam]);
 
   const sendAiMessage = useCallback(async (text) => {
     if (!text.trim() || aiLoading) return;

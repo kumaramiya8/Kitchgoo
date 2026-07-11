@@ -11,7 +11,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { getAdminClient, broadcastChange } from './_lib/core.js';
+import { getAdminClient, broadcastChange, broadcastServerOrderCreated } from './_lib/core.js';
 import { SEEDS } from '../shared/seeds.js';
 
 const app = express();
@@ -148,6 +148,8 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
       account_id: tenant, collection_name: 'pos_saved_orders', value: merged,
     });
     if (error) throw error;
+    // Notify POS computers that saved orders changed so they sync order items
+    broadcastChange(tenant, 'pos_saved_orders');
   }
 
   broadcastChange(tenant, 'pos_tables');
@@ -178,6 +180,10 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
   if (error) throw error;
 
   broadcastChange(tenant, 'kds_tickets');
+  // Server-side order_created broadcast so KDS devices play the chime and
+  // reload immediately, even when the QR guest's Supabase channel isn't
+  // subscribed yet (race: guest placed order before the WS handshake finished).
+  broadcastServerOrderCreated(tenant, withId.tableId || null, withId.id).catch(() => {});
   res.json({ success: true, ticket: withId });
 }));
 

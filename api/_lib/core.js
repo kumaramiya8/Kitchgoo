@@ -199,7 +199,7 @@ export async function uploadDataUrl(tenant, kind, dataUrl) {
 // ── Change signal ───────────────────────────────────────────
 // Fire-and-forget realtime broadcast so other devices resync. Carries no
 // data — clients call GET /api/data/sync when they hear it.
-export async function broadcastChange(tenant, table) {
+async function _serverBroadcast(tenant, event, payload) {
   if (!SUPABASE_URL || !SERVICE_KEY) return;
   try {
     await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
@@ -212,15 +212,26 @@ export async function broadcastChange(tenant, table) {
       body: JSON.stringify({
         messages: [{
           topic: `kitchgoo_changes_${tenant}`,
-          event: 'db_changed',
-          payload: { table, at: Date.now() },
+          event,
+          payload: { ...payload, at: Date.now() },
           private: false,
         }],
       }),
     });
   } catch (err) {
-    console.warn('[Server] broadcastChange failed (non-fatal):', err.message);
+    console.warn(`[Server] broadcast(${event}) failed (non-fatal):`, err.message);
   }
+}
+
+export async function broadcastChange(tenant, table) {
+  return _serverBroadcast(tenant, 'db_changed', { table });
+}
+
+// Broadcast an order_created event from the server. This is more reliable
+// than the client-side broadcastOrderCreated (which depends on the client's
+// Supabase channel being subscribed — not guaranteed for QR guests).
+export async function broadcastServerOrderCreated(tenant, tableId, kdsOrderId) {
+  return _serverBroadcast(tenant, 'order_created', { tableId, kdsOrderId });
 }
 
 // ── Tenant bootstrap helpers ────────────────────────────────

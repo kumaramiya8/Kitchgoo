@@ -355,8 +355,15 @@ export function AppProvider({ children }) {
     const onChange = (msg) => {
       if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
       const table = msg?.payload?.table;
-      if (table) refreshCollection(table);
-      else reload();
+      if (table) {
+        refreshCollection(table);
+        // When table state changes also sync saved orders — the public QR endpoint
+        // writes both together but only used to broadcast pos_tables, leaving
+        // the POS with stale order items until the next full sync.
+        if (table === 'pos_tables') refreshCollection('pos_saved_orders');
+      } else {
+        reload();
+      }
     };
 
     // The backend broadcasts "db_changed" (with the collection name) after
