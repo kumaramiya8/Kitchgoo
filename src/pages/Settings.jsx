@@ -665,7 +665,7 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
 // ─── Roles & Permissions ──────────────────────────────────
 const RolesSection = ({ data, onChange, isMobile }) => {
   const [newRole, setNewRole] = useState('');
-  const allPerms = ['pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'settings'];
+  const allPerms = ['pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings'];
 
   const togglePerm = (roleId, perm) => {
     const updated = (data || []).map(r => {

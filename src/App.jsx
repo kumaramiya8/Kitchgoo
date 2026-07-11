@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './db/AuthContext';
+import { usePermissions } from './db/usePermissions';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 
@@ -53,17 +54,22 @@ const BootSplash = () => (
   </div>
 );
 
-// Route guard
+// Route guard — checks authentication only
 const Protected = ({ children, allowAdmin = false }) => {
   const { user, loading } = useAuth();
   if (loading) return <BootSplash />;
   if (!user) return <Navigate to="/login" replace />;
-  
-  // If the user is Kitchgoo and not impersonating, only allow access to platform admin allowed routes
   if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated && !allowAdmin) {
     return <Navigate to="/" replace />;
   }
-  
+  return children;
+};
+
+// Permission guard — redirects to dashboard when the user's role lacks access.
+// Must render inside AppProvider (i.e. inside a Protected route).
+const PermissionGuard = ({ perm, children }) => {
+  const can = usePermissions();
+  if (!can(perm)) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -87,24 +93,24 @@ function App() {
 
       {/* Protected — Operations */}
       <Route path="/" element={<Protected allowAdmin={true}><RootElement /></Protected>} />
-      <Route path="/pos" element={<Protected><Layout title="POS & Billing"><POS /></Layout></Protected>} />
-      <Route path="/kds" element={<Protected><Layout title="Kitchen Display System"><KDS /></Layout></Protected>} />
-      <Route path="/menu" element={<Protected><Layout title="Menu Management"><MenuScreen /></Layout></Protected>} />
-      <Route path="/inventory" element={<Protected><Layout title="Inventory & Supply Chain"><Inventory /></Layout></Protected>} />
-      <Route path="/delivery" element={<Protected><Layout title="Delivery & Online Ordering"><Delivery /></Layout></Protected>} />
+      <Route path="/pos" element={<Protected><PermissionGuard perm="pos"><Layout title="POS & Billing"><POS /></Layout></PermissionGuard></Protected>} />
+      <Route path="/kds" element={<Protected><PermissionGuard perm="kds"><Layout title="Kitchen Display System"><KDS /></Layout></PermissionGuard></Protected>} />
+      <Route path="/menu" element={<Protected><PermissionGuard perm="menu"><Layout title="Menu Management"><MenuScreen /></Layout></PermissionGuard></Protected>} />
+      <Route path="/inventory" element={<Protected><PermissionGuard perm="inventory"><Layout title="Inventory & Supply Chain"><Inventory /></Layout></PermissionGuard></Protected>} />
+      <Route path="/delivery" element={<Protected><PermissionGuard perm="delivery"><Layout title="Delivery & Online Ordering"><Delivery /></Layout></PermissionGuard></Protected>} />
 
       {/* Protected — Management */}
-      <Route path="/staff" element={<Protected><Layout title="Staff & Workforce"><Staff /></Layout></Protected>} />
-      <Route path="/guests" element={<Protected><Layout title="Guests & CRM"><Guests /></Layout></Protected>} />
-      <Route path="/reservations" element={<Protected><Layout title="Reservations & Waitlist"><Reservations /></Layout></Protected>} />
-      <Route path="/reports" element={<Protected><Layout title="Reports & Analytics"><Reports /></Layout></Protected>} />
+      <Route path="/staff" element={<Protected><PermissionGuard perm="staff"><Layout title="Staff & Workforce"><Staff /></Layout></PermissionGuard></Protected>} />
+      <Route path="/guests" element={<Protected><PermissionGuard perm="guests"><Layout title="Guests & CRM"><Guests /></Layout></PermissionGuard></Protected>} />
+      <Route path="/reservations" element={<Protected><PermissionGuard perm="reservations"><Layout title="Reservations & Waitlist"><Reservations /></Layout></PermissionGuard></Protected>} />
+      <Route path="/reports" element={<Protected><PermissionGuard perm="reports"><Layout title="Reports & Analytics"><Reports /></Layout></PermissionGuard></Protected>} />
 
       {/* Protected — Enterprise */}
       <Route path="/multi-location" element={<Protected><Layout title="Multi-Location & Franchise"><MultiLocation /></Layout></Protected>} />
       <Route path="/platform-admin" element={<Protected allowAdmin={true}><Layout title="Platform Admin"><PlatformAdmin /></Layout></Protected>} />
 
       {/* Protected — Settings */}
-      <Route path="/settings" element={<Protected allowAdmin={true}><Layout title="Settings"><Settings /></Layout></Protected>} />
+      <Route path="/settings" element={<Protected allowAdmin={true}><PermissionGuard perm="settings.view"><Layout title="Settings"><Settings /></Layout></PermissionGuard></Protected>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

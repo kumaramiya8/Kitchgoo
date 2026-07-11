@@ -20,51 +20,55 @@ import {
 
 import { useApp } from '../../db/AppContext';
 import { useAuth } from '../../db/AuthContext';
+import { usePermissions } from '../../db/usePermissions';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { settings } = useApp();
   const { user } = useAuth();
+  const can = usePermissions();
   const restName = settings?.restaurant?.name || 'Kitchgoo';
   const restLogo = settings?.restaurant?.logo;
 
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
 
   const operationsNav = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'POS & Billing', path: '/pos', icon: ShoppingCart },
-    { name: 'Kitchen Display', path: '/kds', icon: Monitor },
-    { name: 'Menu', path: '/menu', icon: MenuSquare },
-    { name: 'Inventory', path: '/inventory', icon: Package },
-    { name: 'Delivery & Online', path: '/delivery', icon: Truck },
+    { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: null },
+    { name: 'POS & Billing',    path: '/pos',        icon: ShoppingCart,    perm: 'pos' },
+    { name: 'Kitchen Display',  path: '/kds',        icon: Monitor,         perm: 'kds' },
+    { name: 'Menu',             path: '/menu',       icon: MenuSquare,      perm: 'menu' },
+    { name: 'Inventory',        path: '/inventory',  icon: Package,         perm: 'inventory' },
+    { name: 'Delivery & Online',path: '/delivery',   icon: Truck,           perm: 'delivery' },
   ];
 
   const managementNav = [
-    { name: 'Staff & Workforce', path: '/staff', icon: Users },
-    { name: 'Guests & CRM', path: '/guests', icon: UserCheck },
-    { name: 'Reservations', path: '/reservations', icon: CalendarDays },
-    { name: 'Reports', path: '/reports', icon: BarChart3 },
+    { name: 'Staff & Workforce', path: '/staff',        icon: Users,        perm: 'staff' },
+    { name: 'Guests & CRM',      path: '/guests',       icon: UserCheck,    perm: 'guests' },
+    { name: 'Reservations',      path: '/reservations', icon: CalendarDays, perm: 'reservations' },
+    { name: 'Reports',           path: '/reports',      icon: BarChart3,    perm: 'reports' },
   ];
 
   const enterpriseNav = [
-    { name: 'Multi-Location', path: '/multi-location', icon: Globe },
-    { name: 'Platform Admin', path: '/platform-admin', icon: Shield },
+    { name: 'Multi-Location', path: '/multi-location', icon: Globe,   perm: null },
+    { name: 'Platform Admin', path: '/platform-admin', icon: Shield,  perm: null },
   ];
 
   const renderNavItems = (items) =>
-    items.map((item) => (
-      <NavLink
-        key={item.path}
-        to={item.path}
-        end={item.path === '/'}
-        className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-        onClick={onClose}
-      >
-        <span className="nav-item-icon">
-          <item.icon size={18} />
-        </span>
-        <span className="nav-item-label">{item.name}</span>
-      </NavLink>
-    ));
+    items
+      .filter(item => !item.perm || can(item.perm))
+      .map((item) => (
+        <NavLink
+          key={item.path}
+          to={item.path}
+          end={item.path === '/'}
+          className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+          onClick={onClose}
+        >
+          <span className="nav-item-icon">
+            <item.icon size={18} />
+          </span>
+          <span className="nav-item-label">{item.name}</span>
+        </NavLink>
+      ));
 
   return (
     <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
@@ -94,7 +98,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         <div className="sidebar-section">
           <div className="sidebar-section-label">Admin Platform</div>
           {renderNavItems([
-            { name: 'Platform Admin', path: '/', icon: Shield },
+            { name: 'Platform Admin', path: '/', icon: Shield, perm: null },
           ])}
         </div>
       ) : (
@@ -119,14 +123,16 @@ const Sidebar = ({ isOpen, onClose }) => {
         </>
       )}
 
-      <div className="sidebar-footer">
-        <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={onClose}>
-          <span className="nav-item-icon">
-            <Settings size={18} />
-          </span>
-          <span className="nav-item-label">Settings</span>
-        </NavLink>
-      </div>
+      {can('settings.view') && (
+        <div className="sidebar-footer">
+          <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={onClose}>
+            <span className="nav-item-icon">
+              <Settings size={18} />
+            </span>
+            <span className="nav-item-label">Settings</span>
+          </NavLink>
+        </div>
+      )}
     </aside>
   );
 };
