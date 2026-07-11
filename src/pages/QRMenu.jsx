@@ -35,6 +35,8 @@ const QRMenu = () => {
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const aiEndRef = useRef(null);
+  // When AI suggests items but guest name is unknown, hold items here until name is given
+  const [pendingAiOrder, setPendingAiOrder] = useState(null);
 
   // Override global scroll lock styles from index.css for the public QR Menu page
   useEffect(() => {
@@ -222,8 +224,31 @@ const QRMenu = () => {
 
   const sendAiMessage = useCallback(async (text) => {
     if (!text.trim() || aiLoading) return;
-    setAiMessages(prev => [...prev, { role: 'user', text: text.trim() }]);
     setAiInput('');
+
+    // If awaiting a name for a pending AI order, treat this message as the guest name
+    if (pendingAiOrder) {
+      const name = text.trim();
+      setAiMessages(prev => [...prev, { role: 'user', text: name }]);
+      setCustomerName(name);
+      setAiLoading(true);
+      try {
+        const result = await doPlaceOrder(name, tableNumber, pendingAiOrder);
+        if (result.ok) {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Got it, ${name}! Your order is on its way to the kitchen. Enjoy! 🍽️` }]);
+        } else {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
+        }
+      } catch {
+        setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart to place your order.' }]);
+      } finally {
+        setPendingAiOrder(null);
+        setAiLoading(false);
+      }
+      return;
+    }
+
+    setAiMessages(prev => [...prev, { role: 'user', text: text.trim() }]);
     setAiLoading(true);
     try {
       const res = await fetch('/api/qr-ai', {
@@ -248,16 +273,41 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiLoading, aiMessages, menuItems, settings, topSellers]);
+  }, [aiLoading, aiMessages, menuItems, settings, topSellers, pendingAiOrder, tableNumber, doPlaceOrder]);
 
-  const handleAiAddToCart = useCallback((items) => {
-    items.forEach(aiItem => {
+  // Place the order suggested by the AI. Collects name via chat if not yet known.
+  const handleAiOrder = useCallback(async (aiItems) => {
+    const cartItems = aiItems.map(aiItem => {
       const match = menuItems.find(m => m.id === aiItem.id || m.name.toLowerCase() === aiItem.name.toLowerCase());
-      if (match) {
-        for (let i = 0; i < (aiItem.qty || 1); i++) handleAddToCart(match);
+      return match ? { item: match, qty: aiItem.qty || 1, notes: '' } : null;
+    }).filter(Boolean);
+    if (!cartItems.length) return;
+
+    if (!tableNumber.trim()) {
+      setAiMessages(prev => [...prev, { role: 'assistant', text: "I need your table number to send this order to the kitchen. Please enter it in the Table No. field and try again." }]);
+      return;
+    }
+
+    if (customerName.trim()) {
+      setAiLoading(true);
+      try {
+        const result = await doPlaceOrder(customerName, tableNumber, cartItems);
+        if (result.ok) {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Order placed! The kitchen is preparing it now. Enjoy your meal! 🍽️` }]);
+        } else {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error} Please use the cart to order.` }]);
+        }
+      } catch {
+        setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart below to place your order.' }]);
+      } finally {
+        setAiLoading(false);
       }
-    });
-  }, [menuItems]);
+    } else {
+      // Name unknown — hold items and ask
+      setPendingAiOrder(cartItems);
+      setAiMessages(prev => [...prev, { role: 'assistant', text: 'Almost there! What name should I put on your order? 😊' }]);
+    }
+  }, [menuItems, tableNumber, customerName, doPlaceOrder]);
 
   const handleAddToCart = (item) => {
     setCart(prev => {
@@ -303,71 +353,63 @@ const QRMenu = () => {
     });
   };
 
+  // Core order placement — used by both the cart form and the AI chat flow.
+  const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems) => {
+    const targetTable = (posTables || []).find(
+      t => String(t.number || t.id).trim().toLowerCase() === tableNum.trim().toLowerCase()
+    );
+    if (!targetTable) return { ok: false, error: `Table "${tableNum}" was not found.` };
+
+    const newItems = cartItems.map(c => {
+      const itemId = c.item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
+      return {
+        id: itemId,
+        name: c.item.name,
+        price: c.item.price,
+        qty: c.qty,
+        _cartKey: `${itemId}_`,
+        modifiers: [],
+        specialInstructions: c.notes || '',
+        modifierGroups: c.item.modifierGroups || [],
+        course: 1,
+        seat: 1,
+      };
+    });
+
+    const existingItems = (posSavedOrders || {})[targetTable.id] || [];
+    const mergedItems = [...existingItems];
+    newItems.forEach(newItem => {
+      const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
+      if (idx >= 0) mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + newItem.qty };
+      else mergedItems.push(newItem);
+    });
+
+    setPosTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
+      ...t, status: 'ordered', guestName: guestName.trim(),
+      seatedAt: t.seatedAt || new Date().toISOString(),
+    } : t));
+    setPosSavedOrders(prev => ({ ...(prev || {}), [targetTable.id]: mergedItems }));
+
+    const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
+    await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in');
+    await broadcastOrderCreated(targetTable.id, kdsOrderId);
+    // Also dispatch locally so KDS on the same device (e.g. staff tablet) reacts immediately
+    window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
+
+    return { ok: true };
+  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated]);
+
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
     if (!customerName.trim() || !tableNumber.trim()) {
       alert('Please fill out your Name and Table Number.');
       return;
     }
-
     setIsSubmitting(true);
     try {
-      const targetTable = (posTables || []).find(
-        t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase()
-      );
-
-      if (!targetTable) {
-        alert(`Table "${tableNumber}" was not found in the restaurant layout.`);
-        setIsSubmitting(false);
-        return;
-      }
-
-      const newItems = Object.values(cart).map(c => {
-        const itemId = c.item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
-        return {
-          id: itemId,
-          name: c.item.name,
-          price: c.item.price,
-          qty: c.qty,
-          _cartKey: `${itemId}_`,
-          modifiers: [],
-          specialInstructions: c.notes || '',
-          modifierGroups: c.item.modifierGroups || [],
-          course: 1,
-          seat: 1,
-        };
-      });
-
-      const existingItems = (posSavedOrders || {})[targetTable.id] || [];
-      const mergedItems = [...existingItems];
-      newItems.forEach(newItem => {
-        const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
-        if (idx >= 0) {
-          mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + newItem.qty };
-        } else {
-          mergedItems.push(newItem);
-        }
-      });
-
-      // Occupy table
-      setPosTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
-        ...t,
-        status: 'ordered',
-        guestName: customerName.trim(),
-        seatedAt: t.seatedAt || new Date().toISOString()
-      } : t));
-
-      // Update active table cart items
-      setPosSavedOrders(prev => ({
-        ...(prev || {}),
-        [targetTable.id]: mergedItems
-      }));
-
-      // Fire only the newly added items to KDS immediately
-      const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
-      await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in');
-      await broadcastOrderCreated(targetTable.id, kdsOrderId);
-
+      const cartItems = Object.values(cart).map(c => ({ item: c.item, qty: c.qty, notes: c.notes || '' }));
+      const result = await doPlaceOrder(customerName, tableNumber, cartItems);
+      if (!result.ok) { alert(result.error); return; }
       setOrderSuccess(true);
       setCart({});
       setShowCart(false);
@@ -784,11 +826,11 @@ const QRMenu = () => {
                       </div>
                       {msg.addToCart && msg.addToCart.length > 0 && (
                         <button
-                          onClick={() => { handleAiAddToCart(msg.addToCart); setShowAiChat(false); }}
+                          onClick={() => handleAiOrder(msg.addToCart)}
                           style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 20, border: 'none', background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                         >
-                          <ShoppingCart size={13} />
-                          Add {msg.addToCart.map(i => `${i.qty || 1}× ${i.name}`).join(', ')} to cart
+                          <Send size={13} />
+                          Order now — {msg.addToCart.map(i => `${i.qty || 1}× ${i.name}`).join(', ')}
                         </button>
                       )}
                     </div>
@@ -826,7 +868,7 @@ const QRMenu = () => {
                 <div style={{ padding: '10px 14px 14px', display: 'flex', gap: 8, alignItems: 'flex-end', background: '#fff', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
                   <input
                     type="text"
-                    placeholder="Ask about the menu…"
+                    placeholder={pendingAiOrder ? 'Type your name to confirm the order…' : 'Ask about the menu…'}
                     value={aiInput}
                     onChange={e => setAiInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(aiInput); } }}

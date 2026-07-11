@@ -412,6 +412,9 @@ const HelpDrawer = ({ isOpen, onClose }) => {
           const kdsOrderId = `COPILOT-${tableId}-${Date.now().toString().slice(-4)}`;
           await fireToKDS(kdsOrderId, posItems, tableId, 'dine-in');
           await broadcastOrderCreated(tableId, kdsOrderId);
+          // Supabase does not echo broadcasts to the sender — dispatch locally
+          // so KDS mounted in the same tab (e.g. multi-window staff flow) also reacts.
+          window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId, kdsOrderId } }));
         }
 
         // Show inline feedback in the chat message
