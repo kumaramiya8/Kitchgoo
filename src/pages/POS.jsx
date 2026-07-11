@@ -1314,6 +1314,7 @@ const POS = () => {
   const [paymentModal, setPaymentModal] = useState(false);
   const [mergeModal, setMergeModal] = useState(false);
   const [cashDrawerModal, setCashDrawerModal] = useState(false);
+  const [cleaningTable, setCleaningTable] = useState(null);
   const [startingFloat, setStartingFloat] = useState('5000');
   const [compModal, setCompModal] = useState(null);    // 'comp' | 'void' | 'discount'
   const [managerPinModal, setManagerPinModal] = useState(null);
@@ -1568,17 +1569,10 @@ const POS = () => {
     }));
   };
 
-  // ── Table click ───────────────────────────────────────────
   const handleTableClick = (table) => {
     if (table.status === 'needs-bussing') {
       // Table was settled; staff confirms it's been cleaned before reuse
-      if (window.confirm(`Mark Table ${table.number || table.id} as cleaned and available?`)) {
-        setTables(prev => prev.map(t => String(t.id) === String(table.id)
-          ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
-          : t
-        ));
-        showSuccess(`Table ${table.number || table.id} is available again`);
-      }
+      setCleaningTable(table);
       return;
     }
     if (table.status !== 'available') {
@@ -2793,6 +2787,27 @@ const POS = () => {
           onMerge={handleMerge}
           onClose={() => setMergeModal(false)}
         />
+      )}
+
+      {cleaningTable && (
+        <Modal title="Clean Table" onClose={() => setCleaningTable(null)}>
+          <div className="modal-body" style={{ padding: '24px 20px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+              Mark Table {cleaningTable.number || cleaningTable.id} as cleaned and available?
+            </p>
+          </div>
+          <div className="modal-footer" style={{ display: 'flex', gap: 12 }}>
+            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setCleaningTable(null)}>Cancel</button>
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => {
+              setTables(prev => prev.map(t => String(t.id) === String(cleaningTable.id)
+                ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
+                : t
+              ));
+              showSuccess(`Table ${cleaningTable.number || cleaningTable.id} is available again`);
+              setCleaningTable(null);
+            }}>Clean & Make Available</button>
+          </div>
+        </Modal>
       )}
 
       {managerPinModal && (
