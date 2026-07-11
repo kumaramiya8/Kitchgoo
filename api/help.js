@@ -75,7 +75,14 @@ When responding to the user's query:
    - Decide the Calories (kcal) of the menu item based on the ingredients used to make the recipe.
    - Invent or extract preparation instructions (for 'recipeInstructions') and plating details (for 'recipePlating') based on the item type.
    - Check if the extracted ingredients already exist in 'inventorySummary.inventoryList'. If they DO NOT exist, output them in the 'newInventoryItems' array so they can be added to the inventory automatically.
-   - You MUST generate clean, semantic, modern, self-contained inline SVG code (representing the food/drink visually, styled using inline CSS/attributes with viewBox="0 0 100 100", no HTML tags wrapper, no external imports) and set it in the 'image' property of each menu item (e.g. '"image": "<svg viewBox=\"0 0 100 100\">...</svg>"').
+   - You MUST generate DETAILED, illustrative, self-contained inline SVG code for each menu item and set it in the 'image' property. Follow these SVG design rules strictly:
+     * Use viewBox="0 0 100 100". No wrapping HTML. No external fonts or images.
+     * Create a REALISTIC visual of the food/drink — not just a circle or rectangle. Use multiple layered shapes (paths, ellipses, rects, polygons) to depict the actual dish (e.g. a cup with steam for coffee, a plate with pasta and garnish for pasta, a sandwich with visible layers for a sandwich).
+     * Use <defs> with <linearGradient> or <radialGradient> to add depth — e.g. gradient fills on plates, cups, liquids, bread surfaces.
+     * Add subtle shadows using a semi-transparent ellipse beneath the main item.
+     * Use a warm, appetizing color palette: rich browns (#8B4513, #D2691E), creams (#FFF8DC, #FAEBD7), greens (#2E8B57, #6B8E23), reds (#C0392B, #E74C3C), golds (#DAA520, #F4A460).
+     * Include small detail elements: steam wisps (curved paths with low opacity), garnish dots, sauce drizzles, plate rims, cup handles.
+     * Keep the SVG compact — aim for 400–800 characters max per item. Use short attribute names and avoid unnecessary whitespace inside the SVG string.
    - You MUST include a "bulk_add_menu_items" action in the "suggestions" array with the constructed data. The system will automatically update the existing item if the name matches, or create a new one.
 
 CRITICAL WARNING ON PAYLOAD SIZE & TRUNCATION:
@@ -130,7 +137,7 @@ The response MUST be a JSON object with the following schema:
             "ingredients": [
               { "name": "Chicken Wings", "qty": 0.5, "unit": "kg" }
             ],
-            "image": "<svg viewBox=\"0 0 100 100\"><circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"#ef4444\" /><path d=\"M30,50 Q50,20 70,50\" stroke=\"#fff\" stroke-width=\"4\" fill=\"none\" /></svg>",
+            "image": "<svg viewBox=\"0 0 100 100\"><defs><radialGradient id=\"p\"><stop offset=\"0%\" stop-color=\"#FFF8DC\"/><stop offset=\"100%\" stop-color=\"#DEB887\"/></radialGradient><linearGradient id=\"s\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#C0392B\"/><stop offset=\"100%\" stop-color=\"#E74C3C\"/></linearGradient></defs><ellipse cx=\"50\" cy=\"82\" rx=\"32\" ry=\"4\" fill=\"rgba(0,0,0,0.08)\"/><ellipse cx=\"50\" cy=\"58\" rx=\"38\" ry=\"22\" fill=\"url(#p)\" stroke=\"#D2B48C\" stroke-width=\"1.5\"/><ellipse cx=\"50\" cy=\"52\" rx=\"30\" ry=\"14\" fill=\"url(#s)\"/><path d=\"M28,48 Q34,38 42,44 Q50,36 58,44 Q66,38 72,48\" fill=\"#D4A017\" opacity=\"0.7\"/><circle cx=\"40\" cy=\"49\" r=\"2\" fill=\"#2E8B57\"/><circle cx=\"55\" cy=\"47\" r=\"1.5\" fill=\"#2E8B57\"/><path d=\"M45,30 Q47,22 50,30\" stroke=\"#ccc\" stroke-width=\"1\" fill=\"none\" opacity=\"0.4\"/><path d=\"M52,28 Q54,18 57,28\" stroke=\"#ccc\" stroke-width=\"1\" fill=\"none\" opacity=\"0.3\"/></svg>",
             "recipeInstructions": "Deep fry chicken wings for 10-12 minutes until crispy. Toss in hot buffalo sauce until fully coated.",
             "recipePlating": "Pile wings on a round platter, garnish with sliced celery, and serve with blue cheese dipping sauce."
           }
