@@ -76,22 +76,32 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
 
 /* ── Shared inline style fragments ─────────────────────── */
 const s = {
-  page: {
-    padding: '24px 28px', minHeight: '100vh',
-  },
-  statsBar: {
+  page: (mob) => ({
+    padding: mob ? '12px 14px' : '24px 28px', minHeight: '100vh',
+  }),
+  statsBar: (mob) => mob ? {
+    display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto',
+    scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch',
+  } : {
     display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap',
   },
-  statBox: {
+  statBox: (mob) => mob ? {
+    flexShrink: 0, background: 'var(--card-bg)', borderRadius: 'var(--r-md)',
+    padding: '8px 12px', boxShadow: 'var(--shadow-card)', border: '1px solid var(--border)',
+    display: 'flex', alignItems: 'center', gap: 8, minWidth: 100,
+  } : {
     flex: '1 1 160px', background: 'var(--card-bg)',
     borderRadius: 'var(--r-lg)', padding: '14px 18px', boxShadow: 'var(--shadow-card)',
     border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12,
   },
-  statIcon: {
-    width: 42, height: 42, borderRadius: 'var(--r-md)',
+  statIcon: (mob) => ({
+    width: mob ? 30 : 42, height: mob ? 30 : 42, borderRadius: 'var(--r-md)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  tabs: {
+  }),
+  tabs: (scroll) => scroll ? {
+    display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none',
+    WebkitOverflowScrolling: 'touch', flexShrink: 0,
+  } : {
     display: 'flex', gap: 6, flexWrap: 'wrap',
   },
   tab: (active) => ({
@@ -100,20 +110,21 @@ const s = {
     background: active ? 'var(--primary)' : 'var(--card-bg)',
     color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
     border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
-    transition: 'all .15s',
+    transition: 'all .15s', flexShrink: 0,
   }),
-  viewTab: (active) => ({
-    padding: '8px 18px', borderRadius: 'var(--r-md)', cursor: 'pointer',
-    fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6,
+  viewTab: (active, mob) => ({
+    padding: mob ? '8px 10px' : '8px 18px', borderRadius: 'var(--r-md)', cursor: 'pointer',
+    fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 5,
     background: active ? 'var(--accent-blue)' : 'var(--card-bg)',
     color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
     border: active ? '1px solid var(--accent-blue)' : '1px solid var(--border)',
-    transition: 'all .15s',
+    transition: 'all .15s', flexShrink: 0,
   }),
-  grid: {
-    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-    gap: 16, marginTop: 16,
-  },
+  grid: (mob) => ({
+    display: 'grid',
+    gridTemplateColumns: mob ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))',
+    gap: mob ? 12 : 16, marginTop: mob ? 10 : 16,
+  }),
   card: (borderCol, overdue) => ({
     background: 'var(--card-bg)', borderRadius: 'var(--r-xl)',
     border: '1px solid var(--border)', borderTop: `4px solid ${borderCol}`,
@@ -329,21 +340,19 @@ export default function KDS() {
   const [newTicketCount, setNewTicketCount] = useState(0);
   const prevTicketCountRef = useRef(0);
   const [bumpedToday, setBumpedToday] = useState(0);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
-  // Listen for real-time broadcast events
   useEffect(() => {
-    const handleOrderCreated = (e) => {
-      console.log('[KDS] New order received via broadcast!', e.detail);
-      // Play a short alert chime
-      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-      audio.play().catch(err => console.error('Audio play blocked:', err));
-      
-      // The postgres_changes might already trigger a reload, but to be sure we fetch the ticket immediately
-      reload();
-    };
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
-    window.addEventListener('kitchgoo_order_created', handleOrderCreated);
-    return () => window.removeEventListener('kitchgoo_order_created', handleOrderCreated);
+  // Reload on new order — sound + toast handled globally by Layout
+  useEffect(() => {
+    const handler = () => reload();
+    window.addEventListener('kitchgoo_order_created', handler);
+    return () => window.removeEventListener('kitchgoo_order_created', handler);
   }, [reload]);
 
   // Auto-refresh every second
@@ -462,9 +471,9 @@ export default function KDS() {
   const prepTime = settings?.kdsPrepTime || 600;
 
   return (
-    <div style={s.page}>
+    <div style={s.page(isMobile)}>
       {/* Header */}
-      <div className="page-title-row" style={{ marginBottom: 16 }}>
+      <div className="page-title-row" style={{ marginBottom: isMobile ? 10 : 16 }}>
         <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Monitor size={26} /> Kitchen Display
         </h1>
@@ -515,61 +524,40 @@ export default function KDS() {
       )}
 
       {/* Stats bar */}
-      <div style={s.statsBar}>
-        <div className="animate-fade-up" style={s.statBox}>
-          <div style={{ ...s.statIcon, background: 'var(--primary-light)' }}>
-            <Flame size={20} color="var(--primary)" />
+      <div style={s.statsBar(isMobile)}>
+        {[
+          { label: 'Active', value: stats.active, icon: <Flame size={isMobile ? 14 : 20} color="var(--primary)" />, bg: 'var(--primary-light)', col: 'var(--text-primary)' },
+          { label: 'Avg Time', value: fmtTime(stats.avgTime), icon: <Clock size={isMobile ? 14 : 20} color="var(--accent-blue)" />, bg: 'rgba(59,130,246,0.12)', col: 'var(--text-primary)' },
+          { label: 'Overdue', value: stats.overdue, icon: <AlertTriangle size={isMobile ? 14 : 20} color="var(--danger)" />, bg: 'rgba(239,68,68,0.12)', col: stats.overdue > 0 ? 'var(--danger)' : 'var(--text-primary)' },
+          { label: 'Bumped', value: stats.bumpedToday, icon: <CheckCircle size={isMobile ? 14 : 20} color="var(--success)" />, bg: 'rgba(34,197,94,0.12)', col: 'var(--text-primary)' },
+        ].map(({ label, value, icon, bg, col }) => (
+          <div key={label} className="animate-fade-up" style={s.statBox(isMobile)}>
+            <div style={{ ...s.statIcon(isMobile), background: bg }}>{icon}</div>
+            <div>
+              <div style={{ fontSize: isMobile ? '0.64rem' : '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+              <div style={{ fontSize: isMobile ? '1.05rem' : '1.4rem', fontWeight: 800, color: col, fontFamily: 'var(--font-mono)' }}>{value}</div>
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Active</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)' }}>{stats.active}</div>
-          </div>
-        </div>
-        <div className="animate-fade-up" style={s.statBox}>
-          <div style={{ ...s.statIcon, background: 'rgba(59,130,246,0.12)' }}>
-            <Clock size={20} color="var(--accent-blue)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Avg Time</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)' }}>{fmtTime(stats.avgTime)}</div>
-          </div>
-        </div>
-        <div className="animate-fade-up" style={s.statBox}>
-          <div style={{ ...s.statIcon, background: 'rgba(239,68,68,0.12)' }}>
-            <AlertTriangle size={20} color="var(--danger)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Overdue</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: stats.overdue > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>{stats.overdue}</div>
-          </div>
-        </div>
-        <div className="animate-fade-up" style={s.statBox}>
-          <div style={{ ...s.statIcon, background: 'rgba(34,197,94,0.12)' }}>
-            <CheckCircle size={20} color="var(--success)" />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bumped Today</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)' }}>{stats.bumpedToday}</div>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Station filter + View mode tabs */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 4 }}>
-        <div style={s.tabs}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 4, overflow: 'hidden' }}>
+        <div style={s.tabs(true)}>
           {STATIONS.map(st => {
             const Icon = STATION_ICONS[st] || Grid3X3;
+            const label = isMobile ? (st === 'All' ? 'All' : st.split(' ')[0]) : st;
             return (
               <button key={st} style={s.tab(station === st)} onClick={() => setStation(st)}>
-                <Icon size={14} /> {st}
+                <Icon size={14} /> {label}
               </button>
             );
           })}
         </div>
-        <div style={s.tabs}>
+        <div style={s.tabs(true)}>
           {VIEW_MODES.map(vm => (
-            <button key={vm.key} style={s.viewTab(viewMode === vm.key)} onClick={() => setViewMode(vm.key)}>
-              <vm.icon size={14} /> {vm.label}
+            <button key={vm.key} style={s.viewTab(viewMode === vm.key, isMobile)} onClick={() => setViewMode(vm.key)} title={vm.label}>
+              <vm.icon size={14} />{!isMobile && <span>{vm.label}</span>}
             </button>
           ))}
         </div>
@@ -577,7 +565,7 @@ export default function KDS() {
 
       {/* ── TICKETS VIEW ──────────────────────────────────── */}
       {viewMode === 'tickets' && (
-        <div style={s.grid}>
+        <div style={s.grid(isMobile)}>
           {activeTickets.length === 0 && (
             <div style={{
               gridColumn: '1 / -1', textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)',
