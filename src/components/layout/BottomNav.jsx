@@ -7,23 +7,30 @@ import {
   BarChart3,
   Menu,
   Shield,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '../../db/AuthContext';
+import { usePermissions } from '../../db/usePermissions';
 
-// Mobile-only tab bar for the four destinations staff reach for mid-service.
-// Everything else stays one tap away behind "More" (opens the drawer).
+// Mobile-only tab bar. Items with a perm field are hidden when the user's role
+// lacks that permission. Attendance is always visible — every staff member
+// needs to clock in/out regardless of role.
 const BottomNav = ({ onMoreClick }) => {
   const { user } = useAuth();
+  const can = usePermissions();
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
 
+  const allItems = [
+    { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: null },
+    { name: 'POS',        path: '/pos',         icon: ShoppingCart,    perm: 'pos' },
+    { name: 'Kitchen',    path: '/kds',         icon: Monitor,         perm: 'kds' },
+    { name: 'Attendance', path: '/attendance',  icon: Clock,           perm: null },
+    { name: 'Reports',    path: '/reports',     icon: BarChart3,       perm: 'reports' },
+  ];
+
   const items = isPlatformAdmin
-    ? [{ name: 'Admin', path: '/', icon: Shield }]
-    : [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-        { name: 'POS', path: '/pos', icon: ShoppingCart },
-        { name: 'Kitchen', path: '/kds', icon: Monitor },
-        { name: 'Reports', path: '/reports', icon: BarChart3 },
-      ];
+    ? [{ name: 'Admin', path: '/', icon: Shield, perm: null }]
+    : allItems.filter(item => !item.perm || can(item.perm));
 
   return (
     <nav className="bottom-nav">

@@ -108,6 +108,7 @@ export function AppProvider({ children }) {
   const [guests, setGuests] = useState([]);
   const [cashDrawer, setCashDrawer] = useState({});
   const [registerClosures, setRegisterClosures] = useState([]);
+  const [attendance, setAttendance] = useState([]);
 
   const { user, loading: authLoading } = useAuth();
 
@@ -239,6 +240,7 @@ export function AppProvider({ children }) {
     setGuests(getAll('guests'));
     setCashDrawer(getAll('cash_drawer') || {});
     setRegisterClosures(getAll('register_closures') || []);
+    setAttendance(getAll('attendance'));
 
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
     if (!supabase || isDemoMode) {
@@ -455,8 +457,11 @@ export function AppProvider({ children }) {
     setStaff(getAll('staff'));
   }, []);
 
-  const checkInOut = useCallback(async (staffId, type) => {
-    await logAttendance(staffId, type);
+  const checkInOut = useCallback(async (staffId, type, meta = {}) => {
+    await logAttendance(staffId, type, meta);
+    // logAttendance updates the in-memory cache synchronously — mirror it into
+    // React state so the clock-in/out UI reflects the change immediately.
+    setAttendance(getAll('attendance'));
   }, []);
 
   const getStaffAttendance = useCallback((staffId) => {
@@ -965,7 +970,7 @@ export function AppProvider({ children }) {
     staff, inventory, menu, orders, deliveryOrders, settings, todayStats,
     kdsTickets, reservations, waitlist, onlineOrders, suppliers, purchaseOrders,
     recipes, wasteLog, locations, auditLog, floorPlans, modifiers, schedules,
-    tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures,
+    tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures, attendance,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     // Staff
     addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,

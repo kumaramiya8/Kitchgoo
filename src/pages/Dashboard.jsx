@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { localDayStr, todayLocalStr } from '../../shared/dates';
+import AttendanceCalendar from '../components/AttendanceCalendar';
+import { recordTs, recordDay, localDay } from '../lib/attendance';
 
 const StatCard = ({ label, value, subLabel, icon: Icon, changeValue, changeUp, color }) => (
   <div className="stat-card animate-fade-up">
@@ -48,8 +50,47 @@ const fmt = (n) => {
 const Dashboard = () => {
   const {
     todayStats, orders, deliveryOrders, inventory, staff, guests,
-    kdsTickets, reservations, waitlist, menu, wasteLog, settings,
+    kdsTickets, reservations, waitlist, menu, wasteLog, settings, attendance,
   } = useApp();
+
+  // Who is currently clocked in (last punch is an IN), and today's presence.
+  const attendanceToday = useMemo(() => {
+    const byStaff = {};
+    (attendance || []).forEach(a => {
+      (byStaff[a.staffId] = byStaff[a.staffId] || []).push(a);
+    });
+    let clockedIn = 0;
+    const presentToday = new Set();
+    const today = localDay();
+    Object.entries(byStaff).forEach(([staffId, logs]) => {
+      const sorted = [...logs].sort((a, b) => new Date(recordTs(a)) - new Date(recordTs(b)));
+      const last = sorted[sorted.length - 1];
+      if (last?.type === 'IN') clockedIn++;
+      if (logs.some(l => recordDay(l) === today)) presentToday.add(staffId);
+    });
+    return { clockedIn, presentToday: presentToday.size };
+  }, [attendance]);
+
+  const nameById = useMemo(() => {
+    const m = {};
+    staff.forEach(s => { m[s.id] = s.name; });
+    return m;
+  }, [staff]);
+
+  const clockedInList = useMemo(() => {
+    const byStaff = {};
+    (attendance || []).forEach(a => { (byStaff[a.staffId] = byStaff[a.staffId] || []).push(a); });
+    return Object.entries(byStaff)
+      .map(([staffId, logs]) => {
+        const sorted = [...logs].sort((a, b) => new Date(recordTs(a)) - new Date(recordTs(b)));
+        const last = sorted[sorted.length - 1];
+        // Fall back to the name stored on the punch when there's no staff row.
+        const name = nameById[staffId] || last?.name || 'Staff member';
+        return last?.type === 'IN' ? { staffId, since: recordTs(last), name } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(a.since) - new Date(b.since));
+  }, [attendance, nameById]);
 
   const recentOrders = useMemo(() => {
     return [...orders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
@@ -377,6 +418,57 @@ const Dashboard = () => {
                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)' }}>₹{item.revenue.toLocaleString()}</div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.orders} orders</div>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Attendance Row */}
+      <div className="grid-2" style={{ marginTop: 16 }}>
+        {/* Calendar */}
+        <div className="card">
+          <div className="flex justify-between items-center mb-4">
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>Attendance</h3>
+            <a href="/reports?tab=attendance" style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Full report <ChevronRight size={13} />
+            </a>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <div style={{ flex: 1, textAlign: 'center', padding: '10px', borderRadius: 10, background: 'rgba(34,197,94,0.08)' }}>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--success)' }}>{attendanceToday.clockedIn}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Clocked In Now</div>
+            </div>
+            <div style={{ flex: 1, textAlign: 'center', padding: '10px', borderRadius: 10, background: 'rgba(30,94,74,0.06)' }}>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--primary)' }}>{attendanceToday.presentToday}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Present Today</div>
+            </div>
+          </div>
+          <AttendanceCalendar attendance={attendance || []} compact />
+        </div>
+
+        {/* Who's on the clock */}
+        <div className="card">
+          <div className="flex justify-between items-center mb-4">
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>On the Clock</h3>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {clockedInList.length} active
+            </div>
+          </div>
+          {clockedInList.length === 0 ? (
+            <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '20px 0' }}>
+              No one is clocked in right now.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {clockedInList.map(({ staffId, since, name }) => (
+                <div key={staffId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, background: 'rgba(34,197,94,0.05)' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)', flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>{name}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    since {since ? new Date(since).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </span>
                 </div>
               ))}
             </div>

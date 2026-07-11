@@ -21,6 +21,7 @@ const Reservations = lazy(() => import('./pages/Reservations'));
 const MultiLocation = lazy(() => import('./pages/MultiLocation'));
 const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
 const QRMenu = lazy(() => import('./pages/QRMenu'));
+const Attendance = lazy(() => import('./pages/Attendance'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -104,6 +105,9 @@ function App() {
       <Route path="/guests" element={<Protected><PermissionGuard perm="guests"><Layout title="Guests & CRM"><Guests /></Layout></PermissionGuard></Protected>} />
       <Route path="/reservations" element={<Protected><PermissionGuard perm="reservations"><Layout title="Reservations & Waitlist"><Reservations /></Layout></PermissionGuard></Protected>} />
       <Route path="/reports" element={<Protected><PermissionGuard perm="reports"><Layout title="Reports & Analytics"><Reports /></Layout></PermissionGuard></Protected>} />
+
+      {/* Protected — Attendance (no permission guard — all staff need clock in/out) */}
+      <Route path="/attendance" element={<Protected><Layout title="Attendance"><Attendance /></Layout></Protected>} />
 
       {/* Protected — Enterprise */}
       <Route path="/multi-location" element={<Protected><Layout title="Multi-Location & Franchise"><MultiLocation /></Layout></Protected>} />

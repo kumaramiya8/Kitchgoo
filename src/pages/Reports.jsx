@@ -3,14 +3,19 @@ import ReactDOM from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import {
   TrendingUp, TrendingDown, Download, BarChart2, Package,
-  Users, Filter, Search, ShoppingBag, CreditCard, IndianRupee, 
-  Clock, CheckCircle, AlertTriangle, XCircle, FileText, Zap, 
+  Users, Filter, Search, ShoppingBag, CreditCard, IndianRupee,
+  Clock, CheckCircle, AlertTriangle, XCircle, FileText, Zap,
   Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
-  Printer, X, Gauge, LayoutDashboard, Receipt
+  Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
 import { localDayStr } from '../../shared/dates';
+import AttendanceCalendar from '../components/AttendanceCalendar';
+import {
+  localDay as attLocalDay, daysAgo, recordDay, recordTs, fmtTime as attFmtTime,
+  fmtDate as attFmtDate, pairSessions, totalHours, activeDays,
+} from '../lib/attendance';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -2220,6 +2225,184 @@ const LaborReport = ({ orders, staff: staffList }) => {
 };
 
 // =================================================================
+// ATTENDANCE TAB
+// =================================================================
+
+const AttendanceReportTab = ({ staff, attendance }) => {
+  const [fromDate, setFromDate] = useState(daysAgo(29));
+  const [toDate, setToDate] = useState(attLocalDay());
+  const [roleFilter, setRoleFilter] = useState('All');
+
+  const roles = useMemo(() => ['All', ...new Set(staff.map(s => s.role).filter(Boolean))], [staff]);
+
+  // Per-staff summary over the selected range
+  const summary = useMemo(() => {
+    const inRange = (a) => {
+      const d = recordDay(a);
+      return d && d >= fromDate && d <= toDate;
+    };
+    return staff
+      .filter(s => roleFilter === 'All' || s.role === roleFilter)
+      .map(member => {
+        const logs = attendance.filter(a => a.staffId === member.id && inRange(a));
+        const hours = totalHours(logs);
+        const days = activeDays(logs).size;
+        const sorted = [...logs].sort((a, b) => new Date(recordTs(b)) - new Date(recordTs(a)));
+        const lastPunch = sorted[0] || null;
+        return {
+          id: member.id, name: member.name, role: member.role,
+          hours, days, punches: logs.length,
+          avg: days ? hours / days : 0,
+          lastPunch,
+        };
+      })
+      .sort((a, b) => b.hours - a.hours);
+  }, [staff, attendance, fromDate, toDate, roleFilter]);
+
+  // Flat per-session rows (for the detail table + CSV)
+  const rows = useMemo(() => {
+    const inRange = (a) => {
+      const d = recordDay(a);
+      return d && d >= fromDate && d <= toDate;
+    };
+    const out = [];
+    staff
+      .filter(s => roleFilter === 'All' || s.role === roleFilter)
+      .forEach(member => {
+        const logs = attendance.filter(a => a.staffId === member.id && inRange(a));
+        const byDate = {};
+        logs.forEach(l => { const d = recordDay(l); (byDate[d] = byDate[d] || []).push(l); });
+        Object.entries(byDate).forEach(([date, dayLogs]) => {
+          pairSessions(dayLogs).forEach((s, i) => {
+            const ms = s.in && s.out ? new Date(recordTs(s.out)) - new Date(recordTs(s.in)) : null;
+            out.push({
+              id: `${member.id}-${date}-${i}`,
+              name: member.name, role: member.role, date,
+              inTime: s.in ? attFmtTime(recordTs(s.in)) : '--',
+              outTime: s.out ? attFmtTime(recordTs(s.out)) : 'Active',
+              hours: ms !== null ? (ms / 36e5).toFixed(1) : '--',
+              active: !s.out,
+            });
+          });
+        });
+      });
+    return out.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+  }, [staff, attendance, fromDate, toDate, roleFilter]);
+
+  const totals = useMemo(() => {
+    // Count "clocked in now" straight from punches so it matches the dashboard
+    // even for people (e.g. an owner) who have no staff row.
+    const byStaff = {};
+    (attendance || []).forEach(a => { (byStaff[a.staffId] = byStaff[a.staffId] || []).push(a); });
+    const clockedNow = Object.values(byStaff).filter(logs => {
+      const sorted = [...logs].sort((a, b) => new Date(recordTs(a)) - new Date(recordTs(b)));
+      return sorted[sorted.length - 1]?.type === 'IN';
+    }).length;
+    return {
+      hours: summary.reduce((s, r) => s + r.hours, 0),
+      present: summary.filter(r => r.punches > 0).length,
+      clockedNow,
+    };
+  }, [summary, attendance]);
+
+  const exportCSV = () => {
+    const header = 'Name,Role,Date,Clock In,Clock Out,Hours';
+    const body = rows.map(r => `${r.name},${r.role},${r.date},${r.inTime},${r.outTime},${r.hours}`);
+    downloadCSV(`attendance-${fromDate}-to-${toDate}.csv`, [header, ...body]);
+  };
+
+  return (
+    <div className="animate-fade-up">
+      <FilterBar>
+        <DateInput label="From" value={fromDate} onChange={setFromDate} />
+        <DateInput label="To" value={toDate} onChange={setToDate} />
+        <Select value={roleFilter} onChange={setRoleFilter}>
+          {roles.map(r => <option key={r} value={r}>{r}</option>)}
+        </Select>
+        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={exportCSV} /></div>
+      </FilterBar>
+
+      {/* KPI cards */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+        <StatCard label="Clocked In Now" value={totals.clockedNow} color="#22c55e" icon={CheckCircle} />
+        <StatCard label="Staff With Activity" value={totals.present} color="#1e5e4a" icon={Users} />
+        <StatCard label="Total Hours" value={`${totals.hours.toFixed(1)}h`} color="#0ea5e9" icon={Clock} />
+        <StatCard label="Days In Range" value={activeDaysBetween(fromDate, toDate)} color="#f59e0b" icon={CalendarCheck} />
+      </div>
+
+      {/* Calendar overview */}
+      <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+        <SectionTitle>Team Attendance Calendar</SectionTitle>
+        <div style={{ maxWidth: 460, margin: '12px auto 0' }}>
+          <AttendanceCalendar attendance={attendance} />
+        </div>
+      </div>
+
+      {/* Per-staff summary */}
+      <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+        <SectionTitle>Hours by Staff</SectionTitle>
+        {summary.length === 0 ? <Empty /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Staff</Th><Th>Role</Th><Th right>Days Present</Th>
+                <Th right>Total Hours</Th><Th right>Avg / Day</Th><Th>Last Punch</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.map(r => (
+                <tr key={r.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <Td bold>{r.name}</Td>
+                  <Td muted>{r.role}</Td>
+                  <Td right>{r.days}</Td>
+                  <Td right bold>{r.hours.toFixed(1)}h</Td>
+                  <Td right>{r.avg.toFixed(1)}h</Td>
+                  <Td muted>{r.lastPunch ? `${attFmtDate(recordDay(r.lastPunch))} · ${r.lastPunch.type}` : '—'}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+
+      {/* Session detail */}
+      <div className="card" style={{ padding: 20 }}>
+        <SectionTitle>Session Detail</SectionTitle>
+        {rows.length === 0 ? <Empty /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Staff</Th><Th>Role</Th><Th>Date</Th><Th>Clock In</Th><Th>Clock Out</Th><Th right>Hours</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <Td bold>{r.name}</Td>
+                  <Td muted>{r.role}</Td>
+                  <Td muted>{attFmtDate(r.date)}</Td>
+                  <Td><span style={{ color: 'var(--success)', fontWeight: 600 }}>{r.inTime}</span></Td>
+                  <Td><span style={{ color: r.active ? 'var(--warning)' : 'var(--danger)', fontWeight: 600 }}>{r.outTime}</span></Td>
+                  <Td right bold>{r.hours !== '--' ? `${r.hours}h` : '--'}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Inclusive day count between two yyyy-mm-dd strings
+function activeDaysBetween(from, to) {
+  const a = new Date(from + 'T00:00:00');
+  const b = new Date(to + 'T00:00:00');
+  if (isNaN(a) || isNaN(b)) return 0;
+  return Math.max(0, Math.round((b - a) / 86400000) + 1);
+}
+
+// =================================================================
 // MAIN REPORTS COMPONENT
 // =================================================================
 
@@ -2232,10 +2415,11 @@ const TABS = [
   { id: 'operational_eff',   label: 'Operational Efficiency', icon: Clock },
   { id: 'speed',             label: 'Speed of Service',     icon: Zap },
   { id: 'labor',             label: 'Labor & Staffing',     icon: Users },
+  { id: 'attendance',        label: 'Attendance',           icon: CalendarCheck },
 ];
 
 const Reports = () => {
-  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans } = useApp();
+  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, attendance } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   
@@ -2287,6 +2471,7 @@ const Reports = () => {
       {activeTab === 'operational_eff'  && <OperationalEfficiencyTab orders={orders} />}
       {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} />}
       {activeTab === 'labor'            && <LaborReport orders={orders} staff={staff} />}
+      {activeTab === 'attendance'       && <AttendanceReportTab staff={staff} attendance={attendance} />}
     </div>
   );
 };

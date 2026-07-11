@@ -33,6 +33,7 @@ const SECTIONS = [
   { id: 'receipt', label: 'Receipt Builder', icon: Receipt },
   { id: 'roles', label: 'Roles & Permissions', icon: Shield },
   { id: 'team', label: 'Team Members', icon: Users },
+  { id: 'attendance', label: 'Attendance & Geofencing', icon: CalendarCheck },
   { id: 'appearance', label: 'Appearance', icon: Palette },
 ];
 
@@ -48,8 +49,8 @@ const Toggle = ({ value, onChange, label, description }) => (
   </div>
 );
 
-const Field = ({ label, children, hint }) => (
-  <div style={{ marginBottom: '14px' }}>
+const Field = ({ label, children, hint, style }) => (
+  <div style={{ marginBottom: '14px', ...style }}>
     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '5px' }}>{label}</label>
     {children}
     {hint && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>{hint}</div>}
@@ -1289,6 +1290,84 @@ const TeamSection = ({ isMobile }) => {
   );
 };
 
+// ── Attendance & Geofencing ───────────────────────────────
+const AttendanceSection = ({ data, onChange, isMobile }) => {
+  const [locating, setLocating] = React.useState(false);
+
+  const useCurrentLocation = () => {
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        onChange('lat', String(pos.coords.latitude));
+        onChange('lng', String(pos.coords.longitude));
+        setLocating(false);
+      },
+      () => { setLocating(false); },
+      { timeout: 10000 },
+    );
+  };
+
+  return (
+    <div>
+      <Toggle
+        value={!!data.geofenceEnabled}
+        onChange={v => onChange('geofenceEnabled', v)}
+        label="Enable Geofencing"
+        description="Require staff to be within the set radius to clock in or out"
+      />
+      {data.geofenceEnabled && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <Field label="Latitude" style={{ flex: 1 }}>
+              <Input
+                value={data.lat}
+                onChange={v => onChange('lat', v)}
+                placeholder="e.g. 12.9716"
+                type="number"
+                step="any"
+              />
+            </Field>
+            <Field label="Longitude" style={{ flex: 1 }}>
+              <Input
+                value={data.lng}
+                onChange={v => onChange('lng', v)}
+                placeholder="e.g. 77.5946"
+                type="number"
+                step="any"
+              />
+            </Field>
+          </div>
+          <Field label="Radius (metres)" hint="Staff must be within this distance of the restaurant to clock in/out.">
+            <Input
+              value={data.radius}
+              onChange={v => onChange('radius', v)}
+              placeholder="100"
+              type="number"
+              min="10"
+              max="5000"
+            />
+          </Field>
+          <button
+            className="btn btn-secondary"
+            onClick={useCurrentLocation}
+            disabled={locating}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}
+          >
+            <MapPin size={15} />
+            {locating ? 'Detecting…' : 'Use my current location'}
+          </button>
+          {data.lat && data.lng && (
+            <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', fontSize: 13, color: 'var(--text-secondary)' }}>
+              <MapPin size={13} style={{ marginRight: 6, verticalAlign: 'middle', color: 'var(--success)' }} />
+              Location set: {Number(data.lat).toFixed(5)}, {Number(data.lng).toFixed(5)} · {data.radius || 100} m radius
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ═══ MAIN SETTINGS PAGE ═══════════════════════════════════
 const Settings = () => {
   const { settings, updateSettingsSection } = useApp();
@@ -1366,6 +1445,7 @@ const Settings = () => {
       case 'receipt': return <ReceiptBuilderSection data={localSettings.receipt || {}} onChange={(field, value) => handleChange('receipt', field, value)} isMobile={isMobile} />;
       case 'roles': return <RolesSection data={localSettings.roles || []} onChange={handleRolesChange} isMobile={isMobile} />;
       case 'team': return <TeamSection isMobile={isMobile} />;
+      case 'attendance': return <AttendanceSection data={localSettings.attendance || {}} onChange={(field, value) => handleChange('attendance', field, value)} isMobile={isMobile} />;
       case 'appearance': return <AppearanceSection data={s} onChange={sectionChange} isMobile={isMobile} />;
       default: return null;
     }

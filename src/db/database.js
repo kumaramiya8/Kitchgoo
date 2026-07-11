@@ -854,12 +854,15 @@ export async function depleteInventoryForOrder(orderItems) {
 }
 
 // ─── Attendance ──────────────────────────────────────────────
-export async function logAttendance(staffId, type) {
+// `meta` may carry { name, lat, lng } — name lets views resolve a person even
+// when they have no staff row (e.g. an owner), and lat/lng is a geofence audit trail.
+export async function logAttendance(staffId, type, meta = {}) {
   return insert('attendance', {
     staffId,
     type,
     timestamp: new Date().toISOString(),
     date: todayLocalStr(), // shift date = the LOCAL business day
+    ...meta,
   });
 }
 
