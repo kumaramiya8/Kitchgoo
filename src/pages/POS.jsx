@@ -2338,6 +2338,107 @@ const POS = () => {
         {cashDrawerModal && (
           <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} onCloseRegister={handleCloseRegister} />
         )}
+
+        {cleaningTable && (
+          <Modal title="Clean Table" onClose={() => setCleaningTable(null)}>
+            <div className="modal-body" style={{ padding: '24px 20px', textAlign: 'center' }}>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+                Mark Table {cleaningTable.number || cleaningTable.id} as cleaned and available?
+              </p>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', gap: 12 }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setCleaningTable(null)}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => {
+                setTables(prev => prev.map(t => String(t.id) === String(cleaningTable.id)
+                  ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
+                  : t
+                ));
+                showSuccess(`Table ${cleaningTable.number || cleaningTable.id} is available again`);
+                setCleaningTable(null);
+              }}>Clean & Make Available</button>
+            </div>
+          </Modal>
+        )}
+
+        {showPendingModal && (
+          <Modal title={`Incoming Online/QR Orders (${pendingOrders.length})`} onClose={() => setShowPendingModal(false)} wide>
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+                Review and accept orders placed by guests via QR Menu.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {pendingOrders.map(order => (
+                  <div key={order.id} className="card" style={{ padding: 16, background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                      <div>
+                        <span className="badge badge-primary" style={{ marginBottom: 4 }}>Direct QR</span>
+                        <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Order #{order.id}</div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                          👤 {order.customer} {order.phone ? `(${order.phone})` : ''}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 700, marginTop: 2 }}>
+                          📍 {order.address || 'Takeout'}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
+                          ₹{order.total?.toLocaleString('en-IN')}
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                          {new Date(order.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Items list */}
+                    <div style={{ background: 'rgba(0,0,0,0.02)', padding: '8px 12px', borderRadius: 8, marginBottom: 12 }}>
+                      {order.itemsList && order.itemsList.map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '3px 0' }}>
+                          <span>
+                            <strong style={{ color: 'var(--primary)' }}>{item.qty}x</strong> {item.name}
+                            {item.notes && <span style={{ fontSize: '0.7rem', color: 'var(--danger)', marginLeft: 6 }}>({item.notes})</span>}
+                          </span>
+                          <span style={{ fontWeight: 600 }}>₹{(item.price * item.qty).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {order.specialInstructions && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--danger)', padding: '6px 10px', background: 'rgba(239,68,68,0.04)', borderRadius: 6, border: '1px solid rgba(239,68,68,0.1)', marginBottom: 12 }}>
+                        <strong>Note:</strong> {order.specialInstructions}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button 
+                        className="btn btn-sm btn-secondary" 
+                        style={{ color: 'var(--danger)', borderColor: 'rgba(239,68,68,0.2)', padding: '5px 10px', borderRadius: 8 }}
+                        onClick={async () => {
+                          if (confirm('Are you sure you want to reject this order?')) {
+                            await editOnlineOrder(order.id, { status: 'rejected' });
+                            reload();
+                          }
+                        }}
+                      >
+                        Reject
+                      </button>
+                      <button 
+                        className="btn btn-sm btn-primary"
+                        style={{ padding: '5px 12px', borderRadius: 8 }}
+                        onClick={() => handleAcceptPendingOrder(order)}
+                      >
+                        {order.address?.toLowerCase().includes('table') ? 'Accept & Add to Table' : 'Accept Order'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowPendingModal(false)}>Close</button>
+            </div>
+          </Modal>
+        )}
       </div>
     );
   }
@@ -2789,26 +2890,7 @@ const POS = () => {
         />
       )}
 
-      {cleaningTable && (
-        <Modal title="Clean Table" onClose={() => setCleaningTable(null)}>
-          <div className="modal-body" style={{ padding: '24px 20px', textAlign: 'center' }}>
-            <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 500 }}>
-              Mark Table {cleaningTable.number || cleaningTable.id} as cleaned and available?
-            </p>
-          </div>
-          <div className="modal-footer" style={{ display: 'flex', gap: 12 }}>
-            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setCleaningTable(null)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => {
-              setTables(prev => prev.map(t => String(t.id) === String(cleaningTable.id)
-                ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
-                : t
-              ));
-              showSuccess(`Table ${cleaningTable.number || cleaningTable.id} is available again`);
-              setCleaningTable(null);
-            }}>Clean & Make Available</button>
-          </div>
-        </Modal>
-      )}
+
 
       {managerPinModal && (
         <ManagerPinModal
@@ -2824,85 +2906,7 @@ const POS = () => {
         <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} onCloseRegister={handleCloseRegister} />
       )}
 
-      {showPendingModal && (
-        <Modal title={`Incoming Online/QR Orders (${pendingOrders.length})`} onClose={() => setShowPendingModal(false)} wide>
-          <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
-              Review and accept orders placed by guests via QR Menu.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {pendingOrders.map(order => (
-                <div key={order.id} className="card" style={{ padding: 16, background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                    <div>
-                      <span className="badge badge-primary" style={{ marginBottom: 4 }}>Direct QR</span>
-                      <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Order #{order.id}</div>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                        👤 {order.customer} {order.phone ? `(${order.phone})` : ''}
-                      </div>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 700, marginTop: 2 }}>
-                        📍 {order.address || 'Takeout'}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
-                        ₹{order.total?.toLocaleString('en-IN')}
-                      </div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                        {new Date(order.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Items list */}
-                  <div style={{ background: 'rgba(0,0,0,0.02)', padding: '8px 12px', borderRadius: 8, marginBottom: 12 }}>
-                    {order.itemsList && order.itemsList.map((item, idx) => (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '3px 0' }}>
-                        <span>
-                          <strong style={{ color: 'var(--primary)' }}>{item.qty}x</strong> {item.name}
-                          {item.notes && <span style={{ fontSize: '0.7rem', color: 'var(--danger)', marginLeft: 6 }}>({item.notes})</span>}
-                        </span>
-                        <span style={{ fontWeight: 600 }}>₹{(item.price * item.qty).toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {order.specialInstructions && (
-                    <div style={{ fontSize: '0.78rem', color: 'var(--danger)', padding: '6px 10px', background: 'rgba(239,68,68,0.04)', borderRadius: 6, border: '1px solid rgba(239,68,68,0.1)', marginBottom: 12 }}>
-                      <strong>Note:</strong> {order.specialInstructions}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button 
-                      className="btn btn-sm btn-secondary" 
-                      style={{ color: 'var(--danger)', borderColor: 'rgba(239,68,68,0.2)', padding: '5px 10px', borderRadius: 8 }}
-                      onClick={async () => {
-                        if (confirm('Are you sure you want to reject this order?')) {
-                          await editOnlineOrder(order.id, { status: 'rejected' });
-                          reload();
-                        }
-                      }}
-                    >
-                      Reject
-                    </button>
-                    <button 
-                      className="btn btn-sm btn-primary"
-                      style={{ padding: '5px 12px', borderRadius: 8 }}
-                      onClick={() => handleAcceptPendingOrder(order)}
-                    >
-                      {order.address?.toLowerCase().includes('table') ? 'Accept & Add to Table' : 'Accept Order'}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowPendingModal(false)}>Close</button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 };

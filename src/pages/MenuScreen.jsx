@@ -584,24 +584,45 @@ const MenuScreen = () => {
   };
 
   const openEdit = (item) => {
-    const recipe = (recipes || []).find(r => r.menuItemId === item.id || (r.name && item.name && r.name.toLowerCase() === item.name.toLowerCase()));
-    setForm({
-      name: item.name || '', description: item.description || '',
-      price: item.price || '', category: item.category || dynamicCategories[0] || 'Starters',
-      subcategory: item.subcategory || '', reportingGroup: item.reportingGroup || 'Food',
-      type: item.type || 'Veg', station: item.station || 'Grill',
-      preparationTime: item.preparationTime || '15', costPrice: item.costPrice || '',
-      calories: item.calories || '', allergens: item.allergens || [],
-      dietaryLabels: item.dietaryLabels || [], taxGroup: item.taxGroup || 'food',
-      modifierGroups: item.modifierGroups || [],
-      priceTiers: item.priceTiers || { regular: item.price || '', happyHour: '', delivery: '' },
-      active: item.active !== false, sold86: item.sold86 || false,
-      image: item.image || '',
-      ingredients: item.ingredients || [],
-      recipeInstructions: recipe ? recipe.instructions || '' : '',
-      recipePlating: recipe ? recipe.plating || '' : '',
-    });
-    setEditModal(item);
+    try {
+      const recipe = (recipes || []).find(r => r.menuItemId === item.id || (r.name && item.name && r.name.toLowerCase() === item.name.toLowerCase()));
+      
+      let parsedPriceTiers = { regular: item.price || '', happyHour: '', delivery: '' };
+      if (item.priceTiers) {
+        let rawTiers = item.priceTiers;
+        if (typeof rawTiers === 'string') {
+          try { rawTiers = JSON.parse(rawTiers); } catch (e) { rawTiers = {}; }
+        }
+        if (rawTiers && typeof rawTiers === 'object') {
+          parsedPriceTiers = {
+            regular: rawTiers.regular !== undefined ? rawTiers.regular : (item.price || ''),
+            happyHour: rawTiers.happyHour !== undefined ? rawTiers.happyHour : (rawTiers.happy_hour !== undefined ? rawTiers.happy_hour : ''),
+            delivery: rawTiers.delivery !== undefined ? rawTiers.delivery : '',
+          };
+        }
+      }
+
+      setForm({
+        name: item.name || '', description: item.description || '',
+        price: item.price || '', category: item.category || dynamicCategories[0] || 'Starters',
+        subcategory: item.subcategory || '', reportingGroup: item.reportingGroup || 'Food',
+        type: item.type || 'Veg', station: item.station || 'Grill',
+        preparationTime: item.preparationTime || '15', costPrice: item.costPrice || '',
+        calories: item.calories || '', allergens: Array.isArray(item.allergens) ? item.allergens : [],
+        dietaryLabels: Array.isArray(item.dietaryLabels) ? item.dietaryLabels : [], taxGroup: item.taxGroup || 'food',
+        modifierGroups: Array.isArray(item.modifierGroups) ? item.modifierGroups : [],
+        priceTiers: parsedPriceTiers,
+        active: item.active !== false, sold86: item.sold86 || false,
+        image: item.image || '',
+        ingredients: Array.isArray(item.ingredients) ? item.ingredients : [],
+        recipeInstructions: recipe ? recipe.instructions || '' : '',
+        recipePlating: recipe ? recipe.plating || '' : '',
+      });
+      setEditModal(item);
+    } catch (err) {
+      console.error('[MenuScreen] Error in openEdit:', err);
+      alert('Error opening edit modal: ' + err.message);
+    }
   };
 
   const handleSaveNew = async () => {
