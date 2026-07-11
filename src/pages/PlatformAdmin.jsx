@@ -403,7 +403,7 @@ const AccountsTab = () => {
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                       {(() => {
-                        const accountId = account.restaurantName?.toLowerCase();
+                        const accountId = account.restaurantName;
                         const disabled = !!(flagsMap[accountId]?.audit_log_disabled);
                         const busy = !!flagsLoading[accountId];
                         return (
