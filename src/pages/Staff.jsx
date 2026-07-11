@@ -115,24 +115,16 @@ const ToggleSwitch = ({ on, onToggle }) => (
 );
 
 // ═════════════════════════════════════════════════════════════
-// ═══ MAIN COMPONENT ═════════════════════════════════════════
+// ═══ TEAM TAB ════════════════════════════════════════════════
 // ═════════════════════════════════════════════════════════════
-const Staff = () => {
+const TeamTab = () => {
   const {
-    staff, schedules, tipPools, orders, settings, todayStats,
-    addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,
-    addSchedule, editSchedule, deleteSchedule,
-    updateTipPools, updateSettingsSection, reload,
+    staff, addStaff, editStaff, deleteStaff, toggleStaffStatus,
+    getStaffAttendance, reload,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState('team');
   const [search, setSearch] = useState('');
-
-  // ═══════════════════════════════════════════════════════════
-  // ═══ TEAM TAB ═════════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  const TeamTab = () => {
-    const [addModal, setAddModal] = useState(false);
+  const [addModal, setAddModal] = useState(false);
     const [editModal, setEditModal] = useState(null);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [showPin, setShowPin] = useState({});
@@ -573,8 +565,8 @@ const Staff = () => {
         </div>
 
         {/* Modals */}
-        {addModal && <Modal title="Add Team Member" onClose={() => setAddModal(false)} wide><StaffForm isEdit={false} /></Modal>}
-        {editModal && <Modal title={`Edit - ${editModal.name}`} onClose={() => setEditModal(null)} wide><StaffForm isEdit={true} /></Modal>}
+        {addModal && <Modal title="Add Team Member" onClose={() => setAddModal(false)} wide>{StaffForm({ isEdit: false })}</Modal>}
+        {editModal && <Modal title={`Edit - ${editModal.name}`} onClose={() => setEditModal(null)} wide>{StaffForm({ isEdit: true })}</Modal>}
         {deleteConfirm && (
           <Modal title="Confirm Delete" onClose={() => setDeleteConfirm(null)}>
             <div className="modal-body">
@@ -592,16 +584,17 @@ const Staff = () => {
         )}
       </>
     );
-  };
+};
 
-  // ═══════════════════════════════════════════════════════════
-  // ═══ SCHEDULE TAB ═════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  const ScheduleTab = () => {
-    const [addModal, setAddModal] = useState(false);
-    const [shiftForm, setShiftForm] = useState({ staffId: '', day: 'Mon', startTime: '09:00', endTime: '17:00', role: '' });
+// ═══════════════════════════════════════════════════════════
+// ═══ SCHEDULE TAB ═════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+const ScheduleTab = () => {
+  const { staff, schedules, addSchedule, deleteSchedule } = useApp();
+  const [addModal, setAddModal] = useState(false);
+  const [shiftForm, setShiftForm] = useState({ staffId: '', day: 'Mon', startTime: '09:00', endTime: '17:00', role: '' });
 
-    const activeStaff = staff.filter(s => s.status === 'active');
+  const activeStaff = staff.filter(s => s.status === 'active');
 
     // Predicted busy hours
     const busyHours = { Mon: [11, 12, 13, 19, 20], Tue: [12, 13, 19, 20], Wed: [12, 13, 19, 20, 21],
@@ -781,17 +774,18 @@ const Staff = () => {
         )}
       </>
     );
-  };
+};
 
-  // ═══════════════════════════════════════════════════════════
-  // ═══ TIME & ATTENDANCE TAB ════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  const AttendanceTab = () => {
-    const [pin, setPin] = useState('');
-    const [pinError, setPinError] = useState('');
-    const [pinSuccess, setPinSuccess] = useState('');
-    const [selectedStaff, setSelectedStaff] = useState(null);
-    const [breakTracking, setBreakTracking] = useState({});
+// ═══════════════════════════════════════════════════════════
+// ═══ TIME & ATTENDANCE TAB ════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+const AttendanceTab = () => {
+  const { staff, checkInOut, getStaffAttendance } = useApp();
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinSuccess, setPinSuccess] = useState('');
+  const [selectedStaff, setSelectedStaff] = useState(null);
+  const [breakTracking, setBreakTracking] = useState({});
 
     const handlePinSubmit = () => {
       const member = staff.find(s => s.pin === pin);
@@ -989,29 +983,30 @@ const Staff = () => {
         </div>
       </>
     );
+};
+
+// ═══════════════════════════════════════════════════════════
+// ═══ TIP MANAGEMENT TAB ═══════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+const TipTab = () => {
+  const { staff, tipPools, orders, updateTipPools } = useApp();
+  const currentRules = useMemo(() => {
+    if (Array.isArray(tipPools) && tipPools.length > 0) {
+      const rulesObj = {};
+      tipPools.forEach(tp => { rulesObj[tp.role] = tp.share; });
+      return rulesObj;
+    }
+    return { ...DEFAULT_TIP_RULES };
+  }, [tipPools]);
+
+  const [editingRules, setEditingRules] = useState(false);
+  const [rules, setRules] = useState(currentRules);
+
+  const handleSaveRules = () => {
+    const arr = Object.entries(rules).map(([role, share]) => ({ role, share: parseFloat(share) || 0 }));
+    updateTipPools(arr);
+    setEditingRules(false);
   };
-
-  // ═══════════════════════════════════════════════════════════
-  // ═══ TIP MANAGEMENT TAB ═══════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  const TipTab = () => {
-    const currentRules = useMemo(() => {
-      if (Array.isArray(tipPools) && tipPools.length > 0) {
-        const rulesObj = {};
-        tipPools.forEach(tp => { rulesObj[tp.role] = tp.share; });
-        return rulesObj;
-      }
-      return { ...DEFAULT_TIP_RULES };
-    }, [tipPools]);
-
-    const [editingRules, setEditingRules] = useState(false);
-    const [rules, setRules] = useState(currentRules);
-
-    const handleSaveRules = () => {
-      const arr = Object.entries(rules).map(([role, share]) => ({ role, share: parseFloat(share) || 0 }));
-      updateTipPools(arr);
-      setEditingRules(false);
-    };
 
     // Calculate today's tips from orders
     const tipCalc = useMemo(() => {
@@ -1111,32 +1106,33 @@ const Staff = () => {
         </div>
       </>
     );
+};
+
+// ═══════════════════════════════════════════════════════════
+// ═══ PERMISSIONS TAB (RBAC) ═══════════════════════════════
+// ═══════════════════════════════════════════════════════════
+const PermissionsTab = () => {
+  const { settings, updateSettingsSection } = useApp();
+  const [perms, setPerms] = useState(() => {
+    const stored = settings?.rolePermissions || {};
+    const result = {};
+    ROLES.forEach(r => { result[r] = stored[r] || DEFAULT_ROLE_PERMS[r] || []; });
+    return result;
+  });
+  const [dirty, setDirty] = useState(false);
+
+  const togglePerm = (role, perm) => {
+    setPerms(prev => {
+      const arr = prev[role] || [];
+      const next = arr.includes(perm) ? arr.filter(p => p !== perm) : [...arr, perm];
+      return { ...prev, [role]: next };
+    });
+    setDirty(true);
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // ═══ PERMISSIONS TAB (RBAC) ═══════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  const PermissionsTab = () => {
-    const [perms, setPerms] = useState(() => {
-      const stored = settings?.rolePermissions || {};
-      const result = {};
-      ROLES.forEach(r => { result[r] = stored[r] || DEFAULT_ROLE_PERMS[r] || []; });
-      return result;
-    });
-    const [dirty, setDirty] = useState(false);
-
-    const togglePerm = (role, perm) => {
-      setPerms(prev => {
-        const arr = prev[role] || [];
-        const next = arr.includes(perm) ? arr.filter(p => p !== perm) : [...arr, perm];
-        return { ...prev, [role]: next };
-      });
-      setDirty(true);
-    };
-
-    const handleSave = () => {
-      updateSettingsSection('rolePermissions', perms);
-      setDirty(false);
+  const handleSave = () => {
+    updateSettingsSection('rolePermissions', perms);
+    setDirty(false);
     };
 
     const permLabels = {
@@ -1220,15 +1216,16 @@ const Staff = () => {
         </div>
       </>
     );
-  };
+};
 
-  // ═══════════════════════════════════════════════════════════
-  // ═══ PERFORMANCE TAB ══════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  const PerformanceTab = () => {
-    const kpis = useMemo(() => {
-      const result = {};
-      staff.forEach(m => {
+// ═══════════════════════════════════════════════════════════
+// ═══ PERFORMANCE TAB ══════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+const PerformanceTab = () => {
+  const { staff, orders } = useApp();
+  const kpis = useMemo(() => {
+    const result = {};
+    staff.forEach(m => {
         result[m.id] = { name: m.name, role: m.role, orders: 0, totalSales: 0, totalItems: 0, tips: 0, ratings: [], upsells: 0 };
       });
 
@@ -1333,11 +1330,15 @@ const Staff = () => {
         </div>
       </>
     );
-  };
+};
 
-  // ═══════════════════════════════════════════════════════════
-  // ═══ TAB RENDERER ═════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
+// ═══ MAIN COMPONENT ═════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
+const Staff = () => {
+  const { staff } = useApp();
+  const [activeTab, setActiveTab] = useState('team');
+
   const renderTab = () => {
     switch (activeTab) {
       case 'team': return <TeamTab />;
@@ -1350,9 +1351,6 @@ const Staff = () => {
     }
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // ═══ MAIN RENDER ══════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
   return (
     <div className="animate-fade-up">
       <div className="page-title-row">

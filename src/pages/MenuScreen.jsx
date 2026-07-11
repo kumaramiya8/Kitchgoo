@@ -1712,14 +1712,14 @@ const MenuScreen = () => {
       {/* Add Menu Item */}
       {addModal && (
         <Modal title="Add Menu Item" onClose={() => setAddModal(false)} wide>
-          <ItemForm onSave={handleSaveNew} saveLabel="Add Item" />
+          {ItemForm({ onSave: handleSaveNew, saveLabel: 'Add Item' })}
         </Modal>
       )}
 
       {/* Edit Menu Item */}
       {editModal && (
         <Modal title={`Edit: ${editModal.name}`} onClose={() => setEditModal(null)} wide>
-          <ItemForm onSave={handleSaveEdit} saveLabel="Save Changes" />
+          {ItemForm({ onSave: handleSaveEdit, saveLabel: 'Save Changes' })}
         </Modal>
       )}
 
@@ -1837,14 +1837,14 @@ const MenuScreen = () => {
       {/* Add Modifier Modal */}
       {modAddModal && (
         <Modal title="Add Modifier Group" onClose={() => setModAddModal(false)}>
-          <ModifierForm onSave={handleSaveMod} saveLabel="Add Group" />
+          {ModifierForm({ onSave: handleSaveMod, saveLabel: 'Add Group' })}
         </Modal>
       )}
 
       {/* Edit Modifier Modal */}
       {modEditModal && (
         <Modal title={`Edit: ${modEditModal.name}`} onClose={() => setModEditModal(null)}>
-          <ModifierForm onSave={handleSaveModEdit} saveLabel="Save Changes" />
+          {ModifierForm({ onSave: handleSaveModEdit, saveLabel: 'Save Changes' })}
         </Modal>
       )}
 
