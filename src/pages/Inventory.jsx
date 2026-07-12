@@ -35,6 +35,38 @@ const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: 
 const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '--';
 const genLocalId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
+const convertQty = (qty, fromUnit, toUnit) => {
+  const q = parseFloat(qty) || 0;
+  if (!fromUnit || !toUnit || fromUnit === toUnit) return q;
+
+  const f = fromUnit.toLowerCase();
+  const t = toUnit.toLowerCase();
+
+  // Weight conversions
+  if ((f === 'kg' && t === 'g') || (f === 'l' && t === 'ml')) return q * 1000;
+  if ((f === 'g' && t === 'kg') || (f === 'ml' && t === 'l')) return q / 1000;
+
+  return q;
+};
+
+const formatDualQty = (qty, unit) => {
+  const q = parseFloat(qty) || 0;
+  const u = unit || '';
+  if (u === 'kg') {
+    return `${q.toLocaleString('en-IN')} kg (${(q * 1000).toLocaleString('en-IN')} g)`;
+  }
+  if (u === 'g') {
+    return `${(q / 1000).toLocaleString('en-IN')} kg (${q.toLocaleString('en-IN')} g)`;
+  }
+  if (u === 'L') {
+    return `${q.toLocaleString('en-IN')} L (${(q * 1000).toLocaleString('en-IN')} ml)`;
+  }
+  if (u === 'ml') {
+    return `${(q / 1000).toLocaleString('en-IN')} L (${q.toLocaleString('en-IN')} ml)`;
+  }
+  return `${q.toLocaleString('en-IN')} ${u}`;
+};
+
 // ─── Shared Components ──────────────────────────────────────
 const Modal = ({ title, onClose, children, wide }) => ReactDOM.createPortal(
   <div className="modal-backdrop" onClick={onClose}>
@@ -565,14 +597,14 @@ const StockTab = () => {
                   />
                 </th>
               )}
-              {['Name', 'Category', 'Stock', 'Unit', 'Par Level', 'Cost/Unit', 'Supplier', 'Status', 'Last Updated', 'Actions'].map(h => (
+              {['Name', 'Category', 'Stock & Unit', 'Par Level', 'Cost/Unit', 'Supplier', 'Status', 'Last Updated', 'Actions'].map(h => (
                 <th key={h} style={thStyle}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={isOwnerOrAdmin ? 11 : 10} style={{ ...cellStyle, textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No items found</td></tr>
+              <tr><td colSpan={isOwnerOrAdmin ? 10 : 9} style={{ ...cellStyle, textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>No items found</td></tr>
             )}
             {filtered.map(item => {
               const linkedMenuItems = menu.filter(m => 
@@ -621,10 +653,9 @@ const StockTab = () => {
                     )}
                   </td>
                   <td style={cellStyle}>{item.category}</td>
-                  <td style={{ ...cellStyle, fontWeight: 600 }}>{item.stock}</td>
-                  <td style={cellStyle}>{item.unit}</td>
+                  <td style={{ ...cellStyle, fontWeight: 600 }}>{formatDualQty(item.stock, item.unit)}</td>
                 <td style={{ ...cellStyle, minWidth: 120 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Min: {item.min}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Min: {formatDualQty(item.min, item.unit)}</div>
                   <ParLevelBar stock={item.stock} min={item.min} />
                 </td>
                 <td style={cellStyle}>{item.cost ? fmt(item.cost) : '--'}</td>
@@ -668,18 +699,119 @@ const StockTab = () => {
                   {UNITS.map(u => <option key={u}>{u}</option>)}
                 </select>
               </div>
-              <div className="input-group">
-                <label className="input-label">Current Stock</label>
-                <input className="input-field" type="number" min="0" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Min Level (Par)</label>
-                <input className="input-field" type="number" min="0" value={form.min} onChange={e => setForm(f => ({ ...f, min: e.target.value }))} />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Cost per Unit</label>
-                <input className="input-field" type="number" min="0" step="0.01" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} />
-              </div>
+              {(() => {
+                const isWeight = form.unit === 'kg' || form.unit === 'g';
+                const isVolume = form.unit === 'L' || form.unit === 'ml';
+
+                const renderDualField = (label, fieldKey) => {
+                  const val = form[fieldKey];
+                  if (!isWeight && !isVolume) {
+                    return (
+                      <div className="input-group">
+                        <label className="input-label">{label} ({form.unit})</label>
+                        <input
+                          className="input-field"
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={val}
+                          onChange={e => setForm(f => ({ ...f, [fieldKey]: e.target.value }))}
+                        />
+                      </div>
+                    );
+                  }
+
+                  const primaryUnit = form.unit;
+                  const secondaryUnit = primaryUnit === 'kg' ? 'g' : primaryUnit === 'g' ? 'kg' : primaryUnit === 'L' ? 'ml' : 'L';
+
+                  const numVal = parseFloat(val) || 0;
+                  let primaryVal = val;
+                  let secondaryVal = '';
+
+                  if (val !== '') {
+                    if (primaryUnit === 'kg' || primaryUnit === 'L') {
+                      secondaryVal = String(Math.round(numVal * 1000 * 1000) / 1000);
+                    } else {
+                      secondaryVal = String(Math.round((numVal / 1000) * 1000000) / 1000000);
+                    }
+                  }
+
+                  const handlePrimaryEdit = (v) => {
+                    setForm(f => ({ ...f, [fieldKey]: v }));
+                  };
+
+                  const handleSecondaryEdit = (v) => {
+                    const sNum = parseFloat(v);
+                    if (isNaN(sNum)) {
+                      setForm(f => ({ ...f, [fieldKey]: '' }));
+                    } else {
+                      if (primaryUnit === 'kg' || primaryUnit === 'L') {
+                        setForm(f => ({ ...f, [fieldKey]: String(sNum / 1000) }));
+                      } else {
+                        setForm(f => ({ ...f, [fieldKey]: String(sNum * 1000) }));
+                      }
+                    }
+                  };
+
+                  return (
+                    <div className="input-group" style={{ gridColumn: 'span 2' }}>
+                      <label className="input-label">{label}</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input
+                            className="input-field"
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={primaryVal}
+                            onChange={e => handlePrimaryEdit(e.target.value)}
+                            placeholder={`e.g. 1.5`}
+                            style={{ margin: 0, flex: 1 }}
+                          />
+                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', minWidth: 20 }}>{primaryUnit}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input
+                            className="input-field"
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={secondaryVal}
+                            onChange={e => handleSecondaryEdit(e.target.value)}
+                            placeholder={`e.g. 1500`}
+                            style={{ margin: 0, flex: 1 }}
+                          />
+                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', minWidth: 20 }}>{secondaryUnit}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                };
+
+                // Cost calculation subtitle helper
+                const costVal = parseFloat(form.cost) || 0;
+                let costSubtitle = '';
+                if (costVal > 0 && (isWeight || isVolume)) {
+                  const primaryUnit = form.unit;
+                  const secondaryUnit = primaryUnit === 'kg' ? 'g' : primaryUnit === 'g' ? 'kg' : primaryUnit === 'L' ? 'ml' : 'L';
+                  if (primaryUnit === 'kg' || primaryUnit === 'L') {
+                    costSubtitle = `(₹${(costVal / 1000).toFixed(4)} per ${secondaryUnit})`;
+                  } else {
+                    costSubtitle = `(₹${(costVal * 1000).toFixed(2)} per ${secondaryUnit})`;
+                  }
+                }
+
+                return (
+                  <>
+                    {renderDualField('Current Stock', 'stock')}
+                    {renderDualField('Min Level (Par)', 'min')}
+                    <div className="input-group">
+                      <label className="input-label">Cost per {form.unit} {costSubtitle && <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 400 }}>{costSubtitle}</span>}</label>
+                      <input className="input-field" type="number" min="0" step="any" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} />
+                    </div>
+                  </>
+                );
+              })()}
               <div className="input-group">
                 <label className="input-label">Supplier</label>
                 <select className="input-field" value={form.supplier} onChange={e => setForm(f => ({ ...f, supplier: e.target.value }))}>
@@ -752,7 +884,9 @@ const RecipesTab = () => {
   const calcCost = useCallback((ingredients) => {
     return ingredients.reduce((sum, ing) => {
       const item = inventory.find(i => i.id === ing.itemId);
-      return sum + (item ? (parseFloat(item.cost) || 0) * (parseFloat(ing.qty) || 0) : 0);
+      if (!item) return sum;
+      const qtyInItemUnit = convertQty(ing.qty, ing.unit || item.unit, item.unit);
+      return sum + (parseFloat(item.cost) || 0) * qtyInItemUnit;
     }, 0);
   }, [inventory]);
 
@@ -792,7 +926,9 @@ const RecipesTab = () => {
     // Check sufficient stock
     const shortages = (recipe.ingredients || []).filter(ing => {
       const item = inventory.find(i => i.id === ing.itemId);
-      return !item || item.stock < parseFloat(ing.qty);
+      if (!item) return true;
+      const reqQtyInItemUnit = convertQty(ing.qty, ing.unit || item.unit, item.unit);
+      return item.stock < reqQtyInItemUnit;
     });
     if (shortages.length > 0) {
       alert('Insufficient stock for: ' + shortages.map(s => {
@@ -805,7 +941,8 @@ const RecipesTab = () => {
     for (const ing of (recipe.ingredients || [])) {
       const item = inventory.find(i => i.id === ing.itemId);
       if (item) {
-        await editInventoryItem(item.id, { ...item, stock: item.stock - parseFloat(ing.qty), lastUpdated: new Date().toISOString() });
+        const reqQtyInItemUnit = convertQty(ing.qty, ing.unit || item.unit, item.unit);
+        await editInventoryItem(item.id, { ...item, stock: item.stock - reqQtyInItemUnit, lastUpdated: new Date().toISOString() });
       }
     }
     setProduceConfirm(null);
@@ -931,9 +1068,32 @@ const RecipesTab = () => {
                       <option value="">-- Select Item --</option>
                       {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.stock} {i.unit})</option>)}
                     </select>
-                    <input className="input-field" type="number" min="0" step="0.1" style={{ flex: 1 }} placeholder="Qty" value={ing.qty} onChange={e => updateIngredient(idx, 'qty', e.target.value)} />
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 30 }}>{ing.unit || item?.unit || ''}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 60 }}>{item ? fmt(parseFloat(item.cost || 0) * parseFloat(ing.qty || 0)) : '--'}</span>
+                    <input className="input-field" type="number" min="0" step="any" style={{ flex: 1 }} placeholder="Qty" value={ing.qty} onChange={e => updateIngredient(idx, 'qty', e.target.value)} />
+                    {(() => {
+                      const isWeight = item && (item.unit === 'kg' || item.unit === 'g');
+                      const isVolume = item && (item.unit === 'L' || item.unit === 'ml');
+                      let unitOptions = [];
+                      if (isWeight) unitOptions = ['kg', 'g'];
+                      else if (isVolume) unitOptions = ['L', 'ml'];
+                      else if (item) unitOptions = [item.unit];
+
+                      if (unitOptions.length > 1) {
+                        return (
+                          <select 
+                            className="input-field" 
+                            style={{ flex: 0.6, padding: '4px 6px', margin: 0, fontSize: 12 }} 
+                            value={ing.unit || item?.unit || ''} 
+                            onChange={e => updateIngredient(idx, 'unit', e.target.value)}
+                          >
+                            {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                        );
+                      }
+                      return <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 30 }}>{ing.unit || item?.unit || ''}</span>;
+                    })()}
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 60 }}>
+                      {item ? fmt((parseFloat(item.cost) || 0) * convertQty(ing.qty, ing.unit || item.unit, item.unit)) : '--'}
+                    </span>
                     <button className="btn btn-sm btn-danger" onClick={() => removeIngredient(idx)}><X size={14} /></button>
                   </div>
                 );
@@ -1158,6 +1318,79 @@ const SuppliersTab = () => {
 const PurchaseOrdersTab = () => {
   const { purchaseOrders, inventory, suppliers, addPurchaseOrder, editPurchaseOrder, editInventoryItem } = useApp();
   const [detail, setDetail] = useState(null);
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [supplierName, setSupplierName] = useState('');
+  const [notes, setNotes] = useState('');
+  const [poItems, setPoItems] = useState([]);
+  
+  const [selItemId, setSelItemId] = useState('');
+  const [selQty, setSelQty] = useState('');
+  const [selUnit, setSelUnit] = useState('');
+  const [selCost, setSelCost] = useState('');
+
+  const handleItemSelect = (id) => {
+    setSelItemId(id);
+    const item = inventory.find(i => i.id === id);
+    if (item) {
+      setSelUnit(item.unit);
+      setSelCost(String(item.cost || ''));
+    } else {
+      setSelUnit('');
+      setSelCost('');
+    }
+  };
+
+  const addPoItem = () => {
+    if (!selItemId || !selQty) return;
+    const item = inventory.find(i => i.id === selItemId);
+    if (!item) return;
+
+    if (poItems.some(i => i.itemId === selItemId)) {
+      alert('This item is already added to the PO draft. Modify or delete it first.');
+      return;
+    }
+
+    setPoItems([...poItems, {
+      itemId: selItemId,
+      name: item.name,
+      qty: parseFloat(selQty),
+      unit: selUnit,
+      unitCost: parseFloat(selCost) || 0
+    }]);
+
+    setSelItemId('');
+    setSelQty('');
+    setSelUnit('');
+    setSelCost('');
+  };
+
+  const removePoItem = (idx) => {
+    setPoItems(poItems.filter((_, i) => i !== idx));
+  };
+
+  const submitManualPo = () => {
+    if (!supplierName) { alert('Please select a Supplier'); return; }
+    if (poItems.length === 0) { alert('Please add at least one item'); return; }
+
+    const supplierObj = suppliers.find(s => s.name === supplierName);
+    const total = poItems.reduce((sum, i) => sum + i.qty * i.unitCost, 0);
+
+    addPurchaseOrder({
+      poNumber: `PO-${Date.now().toString(36).toUpperCase().slice(-6)}`,
+      supplier: supplierName,
+      supplierId: supplierObj?.id || null,
+      items: poItems,
+      total,
+      status: 'draft',
+      createdAt: new Date().toISOString(),
+      notes: notes || 'Manually generated',
+    });
+
+    setShowManualModal(false);
+    setSupplierName('');
+    setNotes('');
+    setPoItems([]);
+  };
 
   const autoGenerate = () => {
     const belowPar = inventory.filter(i => i.status === 'low' || i.status === 'critical');
@@ -1201,7 +1434,8 @@ const PurchaseOrdersTab = () => {
         for (const poItem of po.items) {
           const invItem = inventory.find(i => i.id === poItem.itemId || i.name.toLowerCase() === poItem.name.toLowerCase());
           if (invItem) {
-            const newStock = (parseFloat(invItem.stock) || 0) + (parseFloat(poItem.qty) || 0);
+            const addedStockInItemUnit = convertQty(poItem.qty, poItem.unit || invItem.unit, invItem.unit);
+            const newStock = (parseFloat(invItem.stock) || 0) + addedStockInItemUnit;
             await editInventoryItem(invItem.id, {
               ...invItem,
               stock: newStock,
@@ -1224,7 +1458,10 @@ const PurchaseOrdersTab = () => {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{purchaseOrders.length} order{purchaseOrders.length !== 1 ? 's' : ''}</div>
-        <button className="btn btn-primary" onClick={autoGenerate}><RefreshCw size={16} /> Auto-Generate PO</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => setShowManualModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> Create Purchase Order</button>
+          <button className="btn btn-primary" onClick={autoGenerate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><RefreshCw size={16} /> Auto-Generate PO</button>
+        </div>
       </div>
 
       <div className="table-wrapper" style={{ maxHeight: 520, overflowY: 'auto' }}>
@@ -1273,6 +1510,140 @@ const PurchaseOrdersTab = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Create Manual PO Modal */}
+      {showManualModal && (
+        <Modal title="Create Purchase Order" onClose={() => setShowManualModal(false)} wide>
+          <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label">Supplier *</label>
+                <select className="input-field" value={supplierName} onChange={e => setSupplierName(e.target.value)}>
+                  <option value="">-- Select Supplier --</option>
+                  {supplierNames.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label">Reference Notes</label>
+                <input className="input-field" value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Weekly stocking" />
+              </div>
+            </div>
+
+            {/* Item addition section */}
+            <div style={{ background: 'rgba(30, 94, 74, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: 'var(--primary)' }}>Add Items to Purchase Order</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 10, alignItems: 'flex-end' }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label">Select Item</label>
+                  <select className="input-field" value={selItemId} onChange={e => handleItemSelect(e.target.value)}>
+                    <option value="">-- Select Item --</option>
+                    {inventory.map(item => (
+                      <option key={item.id} value={item.id}>{item.name} ({formatDualQty(item.stock, item.unit)})</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label">Qty</label>
+                  <input className="input-field" type="number" min="0" step="any" value={selQty} onChange={e => setSelQty(e.target.value)} placeholder="0" />
+                </div>
+
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label">Unit</label>
+                  {(() => {
+                    const selItem = inventory.find(i => i.id === selItemId);
+                    const isWeight = selItem && (selItem.unit === 'kg' || selItem.unit === 'g');
+                    const isVolume = selItem && (selItem.unit === 'L' || selItem.unit === 'ml');
+                    let opts = [];
+                    if (isWeight) opts = ['kg', 'g'];
+                    else if (isVolume) opts = ['L', 'ml'];
+                    else if (selItem) opts = [selItem.unit];
+
+                    if (opts.length > 1) {
+                      return (
+                        <select className="input-field" value={selUnit} onChange={e => setSelUnit(e.target.value)}>
+                          {opts.map(u => <option key={u} value={u}>{u}</option>)}
+                        </select>
+                      );
+                    }
+                    return <input className="input-field" value={selUnit} readOnly disabled style={{ background: '#f8fafc' }} />;
+                  })()}
+                </div>
+
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label">Cost/Unit (₹)</label>
+                  <input className="input-field" type="number" min="0" step="any" value={selCost} onChange={e => setSelCost(e.target.value)} placeholder="0.00" />
+                </div>
+
+                <button className="btn btn-primary" style={{ height: 40 }} onClick={addPoItem}><Plus size={16} /></button>
+              </div>
+
+              {(() => {
+                const selItem = inventory.find(i => i.id === selItemId);
+                if (selItem && selQty && selUnit) {
+                  // Show conversion helper
+                  const isWeight = selItem.unit === 'kg' || selItem.unit === 'g';
+                  const isVolume = selItem.unit === 'L' || selItem.unit === 'ml';
+                  if (isWeight || isVolume) {
+                    const primary = selItem.unit;
+                    const sec = primary === 'kg' ? 'g' : primary === 'g' ? 'kg' : primary === 'L' ? 'ml' : 'L';
+                    const converted = convertQty(selQty, selUnit, sec);
+                    return (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, fontStyle: 'italic' }}>
+                        Equivalent order qty: <strong>{selQty} {selUnit}</strong> is <strong>{converted.toLocaleString('en-IN')} {sec}</strong> (Base Item Unit: {selItem.unit})
+                      </div>
+                    );
+                  }
+                }
+                return null;
+              })()}
+            </div>
+
+            {/* Added Items List */}
+            {poItems.length > 0 ? (
+              <div style={{ marginTop: 12 }}>
+                <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Order Items List</h4>
+                <div className="table-wrapper" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        {['Item Name', 'Quantity', 'Unit', 'Unit Cost', 'Total Cost', 'Actions'].map(h => (
+                          <th key={h} style={{ ...thStyle, fontSize: 11, padding: '8px 12px' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {poItems.map((item, idx) => (
+                        <tr key={idx}>
+                          <td style={{ ...cellStyle, padding: '8px 12px' }}>{item.name}</td>
+                          <td style={{ ...cellStyle, padding: '8px 12px', fontWeight: 600 }}>{item.qty.toLocaleString('en-IN')}</td>
+                          <td style={{ ...cellStyle, padding: '8px 12px' }}>{item.unit}</td>
+                          <td style={{ ...cellStyle, padding: '8px 12px' }}>{fmt(item.unitCost)}</td>
+                          <td style={{ ...cellStyle, padding: '8px 12px', fontWeight: 600 }}>{fmt(item.qty * item.unitCost)}</td>
+                          <td style={{ ...cellStyle, padding: '8px 12px' }}>
+                            <button className="btn btn-sm btn-danger" onClick={() => removePoItem(idx)}><X size={14} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: 15, fontWeight: 700, color: 'var(--primary)', marginTop: 12 }}>
+                  Total Order Cost: {fmt(poItems.reduce((sum, i) => sum + i.qty * i.unitCost, 0))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px 0', fontSize: 13, border: '1px dashed var(--border-subtle)', borderRadius: 12 }}>
+                No items added to this PO draft yet.
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setShowManualModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={submitManualPo} disabled={poItems.length === 0 || !supplierName}><Save size={16} /> Save PO Draft</button>
+          </div>
+        </Modal>
+      )}
 
       {/* PO Detail */}
       {detail && (
@@ -1419,7 +1790,7 @@ const WasteLogTab = () => {
               <tr key={w.id || i}>
                 <td style={{ ...cellStyle, fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDateTime(w.createdAt)}</td>
                 <td style={{ ...cellStyle, fontWeight: 600 }}>{w.itemName || 'Unknown'}</td>
-                <td style={cellStyle}>{w.qty} {w.unit}</td>
+                <td style={cellStyle}>{formatDualQty(w.qty, w.unit)}</td>
                 <td style={cellStyle}>
                   <span className="badge badge-danger" style={{ fontSize: 11 }}>{w.reason}</span>
                 </td>

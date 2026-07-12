@@ -1059,7 +1059,32 @@ const MenuScreen = () => {
                   placeholder="Qty" 
                   style={{ flex: 1, margin: 0 }}
                 />
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', minWidth: 40 }}>{ing.unit || 'unit'}</span>
+                {(() => {
+                  const isWeight = inventoryItem && (inventoryItem.unit === 'kg' || inventoryItem.unit === 'g');
+                  const isVolume = inventoryItem && (inventoryItem.unit === 'L' || inventoryItem.unit === 'ml');
+                  let unitOptions = [];
+                  if (isWeight) unitOptions = ['kg', 'g'];
+                  else if (isVolume) unitOptions = ['L', 'ml'];
+                  else if (inventoryItem) unitOptions = [inventoryItem.unit];
+                  
+                  if (unitOptions.length > 1) {
+                    return (
+                      <select 
+                        className="input-field" 
+                        value={ing.unit || inventoryItem?.unit || ''} 
+                        onChange={e => {
+                          const newIngs = [...form.ingredients];
+                          newIngs[idx] = { ...newIngs[idx], unit: e.target.value };
+                          setForm(f => ({ ...f, ingredients: newIngs }));
+                        }}
+                        style={{ flex: 0.8, margin: 0, padding: '4px 6px', fontSize: '0.78rem' }}
+                      >
+                        {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    );
+                  }
+                  return <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', minWidth: 40, textAlign: 'center' }}>{ing.unit || 'unit'}</span>;
+                })()}
                 <button 
                   type="button" 
                   onClick={() => {

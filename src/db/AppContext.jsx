@@ -868,6 +868,11 @@ export function AppProvider({ children }) {
     const openingBalance = parseFloat(data.openingBalance) || 0;
     const actualCash = parseFloat(data.actualCash) || 0;
     const notes = data.notes || '';
+    
+    // Support bank deposit info updates
+    const depositAmount = data.depositAmount !== undefined ? (parseFloat(data.depositAmount) || 0) : (target.depositAmount || 0);
+    const bankName = data.bankName !== undefined ? data.bankName : (target.bankName || '');
+    const depositNotes = data.depositNotes !== undefined ? data.depositNotes : (target.depositNotes || '');
 
     const dropsSum = (target.drops || []).reduce((s, d) => s + d.amount, 0);
     const expectedBalance = openingBalance + (target.cashIn || 0) - (target.cashOut || 0) - dropsSum;
@@ -878,7 +883,10 @@ export function AppProvider({ children }) {
       actualCash,
       notes,
       expectedBalance,
-      variance
+      variance,
+      depositAmount,
+      bankName,
+      depositNotes
     });
     setRegisterClosures(getAll('register_closures'));
   }, []);

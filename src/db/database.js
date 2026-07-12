@@ -816,6 +816,20 @@ export async function receiveStock(id, quantity) {
   });
 }
 
+export function convertQty(qty, fromUnit, toUnit) {
+  const q = parseFloat(qty) || 0;
+  if (!fromUnit || !toUnit || fromUnit === toUnit) return q;
+
+  const f = fromUnit.toLowerCase();
+  const t = toUnit.toLowerCase();
+
+  // Weight conversions
+  if ((f === 'kg' && t === 'g') || (f === 'l' && t === 'ml')) return q * 1000;
+  if ((f === 'g' && t === 'kg') || (f === 'ml' && t === 'l')) return q / 1000;
+
+  return q;
+}
+
 export async function depleteInventoryForOrder(orderItems) {
   const menu = getAll('menu');
   const inventory = getAll('inventory');
@@ -826,7 +840,8 @@ export async function depleteInventoryForOrder(orderItems) {
       for (const ing of menuItem.ingredients) {
         const invItem = inventory.find(i => i.id === ing.itemId);
         if (invItem) {
-          const newStock = Math.max(0, invItem.stock - ing.qty * orderItem.qty);
+          const qtyInItemUnit = convertQty(ing.qty, ing.unit || invItem.unit, invItem.unit) * orderItem.qty;
+          const newStock = Math.max(0, invItem.stock - qtyInItemUnit);
           await update('inventory', invItem.id, {
             stock: newStock,
             status: computeStockStatus(newStock, invItem.min),
@@ -840,7 +855,8 @@ export async function depleteInventoryForOrder(orderItems) {
         for (const ing of recipe.ingredients) {
           const invItem = inventory.find(i => i.name === ing.inventoryItem);
           if (invItem) {
-            const newStock = Math.max(0, invItem.stock - ing.qty * orderItem.qty);
+            const qtyInItemUnit = convertQty(ing.qty, ing.unit || invItem.unit, invItem.unit) * orderItem.qty;
+            const newStock = Math.max(0, invItem.stock - qtyInItemUnit);
             await update('inventory', invItem.id, {
               stock: newStock,
               status: computeStockStatus(newStock, invItem.min),
@@ -969,6 +985,19 @@ export async function logAudit(action, userId, userName, details) {
 
 // ─── Waste Log ───────────────────────────────────────────────
 export async function logWaste(data) {
+  // Deduct from inventory stock
+  const inventory = getAll('inventory') || [];
+  const item = inventory.find(i => i.id === data.itemId);
+  if (item) {
+    const qtyInItemUnit = convertQty(data.qty, data.unit || item.unit, item.unit);
+    const newStock = Math.max(0, item.stock - qtyInItemUnit);
+    await update('inventory', item.id, {
+      stock: newStock,
+      status: computeStockStatus(newStock, item.min),
+      lastUpdated: new Date().toISOString()
+    });
+  }
+
   return insert('waste_log', {
     ...data,
     timestamp: new Date().toISOString(),

@@ -895,24 +895,106 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
   );
 };
 
+const DENOM_LABELS = {
+  2000: '₹2,000 Note',
+  500: '₹500 Note',
+  200: '₹200 Note',
+  100: '₹100 Note',
+  50: '₹50 Note',
+  20: '₹20 Note',
+  10: '₹10 Note',
+  5: '₹5 Coin/Note',
+  2: '₹2 Coin',
+  1: '₹1 Coin'
+};
+
 const RegisterClosuresReport = () => {
-  const { registerClosures, updateRegisterClosure } = useApp();
+  const { registerClosures, updateRegisterClosure, orders } = useApp();
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
   useHistoricalOrders(range, dateFrom);
   const [editClosure, setEditClosure] = useState(null);
+  const [viewClosure, setViewClosure] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Edit Form state
   const [openingBalance, setOpeningBalance] = useState('');
   const [actualCash, setActualCash] = useState('');
   const [notes, setNotes] = useState('');
+  const [depositAmount, setDepositAmount] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [depositNotes, setDepositNotes] = useState('');
 
   const { sortField, sortDirection, handleSort } = useSort('shiftEnd', 'desc');
 
+  // Enrich closures with chronological previous closure dates and payment method aggregates from orders
+  const enrichedClosures = useMemo(() => {
+    const sorted = [...(registerClosures || [])].sort((a, b) => new Date(a.shiftEnd) - new Date(b.shiftEnd));
+    
+    const mapped = sorted.map((c, i) => {
+      const prev = i > 0 ? sorted[i-1] : null;
+      const prevDate = prev ? prev.shiftEnd : null;
+
+      const start = c.shiftStart ? new Date(c.shiftStart) : null;
+      const end = c.shiftEnd ? new Date(c.shiftEnd) : null;
+
+      let cardSales = 0;
+      let upiSales = 0;
+      let cashTips = 0;
+      let cardTips = 0;
+      let upiTips = 0;
+
+      if (start && end) {
+        orders.forEach(o => {
+          if (!o.createdAt) return;
+          const t = new Date(o.createdAt);
+          if (t >= start && t <= end) {
+            const method = (o.paymentMethod || '').toLowerCase();
+            const total = o.total || 0;
+            const tip = o.tip || 0;
+            
+            if (method.includes('card')) {
+              cardSales += total;
+              cardTips += tip;
+            } else if (method.includes('upi') || method.includes('custom')) {
+              upiSales += total;
+              upiTips += tip;
+            } else if (method.includes('cash')) {
+              cashTips += tip;
+            }
+          }
+        });
+      }
+
+      return {
+        ...c,
+        previousClosureDate: prevDate,
+        cardSales,
+        upiSales,
+        cashTips,
+        cardTips,
+        upiTips
+      };
+    });
+
+    return mapped;
+  }, [registerClosures, orders]);
+
   const filtered = useMemo(() => {
-    return filterByRange(registerClosures || [], range, dateFrom, dateTo, 'shiftEnd');
-  }, [registerClosures, range, dateFrom, dateTo]);
+    let result = filterByRange(enrichedClosures, range, dateFrom, dateTo, 'shiftEnd');
+    
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(c => 
+        (c.closedBy || '').toLowerCase().includes(q) || 
+        (c.notes || '').toLowerCase().includes(q) ||
+        (c.bankName || '').toLowerCase().includes(q)
+      );
+    }
+    
+    return result;
+  }, [enrichedClosures, range, dateFrom, dateTo, searchQuery]);
 
   const sortedClosures = useMemo(() => {
     return sortData(filtered, sortField, sortDirection);
@@ -923,6 +1005,9 @@ const RegisterClosuresReport = () => {
     setOpeningBalance(c.openingBalance || 0);
     setActualCash(c.actualCash || 0);
     setNotes(c.notes || '');
+    setDepositAmount(c.depositAmount || 0);
+    setBankName(c.bankName || '');
+    setDepositNotes(c.depositNotes || '');
   };
 
   const handleSave = async (e) => {
@@ -931,19 +1016,33 @@ const RegisterClosuresReport = () => {
     await updateRegisterClosure(editClosure.id, {
       openingBalance: parseFloat(openingBalance) || 0,
       actualCash: parseFloat(actualCash) || 0,
-      notes
+      notes,
+      depositAmount: parseFloat(depositAmount) || 0,
+      bankName,
+      depositNotes
     });
     setEditClosure(null);
   };
 
+  const totals = useMemo(() => {
+    return filtered.reduce((s, c) => ({
+      cashCollected: s.cashCollected + (c.cashIn || 0),
+      cashPaid: s.cashPaid + (c.cashOut || 0) + (c.drops || []).reduce((sum, d) => sum + d.amount, 0),
+      cashDeposited: s.cashDeposited + (c.depositAmount || 0),
+      variance: s.variance + (c.variance || 0)
+    }), { cashCollected: 0, cashPaid: 0, cashDeposited: 0, variance: 0 });
+  }, [filtered]);
+
   const handleExport = () => {
     const rows = [
-      'Shift Start,Shift End,Closed By,Opening Float,Expected Cash,Actual Cash,Variance,Notes',
-      ...sortedClosures.map(c =>
-        `"${fmtDateTime(c.shiftStart)}","${fmtDateTime(c.shiftEnd)}","${c.closedBy || ''}",${c.openingBalance},${c.expectedBalance},${c.actualCash},${c.variance},"${c.notes || ''}"`
-      ),
+      'Center Name,Register Name,Closure Date,Previous Closure Date,Opening Balance,Closing Balance,Cash Collected,Cash Paid,Cash Deposited,Cash Adjustments,Card,Custom,Cash Tips,Card Tips,Submitted By,Notes',
+      ...sortedClosures.map(c => {
+        const closingBalance = (c.actualCash || 0) - (c.depositAmount || 0);
+        const cashPaid = (c.cashOut || 0) + (c.drops || []).reduce((sum, d) => sum + d.amount, 0);
+        return `"Main Center","Register 1","${fmtDateTime(c.shiftEnd)}","${fmtDateTime(c.previousClosureDate)}",${c.openingBalance},${closingBalance},${c.cashIn || 0},${cashPaid},${c.depositAmount || 0},${c.variance || 0},${c.cardSales || 0},${c.upiSales || 0},${c.cashTips || 0},${c.cardTips || 0},"${c.closedBy || ''}","${c.notes || ''}"`;
+      }),
     ];
-    downloadCSV('register_closures.csv', rows);
+    downloadCSV('register_closure_report_v2.csv', rows);
   };
 
   return (
@@ -951,21 +1050,54 @@ const RegisterClosuresReport = () => {
       <FilterBar>
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
         <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-light)', padding: '4px 10px', borderRadius: 8, border: '1px solid var(--border-subtle)', marginLeft: 8 }}>
+          <Search size={14} color="var(--text-muted)" />
+          <input
+            type="text"
+            placeholder="Search by notes or staff..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ border: 'none', background: 'transparent', fontSize: '0.78rem', outline: 'none', color: 'var(--text-primary)', width: 180 }}
+          />
+        </div>
+
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <StatCard label="Total Cash Collected" value={fmt(totals.cashCollected)} color="#1e5e4a" icon={IndianRupee} />
+        <StatCard label="Total Cash Payouts" value={fmt(totals.cashPaid)} color="#ef4444" icon={TrendingDown} />
+        <StatCard label="Total Cash Deposited" value={fmt(totals.cashDeposited)} color="#22c55e" icon={Receipt} />
+        <StatCard 
+          label="Net Cash Variance" 
+          value={(totals.variance >= 0 ? '+' : '') + fmt(totals.variance)} 
+          color={totals.variance >= 0 ? '#22c55e' : '#ef4444'} 
+          icon={totals.variance >= 0 ? CheckCircle : AlertTriangle} 
+        />
+      </div>
+
       <div className="card">
-        <SectionTitle>POS Register Closures</SectionTitle>
+        <SectionTitle>Register Closure Audit Log (v2)</SectionTitle>
         {sortedClosures.length === 0 ? <Empty text="No register closures logged for this period." /> : (
           <TableWrap>
             <thead>
               <tr>
-                <Th sortField={sortField} currentField="shiftEnd" sortDirection={sortDirection} onSort={handleSort}>Shift End</Th>
-                <Th sortField={sortField} currentField="closedBy" sortDirection={sortDirection} onSort={handleSort}>Closed By</Th>
+                <Th sortField={sortField} currentField="center" sortDirection={sortDirection} onSort={handleSort}>Center Name</Th>
+                <Th sortField={sortField} currentField="register" sortDirection={sortDirection} onSort={handleSort}>Register Name</Th>
+                <Th sortField={sortField} currentField="shiftEnd" sortDirection={sortDirection} onSort={handleSort}>Closure Date</Th>
+                <Th sortField={sortField} currentField="previousClosureDate" sortDirection={sortDirection} onSort={handleSort}>Prev Closure Date</Th>
                 <Th right sortField={sortField} currentField="openingBalance" sortDirection={sortDirection} onSort={handleSort}>Opening Float</Th>
-                <Th right sortField={sortField} currentField="expectedBalance" sortDirection={sortDirection} onSort={handleSort}>Expected Cash</Th>
-                <Th right sortField={sortField} currentField="actualCash" sortDirection={sortDirection} onSort={handleSort}>Actual Cash</Th>
-                <Th right sortField={sortField} currentField="variance" sortDirection={sortDirection} onSort={handleSort}>Variance</Th>
+                <Th right sortField={sortField} currentField="closingBalance" sortDirection={sortDirection} onSort={handleSort}>Closing Balance</Th>
+                <Th right sortField={sortField} currentField="cashIn" sortDirection={sortDirection} onSort={handleSort}>Cash Collected</Th>
+                <Th right sortField={sortField} currentField="cashOut" sortDirection={sortDirection} onSort={handleSort}>Cash Paid</Th>
+                <Th right sortField={sortField} currentField="depositAmount" sortDirection={sortDirection} onSort={handleSort}>Cash Deposited</Th>
+                <Th right sortField={sortField} currentField="variance" sortDirection={sortDirection} onSort={handleSort}>Cash Adjustments</Th>
+                <Th right sortField={sortField} currentField="cardSales" sortDirection={sortDirection} onSort={handleSort}>Card</Th>
+                <Th right sortField={sortField} currentField="upiSales" sortDirection={sortDirection} onSort={handleSort}>Custom (UPI)</Th>
+                <Th right sortField={sortField} currentField="cashTips" sortDirection={sortDirection} onSort={handleSort}>Cash Tips</Th>
+                <Th right sortField={sortField} currentField="cardTips" sortDirection={sortDirection} onSort={handleSort}>Card Tips</Th>
+                <Th sortField={sortField} currentField="closedBy" sortDirection={sortDirection} onSort={handleSort}>Submitted By</Th>
                 <Th sortField={sortField} currentField="notes" sortDirection={sortDirection} onSort={handleSort}>Notes</Th>
                 <Th>Actions</Th>
               </tr>
@@ -973,21 +1105,44 @@ const RegisterClosuresReport = () => {
             <tbody>
               {sortedClosures.map(c => {
                 const varColor = c.variance === 0 ? 'var(--text-primary)' : c.variance > 0 ? 'var(--success)' : 'var(--danger)';
+                const closingBalance = (c.actualCash || 0) - (c.depositAmount || 0);
+                const cashPaid = (c.cashOut || 0) + (c.drops || []).reduce((sum, d) => sum + d.amount, 0);
                 return (
                   <tr key={c.id}>
+                    <Td muted>Main Center</Td>
+                    <Td bold>
+                      <button 
+                        style={{ border: 'none', background: 'transparent', color: 'var(--primary)', fontWeight: 700, padding: 0, textDecoration: 'underline', cursor: 'pointer' }}
+                        onClick={() => setViewClosure(c)}
+                      >
+                        Register 1
+                      </button>
+                    </Td>
                     <Td>{fmtDateTime(c.shiftEnd)}</Td>
-                    <Td bold>{c.closedBy || 'Manager'}</Td>
+                    <Td muted>{fmtDateTime(c.previousClosureDate)}</Td>
                     <Td right>{fmt(c.openingBalance)}</Td>
-                    <Td right>{fmt(c.expectedBalance)}</Td>
-                    <Td right bold>{fmt(c.actualCash)}</Td>
+                    <Td right bold>{fmt(closingBalance)}</Td>
+                    <Td right>{fmt(c.cashIn || 0)}</Td>
+                    <Td right>{fmt(cashPaid)}</Td>
+                    <Td right>{fmt(c.depositAmount || 0)}</Td>
                     <Td right bold style={{ color: varColor }}>
                       {c.variance > 0 ? '+' : ''}{fmt(c.variance)}
                     </Td>
-                    <Td muted style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.notes}>{c.notes || '—'}</Td>
+                    <Td right>{fmt(c.cardSales || 0)}</Td>
+                    <Td right>{fmt(c.upiSales || 0)}</Td>
+                    <Td right>{fmt(c.cashTips || 0)}</Td>
+                    <Td right>{fmt(c.cardTips || 0)}</Td>
+                    <Td bold>{c.closedBy || 'Manager'}</Td>
+                    <Td muted style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.notes}>{c.notes || '—'}</Td>
                     <Td>
-                      <button className="btn btn-secondary" onClick={() => handleEditClick(c)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>
-                        Edit
-                      </button>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-secondary" onClick={() => handleEditClick(c)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>
+                          Edit
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => setViewClosure(c)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>
+                          Details
+                        </button>
+                      </div>
                     </Td>
                   </tr>
                 );
@@ -997,38 +1152,84 @@ const RegisterClosuresReport = () => {
         )}
       </div>
 
-      <Modal open={!!editClosure} onClose={() => setEditClosure(null)} title="Edit Register Closure">
+      {/* Edit closure details Modal */}
+      <Modal open={!!editClosure} onClose={() => setEditClosure(null)} title="Edit Register Closure details">
         {editClosure && (
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                  Opening Cash Float (₹)
+                </label>
+                <input
+                  className="input-field"
+                  type="number"
+                  required
+                  value={openingBalance}
+                  onChange={e => setOpeningBalance(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                  Actual Cash Counted (₹)
+                </label>
+                <input
+                  className="input-field"
+                  type="number"
+                  required
+                  value={actualCash}
+                  onChange={e => setActualCash(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                  Bank Deposit Amount (₹)
+                </label>
+                <input
+                  className="input-field"
+                  type="number"
+                  value={depositAmount}
+                  onChange={e => setDepositAmount(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                  Bank Name
+                </label>
+                <input
+                  className="input-field"
+                  type="text"
+                  value={bankName}
+                  onChange={e => setBankName(e.target.value)}
+                  placeholder="e.g. HDFC Bank"
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+
             <div>
               <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                Opening Cash Float (₹)
+                Deposit Notes / Reference
               </label>
               <input
                 className="input-field"
-                type="number"
-                required
-                value={openingBalance}
-                onChange={e => setOpeningBalance(e.target.value)}
+                type="text"
+                value={depositNotes}
+                onChange={e => setDepositNotes(e.target.value)}
+                placeholder="e.g. Challan #9872"
                 style={{ width: '100%' }}
               />
             </div>
+
             <div>
               <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                Actual Cash Counted (₹)
-              </label>
-              <input
-                className="input-field"
-                type="number"
-                required
-                value={actualCash}
-                onChange={e => setActualCash(e.target.value)}
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                Closure Notes
+                Closure Notes / Adjustments Reason
               </label>
               <textarea
                 className="input-field"
@@ -1038,11 +1239,154 @@ const RegisterClosuresReport = () => {
                 style={{ width: '100%', fontFamily: 'inherit', resize: 'vertical' }}
               />
             </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
               <button type="button" className="btn btn-secondary" onClick={() => setEditClosure(null)}>Cancel</button>
               <button type="submit" className="btn btn-primary">Save Changes</button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* View detailed cash counts Modal */}
+      <Modal open={!!viewClosure} onClose={() => setViewClosure(null)} title="Register Cash Count details" wide>
+        {viewClosure && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 12 }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Shift Period</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{fmtDateTime(viewClosure.shiftStart)} - {fmtDateTime(viewClosure.shiftEnd)}</span>
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Closed By</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{viewClosure.closedBy}</span>
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Register Name</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Register 1 (Main Center)</span>
+              </div>
+            </div>
+
+            {/* Reconciliation table */}
+            <div>
+              <SectionTitle>Shift Reconciliation</SectionTitle>
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th>Item Description</Th>
+                    <Th right>Expected (₹)</Th>
+                    <Th right>Actual Counted (₹)</Th>
+                    <Th right>Variance (₹)</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <Td bold>Opening Float</Td>
+                    <Td right>{fmt(viewClosure.openingBalance)}</Td>
+                    <Td right>{fmt(viewClosure.openingBalance)}</Td>
+                    <Td right>₹0.00</Td>
+                  </tr>
+                  <tr>
+                    <Td bold>Cash Collected (Sales)</Td>
+                    <Td right>{fmt(viewClosure.cashIn || 0)}</Td>
+                    <Td right>{fmt(viewClosure.cashIn || 0)}</Td>
+                    <Td right>₹0.00</Td>
+                  </tr>
+                  <tr>
+                    <Td bold>Cash Paid Out (Payouts & drops)</Td>
+                    <Td right>{fmt((viewClosure.cashOut || 0) + (viewClosure.drops || []).reduce((s, d) => s + d.amount, 0))}</Td>
+                    <Td right>{fmt((viewClosure.cashOut || 0) + (viewClosure.drops || []).reduce((s, d) => s + d.amount, 0))}</Td>
+                    <Td right>₹0.00</Td>
+                  </tr>
+                  <tr style={{ background: 'rgba(30, 94, 74, 0.04)', fontWeight: 700 }}>
+                    <Td>Net Drawer Cash</Td>
+                    <Td right>{fmt(viewClosure.expectedBalance)}</Td>
+                    <Td right>{fmt(viewClosure.actualCash)}</Td>
+                    <Td right style={{ color: viewClosure.variance === 0 ? 'var(--text-primary)' : viewClosure.variance > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {viewClosure.variance > 0 ? '+' : ''}{fmt(viewClosure.variance)}
+                    </Td>
+                  </tr>
+                </tbody>
+              </TableWrap>
+            </div>
+
+            {/* Denominations counts */}
+            {viewClosure.denominations && Object.keys(viewClosure.denominations).length > 0 && (
+              <div>
+                <SectionTitle>Closing Cash Denomination Breakdown</SectionTitle>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px', margin: '12px 0' }}>
+                  {[2000, 500, 200, 100, 50, 20, 10, 5, 2, 1].map(v => {
+                    const count = viewClosure.denominations[v] || 0;
+                    return (
+                      <div key={v} style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(30, 94, 74, 0.02)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{DENOM_LABELS[v]}</span>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 600, color: count > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>{count} pcs</span>
+                        {count > 0 && (
+                          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                            ₹{(count * v).toLocaleString('en-IN')}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Mid-day drops */}
+            {viewClosure.drops && viewClosure.drops.length > 0 && (
+              <div>
+                <SectionTitle>Mid-day Drops / Cash Payouts</SectionTitle>
+                <TableWrap>
+                  <thead>
+                    <tr>
+                      <Th>Time</Th>
+                      <Th>Type</Th>
+                      <Th right>Amount (₹)</Th>
+                      <Th>Reason / Note</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewClosure.drops.map((d, index) => (
+                      <tr key={index}>
+                        <Td>{fmtDateTime(d.timestamp || d.time)}</Td>
+                        <Td bold>Cash Drop</Td>
+                        <Td right bold style={{ color: 'var(--danger)' }}>{fmt(d.amount)}</Td>
+                        <Td muted>{d.reason || '—'}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              </div>
+            )}
+
+            {/* Bank Deposit details */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, background: 'rgba(30, 94, 74, 0.04)', padding: 12, borderRadius: 10 }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Bank Deposit Details</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Bank: {viewClosure.bankName || 'Not deposited'}</span>
+                {viewClosure.depositNotes && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>Note: {viewClosure.depositNotes}</div>}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Amounts</span>
+                <div style={{ fontSize: '0.85rem' }}><span style={{ color: 'var(--text-muted)' }}>Deposited:</span> <strong>{fmt(viewClosure.depositAmount || 0)}</strong></div>
+                <div style={{ fontSize: '0.85rem', marginTop: 2 }}><span style={{ color: 'var(--text-muted)' }}>Leftover Float:</span> <strong>{fmt((viewClosure.actualCash || 0) - (viewClosure.depositAmount || 0))}</strong></div>
+              </div>
+            </div>
+
+            {viewClosure.notes && (
+              <div>
+                <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Notes</span>
+                <p style={{ fontSize: '0.8rem', background: 'var(--bg-light)', padding: 10, borderRadius: 8, border: '1px solid var(--border-subtle)', margin: 0 }}>
+                  {viewClosure.notes}
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+              <button className="btn btn-secondary" onClick={() => setViewClosure(null)}>Close</button>
+            </div>
+          </div>
         )}
       </Modal>
     </div>
@@ -2416,10 +2760,11 @@ const TABS = [
   { id: 'speed',             label: 'Speed of Service',     icon: Zap },
   { id: 'labor',             label: 'Labor & Staffing',     icon: Users },
   { id: 'attendance',        label: 'Attendance',           icon: CalendarCheck },
+  { id: 'register_closure',  label: 'Register Closure',     icon: CreditCard },
 ];
 
 const Reports = () => {
-  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, attendance } = useApp();
+  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, attendance, registerClosures } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   
@@ -2472,6 +2817,7 @@ const Reports = () => {
       {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} />}
       {activeTab === 'labor'            && <LaborReport orders={orders} staff={staff} />}
       {activeTab === 'attendance'       && <AttendanceReportTab staff={staff} attendance={attendance} />}
+      {activeTab === 'register_closure' && <RegisterClosuresReport />}
     </div>
   );
 };
