@@ -853,125 +853,580 @@ const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) =
 
 
 // ─── Cash Drawer Panel ──────────────────────────────────────────────────────
+const DENOMINATIONS = [
+  { value: 2000, label: '₹2,000 Note' },
+  { value: 500, label: '₹500 Note' },
+  { value: 200, label: '₹200 Note' },
+  { value: 100, label: '₹100 Note' },
+  { value: 50, label: '₹50 Note' },
+  { value: 20, label: '₹20 Note' },
+  { value: 10, label: '₹10 Note' },
+  { value: 5, label: '₹5 Coin/Note' },
+  { value: 2, label: '₹2 Coin' },
+  { value: 1, label: '₹1 Coin' },
+];
+
+const DenominationGrid = ({ values = {}, onChange }) => {
+  const handleCountChange = (val, countStr) => {
+    const count = Math.max(0, parseInt(countStr) || 0);
+    const next = { ...values, [val]: count };
+    let total = 0;
+    DENOMINATIONS.forEach(d => {
+      total += (next[d.value] || 0) * d.value;
+    });
+    onChange(next, total);
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px', margin: '12px 0' }}>
+      {DENOMINATIONS.map(d => {
+        const count = values[d.value] ?? '';
+        return (
+          <div key={d.value} style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(30, 94, 74, 0.02)', padding: '8px 10px', borderRadius: 'var(--r-sm)', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{d.label}</span>
+            <input
+              type="number"
+              min="0"
+              className="input-field"
+              style={{ padding: '4px 6px', fontSize: '0.82rem', width: '100%' }}
+              value={count}
+              onChange={e => handleCountChange(d.value, e.target.value)}
+              placeholder="0"
+            />
+            {count > 0 && (
+              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                ₹{(count * d.value).toLocaleString('en-IN')}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) => {
-  const [dropAmount, setDropAmount] = useState('');
-  const [actualCash, setActualCash] = useState('');
+  const { settings, posTables = [], posSavedOrders = {}, updateCashDrawer, addRegisterClosure, addAuditEntry } = useApp();
+  const { user } = useAuth();
+
+  const isClosed = cashDrawer?.isClosed || !cashDrawer?.shiftStart;
+  const isEnhanced = settings?.operations?.enhancedRegisterEnabled ?? false;
+
+  // Tabs: 'summary' | 'midday' | 'close' | 'drops' | 'open'
+  const [activeTab, setActiveTab] = useState(isClosed ? 'open' : 'summary');
+
+  // State for opening register
+  const [openDenoms, setOpenDenoms] = useState({});
+  const [openTotal, setOpenTotal] = useState(0);
+
+  // State for mid-day count
+  const [midDenoms, setMidDenoms] = useState({});
+  const [midTotal, setMidTotal] = useState(0);
+  const [midNotes, setMidNotes] = useState('');
+
+  // State for close register
+  const [closeDenoms, setCloseDenoms] = useState({});
+  const [closeTotal, setCloseTotal] = useState(0);
   const [closeNotes, setCloseNotes] = useState('');
+  const [depositAmount, setDepositAmount] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [depositNotes, setDepositNotes] = useState('');
+
+  // State for blind drop
+  const [dropAmount, setDropAmount] = useState('');
 
   const balance = (cashDrawer?.openingBalance || 0) +
     (cashDrawer?.cashIn || 0) -
     (cashDrawer?.cashOut || 0) -
     (cashDrawer?.drops || []).reduce((s, d) => s + d.amount, 0);
 
-  const variance = actualCash ? parseFloat(actualCash) - balance : 0;
+  // Sync tab if cashDrawer status changes dynamically
+  useEffect(() => {
+    if (isClosed) {
+      setActiveTab('open');
+    } else if (activeTab === 'open') {
+      setActiveTab('summary');
+    }
+  }, [isClosed]);
+
+  // Open Register Action
+  const handleOpenRegisterSubmit = async (e) => {
+    e.preventDefault();
+    const floatVal = isEnhanced ? openTotal : parseFloat(openTotal) || 0;
+    if (floatVal < 0) {
+      alert('Float cannot be negative.');
+      return;
+    }
+
+    const updated = {
+      openingBalance: floatVal,
+      currentBalance: floatVal,
+      cashIn: 0,
+      cashOut: 0,
+      drops: [],
+      discrepancies: [],
+      shiftStart: new Date().toISOString(),
+      isClosed: false,
+      openingDenominations: isEnhanced ? openDenoms : {},
+      midDayCounts: [],
+    };
+    await updateCashDrawer(updated);
+    await addAuditEntry(
+      'cash_register.open',
+      user?.id || 'system',
+      user?.name || 'System / Guest',
+      `Opened register with starting float: ₹${floatVal}`
+    );
+    onClose();
+  };
+
+  // Log Mid-day Count
+  const handleLogMidDayCount = async () => {
+    const variance = midTotal - balance;
+    const countEntry = {
+      time: new Date().toISOString(),
+      denominations: midDenoms,
+      actualCash: midTotal,
+      expectedCash: balance,
+      variance,
+      notes: midNotes || '',
+      loggedBy: user?.name || 'Staff',
+    };
+
+    const updatedCounts = [...(cashDrawer?.midDayCounts || []), countEntry];
+    await updateCashDrawer({
+      ...cashDrawer,
+      midDayCounts: updatedCounts,
+    });
+
+    await addAuditEntry(
+      'cash_register.midday_count',
+      user?.id || 'system',
+      user?.name || 'System / Guest',
+      `Logged mid-day count. Expected: ₹${balance}, Actual: ₹${midTotal}, Variance: ₹${variance}`
+    );
+
+    alert(`Mid-day count saved. Variance: ₹${variance}`);
+    setMidDenoms({});
+    setMidTotal(0);
+    setMidNotes('');
+    setActiveTab('summary');
+  };
+
+  // Close Register Validation (Open Invoices Check)
+  const hasOpenInvoices = posTables.some(t => t.status && t.status !== 'available');
+  const hasSavedOrders = Object.keys(posSavedOrders || {}).length > 0;
+  const blockClosureWithInvoices = isEnhanced && (settings?.operations?.blockClosureIfOpenInvoices ?? true);
+  const isClosureBlocked = blockClosureWithInvoices && (hasOpenInvoices || hasSavedOrders);
+
+  // Close Register Action
+  const handleEnhancedCloseRegister = async () => {
+    if (isClosureBlocked) {
+      alert("Cannot close register. Settle or cancel all active tables and open invoices first.");
+      return;
+    }
+
+    const finalActual = isEnhanced ? closeTotal : (parseFloat(closeTotal) || 0);
+    const variance = finalActual - balance;
+
+    const depAmt = parseFloat(depositAmount) || 0;
+    if (depAmt > finalActual) {
+      alert("Deposit amount cannot exceed actual cash counted.");
+      return;
+    }
+
+    const carryoverFloat = finalActual - depAmt;
+
+    const newClosure = {
+      openingBalance: cashDrawer.openingBalance,
+      cashIn: cashDrawer.cashIn || 0,
+      cashOut: cashDrawer.cashOut || 0,
+      drops: cashDrawer.drops || [],
+      expectedBalance: balance,
+      actualCash: finalActual,
+      variance,
+      notes: closeNotes || '',
+      shiftStart: cashDrawer.shiftStart,
+      shiftEnd: new Date().toISOString(),
+      closedBy: user?.name || 'Manager',
+      denominations: isEnhanced ? closeDenoms : {},
+      depositAmount: depAmt,
+      bankName: bankName || '',
+      depositNotes: depositNotes || '',
+      midDayCounts: cashDrawer.midDayCounts || [],
+    };
+
+    await addRegisterClosure(newClosure);
+
+    // Remaining balance becomes the opening balance for the next shift if enhanced is enabled
+    const closedDrawer = {
+      openingBalance: isEnhanced ? carryoverFloat : 0,
+      currentBalance: isEnhanced ? carryoverFloat : 0,
+      cashIn: 0,
+      cashOut: 0,
+      drops: [],
+      discrepancies: [],
+      shiftStart: null,
+      isClosed: true,
+      openingDenominations: {},
+      midDayCounts: [],
+    };
+    await updateCashDrawer(closedDrawer);
+
+    await addAuditEntry(
+      'cash_register.close',
+      user?.id || 'system',
+      user?.name || 'System / Guest',
+      `Closed register. Expected: ₹${balance}, Actual: ₹${finalActual}, Variance: ₹${variance}, Deposited: ₹${depAmt}, Next Float: ₹${carryoverFloat}`
+    );
+
+    onClose();
+    window.location.reload();
+  };
 
   return (
-    <Modal title="Cash Drawer" onClose={onClose}>
-      <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-          <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(30, 94, 74,0.05)', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Opening</div>
-            <div style={{ fontWeight: 800, color: 'var(--primary)' }}>
-              {(cashDrawer?.openingBalance || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-            </div>
-          </div>
-          <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(34,197,94,0.05)', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Cash In</div>
-            <div style={{ fontWeight: 800, color: 'var(--success)' }}>
-              {(cashDrawer?.cashIn || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-            </div>
-          </div>
-          <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(239,68,68,0.05)', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Cash Out</div>
-            <div style={{ fontWeight: 800, color: 'var(--danger)' }}>
-              {(cashDrawer?.cashOut || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-            </div>
-          </div>
-          <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(59,130,246,0.05)', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Shift Balance</div>
-            <div style={{ fontWeight: 800, color: 'var(--accent-blue)' }}>
-              {balance.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: 10 }}>Blind Drop</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input-field" type="number" value={dropAmount} onChange={e => setDropAmount(e.target.value)} placeholder="Amount" style={{ flex: 1 }} />
-            <button className="btn btn-primary" onClick={() => {
-              const amt = parseFloat(dropAmount);
-              if (amt > 0) { onBlindDrop(amt); setDropAmount(''); }
-            }} disabled={!dropAmount || parseFloat(dropAmount) <= 0}>
-              <Banknote size={15} /> Drop
+    <Modal title={isEnhanced ? "Register Management" : "Cash Drawer"} onClose={onClose}>
+      <div className="modal-body" style={{ maxHeight: '78vh', overflowY: 'auto', padding: '16px' }}>
+        {/* Navigation Tabs */}
+        {!isClosed && (
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', marginBottom: '16px', gap: '4px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setActiveTab('summary')}
+              className={`btn btn-sm ${activeTab === 'summary' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: '20px 20px 0 0', borderBottom: 'none' }}
+            >
+              Summary
             </button>
-          </div>
-        </div>
-
-        {(cashDrawer?.drops || []).length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>Drop History</div>
-            <div style={{ maxHeight: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {(cashDrawer.drops || []).slice().reverse().map((d, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(255,255,255,0.5)', borderRadius: 'var(--r-sm)', border: '1px solid var(--border-subtle)', fontSize: '0.78rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{d.time ? new Date(d.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</span>
-                  <span style={{ fontWeight: 700 }}>{d.amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}</span>
-                </div>
-              ))}
-            </div>
+            {isEnhanced && (
+              <button
+                onClick={() => setActiveTab('midday')}
+                className={`btn btn-sm ${activeTab === 'midday' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px 20px 0 0', borderBottom: 'none' }}
+              >
+                Mid-day Count
+              </button>
+            )}
+            <button
+              onClick={() => setActiveTab('close')}
+              className={`btn btn-sm ${activeTab === 'close' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: '20px 20px 0 0', borderBottom: 'none' }}
+            >
+              Close Register
+            </button>
+            <button
+              onClick={() => setActiveTab('drops')}
+              className={`btn btn-sm ${activeTab === 'drops' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: '20px 20px 0 0', borderBottom: 'none' }}
+            >
+              Safe Drop
+            </button>
           </div>
         )}
 
-        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Close Register / End Shift</span>
-            {actualCash && (
-              <span style={{ fontSize: '0.75rem', color: variance >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 800 }}>
-                Variance: {variance >= 0 ? '+' : ''}{variance.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-              </span>
+        {/* Tab 1: Open Register */}
+        {activeTab === 'open' && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(30, 94, 74, 0.05)', padding: '10px 14px', borderRadius: 'var(--r-md)', marginBottom: '14px' }}>
+              <Lock size={16} style={{ color: 'var(--primary)' }} />
+              <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>Enter opening float currency count to start the business day.</div>
+            </div>
+
+            <form onSubmit={handleOpenRegisterSubmit}>
+              {isEnhanced ? (
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Denomination Counts</label>
+                  <DenominationGrid values={openDenoms} onChange={(next, total) => { setOpenDenoms(next); setOpenTotal(total); }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)', padding: '12px', borderRadius: 'var(--r-md)', border: '1px solid var(--border-subtle)', marginTop: '12px' }}>
+                    <span style={{ fontSize: '0.88rem', fontWeight: 700 }}>Total Opening Float:</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary)' }}>
+                      {openTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '6px' }}>Starting Float (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    className="input-field"
+                    value={openTotal || ''}
+                    onChange={e => setOpenTotal(parseFloat(e.target.value) || 0)}
+                    placeholder="Enter starting cash float"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                <Play size={14} /> Open Register &amp; Start Shift
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Tab 2: Summary */}
+        {activeTab === 'summary' && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(30, 94, 74, 0.05)', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Opening</div>
+                <div style={{ fontWeight: 800, color: 'var(--primary)' }}>
+                  {(cashDrawer?.openingBalance || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                </div>
+              </div>
+              <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(34,197,94, 0.05)', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Cash In (Sales)</div>
+                <div style={{ fontWeight: 800, color: 'var(--success)' }}>
+                  {(cashDrawer?.cashIn || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                </div>
+              </div>
+              <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(239,68,68, 0.05)', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Cash Out (Refunds)</div>
+                <div style={{ fontWeight: 800, color: 'var(--danger)' }}>
+                  {(cashDrawer?.cashOut || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                </div>
+              </div>
+              <div style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'rgba(59,130,246, 0.05)', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Shift Balance</div>
+                <div style={{ fontWeight: 800, color: 'var(--accent-blue)' }}>
+                  {balance.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                </div>
+              </div>
+            </div>
+
+            {/* Drops history inside summary */}
+            {(cashDrawer?.drops || []).length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>Drop History</div>
+                <div style={{ maxHeight: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {(cashDrawer.drops || []).slice().reverse().map((d, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(255,255,255,0.5)', borderRadius: 'var(--r-sm)', border: '1px solid var(--border-subtle)', fontSize: '0.78rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{d.time ? new Date(d.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</span>
+                      <span style={{ fontWeight: 700 }}>{d.amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Mid-day count logs inside summary */}
+            {isEnhanced && (cashDrawer?.midDayCounts || []).length > 0 && (
+              <div style={{ marginTop: 16, borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>Logged Mid-day Counts</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto' }}>
+                  {cashDrawer.midDayCounts.slice().reverse().map((cnt, i) => (
+                    <div key={i} style={{ background: 'rgba(255,255,255,0.5)', border: '1px solid var(--border-subtle)', padding: '8px', borderRadius: 'var(--r-sm)', fontSize: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                        <span>{new Date(cnt.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span style={{ color: cnt.variance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                          Variance: {cnt.variance >= 0 ? '+' : ''}{cnt.variance.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        <span>Actual Cash: ₹{cnt.actualCash.toLocaleString('en-IN')}</span>
+                        <span>Expected: ₹{cnt.expectedCash.toLocaleString('en-IN')}</span>
+                      </div>
+                      {cnt.notes && <div style={{ fontStyle: 'italic', color: 'var(--text-muted)', marginTop: '4px' }}>Note: {cnt.notes}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                Actual Cash Counted (₹)
-              </label>
-              <input
+        )}
+
+        {/* Tab 3: Mid-day Count */}
+        {activeTab === 'midday' && (
+          <div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Physical Cash Count</label>
+              <DenominationGrid values={midDenoms} onChange={(next, total) => { setMidDenoms(next); setMidTotal(total); }} />
+            </div>
+
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', padding: '12px', borderRadius: 'var(--r-md)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Expected Drawer Balance:</div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, textAlign: 'right' }}>₹{balance.toLocaleString('en-IN')}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Actual Cash Counted:</div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, textAlign: 'right' }}>₹{midTotal.toLocaleString('en-IN')}</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, borderTop: '1px solid var(--border-subtle)', paddingTop: '4px' }}>Variance:</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 800, textAlign: 'right', borderTop: '1px solid var(--border-subtle)', paddingTop: '4px', color: (midTotal - balance) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                ₹{(midTotal - balance).toLocaleString('en-IN')}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>Mid-day Notes</label>
+              <textarea
                 className="input-field"
-                type="number"
-                value={actualCash}
-                onChange={e => setActualCash(e.target.value)}
-                placeholder="Enter total physical cash counted"
-                style={{ width: '100%' }}
+                rows={2}
+                value={midNotes}
+                onChange={e => setMidNotes(e.target.value)}
+                placeholder="Discrepancies, shift change notes..."
+                style={{ width: '100%', fontFamily: 'inherit', resize: 'vertical' }}
               />
             </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                Closure Notes
-              </label>
+
+            <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleLogMidDayCount}>
+              Log Mid-day Count
+            </button>
+          </div>
+        )}
+
+        {/* Tab 4: Close Register */}
+        {activeTab === 'close' && (
+          <div>
+            {isClosureBlocked && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239,68,68,0.2)', padding: '12px', borderRadius: 'var(--r-md)', marginBottom: '14px', color: 'var(--danger)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.82rem' }}>
+                  <AlertTriangle size={15} /> Close Register Blocked
+                </div>
+                <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                  There are active dine-in tables or open invoices. Please settle all orders before closing the register.
+                </div>
+              </div>
+            )}
+
+            {isEnhanced ? (
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Physical Cash Count</label>
+                <DenominationGrid values={closeDenoms} onChange={(next, total) => { setCloseDenoms(next); setCloseTotal(total); }} />
+              </div>
+            ) : (
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>Actual Cash Counted (₹)</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="input-field"
+                  value={closeTotal || ''}
+                  onChange={e => setCloseTotal(parseFloat(e.target.value) || 0)}
+                  placeholder="Enter total physical cash"
+                  style={{ width: '100%' }}
+                />
+              </div>
+            )}
+
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', padding: '12px', borderRadius: 'var(--r-md)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px', marginTop: '12px' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Expected Balance:</div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, textAlign: 'right' }}>₹{balance.toLocaleString('en-IN')}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Actual Cash:</div>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, textAlign: 'right' }}>₹{closeTotal.toLocaleString('en-IN')}</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, borderTop: '1px solid var(--border-subtle)', paddingTop: '4px' }}>Variance:</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 800, textAlign: 'right', borderTop: '1px solid var(--border-subtle)', paddingTop: '4px', color: (closeTotal - balance) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                ₹{(closeTotal - balance).toLocaleString('en-IN')}
+              </div>
+            </div>
+
+            {isEnhanced && (
+              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px', marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>Bank Deposit Details</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>Bank Name</label>
+                    <input
+                      className="input-field"
+                      value={bankName}
+                      onChange={e => setBankName(e.target.value)}
+                      placeholder="e.g. HDFC Bank"
+                      style={{ width: '100%', fontSize: '0.8rem' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>Deposit Amount (₹)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      className="input-field"
+                      value={depositAmount}
+                      onChange={e => setDepositAmount(e.target.value)}
+                      placeholder="e.g. 5000"
+                      style={{ width: '100%', fontSize: '0.8rem' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', padding: '6px 8px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: 'var(--r-sm)' }}>
+                  <span>Carryover till float (left in drawer):</span>
+                  <span style={{ fontWeight: 700, color: 'var(--accent-blue)' }}>
+                    ₹{Math.max(0, closeTotal - (parseFloat(depositAmount) || 0)).toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>Deposit Notes</label>
+                  <input
+                    className="input-field"
+                    value={depositNotes}
+                    onChange={e => setDepositNotes(e.target.value)}
+                    placeholder="Reference #, envelope ID, etc."
+                    style={{ width: '100%', fontSize: '0.8rem' }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: '14px' }}>
+              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>Closure Notes</label>
               <textarea
                 className="input-field"
                 rows={2}
                 value={closeNotes}
                 onChange={e => setCloseNotes(e.target.value)}
-                placeholder="Any discrepancies or general notes..."
+                placeholder="Notes for shift summary..."
                 style={{ width: '100%', fontFamily: 'inherit', resize: 'vertical' }}
               />
             </div>
+
             <button
               className="btn btn-primary"
-              style={{ width: '100%', background: 'var(--danger)', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-              disabled={!actualCash || parseFloat(actualCash) < 0}
+              style={{ width: '100%', background: 'var(--danger)', border: 'none', color: 'white', marginTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              disabled={isClosureBlocked}
               onClick={() => {
-                if (confirm('Are you sure you want to close the register and end this shift? This will log a variance and reset the drawer balance.')) {
-                  onCloseRegister(parseFloat(actualCash) || 0, closeNotes);
+                if (confirm('Are you sure you want to close the register and end this shift?')) {
+                  handleEnhancedCloseRegister();
                 }
               }}
             >
-              <Lock size={15} /> Close Register &amp; End Shift
+              <Lock size={14} /> Close Register &amp; End Shift
             </button>
           </div>
-        </div>
+        )}
+
+        {/* Tab 5: Safe Drop */}
+        {activeTab === 'drops' && (
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+              Remove excess cash from the register and drop it into the main safe.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                className="input-field"
+                type="number"
+                min="0"
+                value={dropAmount}
+                onChange={e => setDropAmount(e.target.value)}
+                placeholder="Drop Amount (₹)"
+                style={{ flex: 1 }}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  const amt = parseFloat(dropAmount);
+                  if (amt > 0) { onBlindDrop(amt); setDropAmount(''); setActiveTab('summary'); }
+                }}
+                disabled={!dropAmount || parseFloat(dropAmount) <= 0}
+              >
+                <Banknote size={15} /> Safe Drop
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>Close</button>
@@ -1306,6 +1761,81 @@ const POS = () => {
       setPickupTime(`${hours}:${minutes}`);
     }
   }, [orderType, view]);
+
+  // Automatic Register Closure check
+  useEffect(() => {
+    const checkAutoClose = async () => {
+      const isEnhanced = settings?.operations?.enhancedRegisterEnabled ?? false;
+      const autoCloseEnabled = settings?.operations?.autoCloseEnabled ?? false;
+      if (!isEnhanced || !autoCloseEnabled || !settings?.operations?.autoCloseTime) return;
+
+      const isRegisterClosed = cashDrawer?.isClosed || !cashDrawer?.shiftStart;
+      if (isRegisterClosed) return;
+
+      const shiftStartLocal = new Date(cashDrawer.shiftStart);
+      const [closeHours, closeMinutes] = settings.operations.autoCloseTime.split(':').map(Number);
+      
+      const autoCloseDateTime = new Date(shiftStartLocal);
+      autoCloseDateTime.setHours(closeHours, closeMinutes, 0, 0);
+
+      const now = new Date();
+      if (now > autoCloseDateTime) {
+        console.log('[Auto-Close] Closing register since current time is past scheduled close time.');
+        
+        const expectedBalance = (cashDrawer?.openingBalance || 0) +
+          (cashDrawer?.cashIn || 0) -
+          (cashDrawer?.cashOut || 0) -
+          (cashDrawer?.drops || []).reduce((s, d) => s + d.amount, 0);
+
+        const autoClosure = {
+          openingBalance: cashDrawer.openingBalance,
+          cashIn: cashDrawer.cashIn || 0,
+          cashOut: cashDrawer.cashOut || 0,
+          drops: cashDrawer.drops || [],
+          expectedBalance,
+          actualCash: expectedBalance,
+          variance: 0,
+          notes: 'Automatically closed by system scheduler.',
+          shiftStart: cashDrawer.shiftStart,
+          shiftEnd: autoCloseDateTime.toISOString(),
+          closedBy: 'System Scheduler',
+          denominations: {},
+          depositAmount: expectedBalance,
+          bankName: 'System Vault',
+          depositNotes: 'Auto-closed deposit.',
+          midDayCounts: cashDrawer.midDayCounts || [],
+        };
+
+        await addRegisterClosure(autoClosure);
+
+        const closedDrawer = {
+          openingBalance: 0,
+          currentBalance: 0,
+          cashIn: 0,
+          cashOut: 0,
+          drops: [],
+          discrepancies: [],
+          shiftStart: null,
+          isClosed: true,
+          openingDenominations: {},
+          midDayCounts: [],
+        };
+        await updateCashDrawer(closedDrawer);
+
+        await addAuditEntry(
+          'cash_register.auto_close',
+          'system',
+          'System Scheduler',
+          `Automatically closed register. Expected/Actual: ₹${expectedBalance}`
+        );
+
+        alert(`The cash register has been automatically closed at the configured time (${settings.operations.autoCloseTime}) with Actual = Expected.`);
+        window.location.reload();
+      }
+    };
+
+    checkAutoClose();
+  }, [settings, cashDrawer]);
 
   // Modals
   const [guestModal, setGuestModal] = useState(null);
@@ -1811,6 +2341,33 @@ const POS = () => {
     window.location.reload();
   };
 
+  const checkRegisterBeforePayment = () => {
+    const isEnhancedRegister = settings?.operations?.enhancedRegisterEnabled ?? false;
+    if (!isEnhancedRegister) return true;
+
+    // 1. Mandatory Opening check
+    const isRegisterClosed = cashDrawer?.isClosed || !cashDrawer?.shiftStart;
+    const isMandatoryOpening = settings?.operations?.mandatoryOpeningEnabled ?? false;
+    if (isMandatoryOpening && isRegisterClosed) {
+      alert('Register must be opened first. Opening the Register Management panel.');
+      setCashDrawerModal(true);
+      return false;
+    }
+
+    // 2. Block Payments if Previous Register Not Closed
+    const blockPaymentsIfPrevNotClosed = settings?.operations?.blockPaymentsIfPrevNotClosed ?? false;
+    if (blockPaymentsIfPrevNotClosed && cashDrawer?.shiftStart) {
+      const shiftDate = new Date(cashDrawer.shiftStart).toDateString();
+      const todayDate = new Date().toDateString();
+      if (shiftDate !== todayDate && !cashDrawer.isClosed) {
+        alert("You have an open register from a previous day. Please close the previous day's register first.");
+        setCashDrawerModal(true);
+        return false;
+      }
+    }
+    return true;
+  };
+
   // ── Payment ───────────────────────────────────────────────
   const handleConfirmPayment = async (paymentMethod, tipValue, finalTotal) => {
     if (cart.length === 0) return;
@@ -1977,7 +2534,7 @@ const POS = () => {
               </div>
             )}
             <button className="btn btn-secondary btn-sm" onClick={() => setCashDrawerModal(true)}>
-              <Banknote size={14} /> Cash Drawer
+              <Banknote size={14} /> {settings?.operations?.enhancedRegisterEnabled ? "Manage Register" : "Cash Drawer"}
             </button>
           </div>
         </div>
@@ -2451,7 +3008,8 @@ const POS = () => {
   const unfiredCourses = [...new Set(cart.filter(i => !firedCourses.has(i.course)).map(i => i.course))].sort();
 
   // Safe to return now — every hook above has already run this render.
-  if (isRegisterClosed) return registerClosedScreen;
+  const shouldBlockPOSComplete = isRegisterClosed && !settings?.operations?.enhancedRegisterEnabled;
+  if (shouldBlockPOSComplete) return registerClosedScreen;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -2833,12 +3391,17 @@ const POS = () => {
             <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.78rem', padding: '8px' }} onClick={handleSaveKOT} disabled={cart.length === 0}>
               <Bookmark size={14} /> KOT
             </button>
-            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.78rem', padding: '8px' }} onClick={() => cart.length > 0 && setSplitModal(true)} disabled={cart.length === 0}>
+            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.78rem', padding: '8px' }} onClick={() => {
+              if (cart.length === 0) return;
+              if (!checkRegisterBeforePayment()) return;
+              setSplitModal(true);
+            }} disabled={cart.length === 0}>
               <Split size={14} /> Split
             </button>
           </div>
           <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => {
             if (cart.length === 0) return;
+            if (!checkRegisterBeforePayment()) return;
             if (activeTable) {
               prePayStatusRef.current = activeTable.status;
               setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) ? { ...t, status: 'paying' } : t));

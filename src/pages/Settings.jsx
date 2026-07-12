@@ -322,6 +322,51 @@ const OperationsSection = ({ data, onChange, isMobile }) => {
             <Toggle label="Auto-Open Cash Drawer" description="Open cash drawer automatically on cash transactions" value={data.autoOpenCashDrawer} onChange={v => onChange('autoOpenCashDrawer', v)} />
             <Toggle label="Auto-Print Receipt" description="Print receipt automatically after payment completes" value={data.autoPrintReceipt} onChange={v => onChange('autoPrintReceipt', v)} />
           </div>
+
+          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px', marginTop: '16px' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>Register Management Settings</div>
+            <Toggle
+              label="Enhanced Register Closure Management"
+              description="Enable detailed shift reports, opening float entry, mid-day counts, and reconciliation parameters"
+              value={data.enhancedRegisterEnabled}
+              onChange={v => onChange('enhancedRegisterEnabled', v)}
+            />
+            {data.enhancedRegisterEnabled && (
+              <div style={{ paddingLeft: '16px', borderLeft: '3px solid var(--primary)', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <Toggle
+                  label="Mandatory Opening of Register"
+                  description="Enforce opening register float entry; blocks payment/checkout flow if closed"
+                  value={data.mandatoryOpeningEnabled}
+                  onChange={v => onChange('mandatoryOpeningEnabled', v)}
+                />
+                <Toggle
+                  label="Block Payments if Previous Register Not Closed"
+                  description="Prevent new sales if there is an unclosed cash register shift from a prior day"
+                  value={data.blockPaymentsIfPrevNotClosed}
+                  onChange={v => onChange('blockPaymentsIfPrevNotClosed', v)}
+                />
+                <Toggle
+                  label="Block Register Closure with Open Invoices"
+                  description="Prevent register closure if there are active tables or unpaid sales"
+                  value={data.blockClosureIfOpenInvoices}
+                  onChange={v => onChange('blockClosureIfOpenInvoices', v)}
+                />
+                <Toggle
+                  label="Automatic Register Closure"
+                  description="Automatically close register at the designated end-of-day time"
+                  value={data.autoCloseEnabled}
+                  onChange={v => onChange('autoCloseEnabled', v)}
+                />
+                {data.autoCloseEnabled && (
+                  <div style={{ maxWidth: '200px', marginTop: '4px' }}>
+                    <Field label="Auto-Close Time">
+                      <Input value={data.autoCloseTime} onChange={v => onChange('autoCloseTime', v)} type="time" />
+                    </Field>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <TableLayoutDesigner />

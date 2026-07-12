@@ -84,6 +84,12 @@ export const SEEDS = {
       voidApprovalThreshold: 0,
       autoOpenCashDrawer: true,
       autoPrintReceipt: false,
+      enhancedRegisterEnabled: false,
+      mandatoryOpeningEnabled: false,
+      autoCloseEnabled: false,
+      autoCloseTime: '23:59',
+      blockPaymentsIfPrevNotClosed: false,
+      blockClosureIfOpenInvoices: true,
     },
     notifications: {
       lowStock: true,
