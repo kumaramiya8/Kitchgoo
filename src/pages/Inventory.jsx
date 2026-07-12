@@ -1328,6 +1328,8 @@ const PurchaseOrdersTab = () => {
   const [selUnit, setSelUnit] = useState('');
   const [selCost, setSelCost] = useState('');
 
+  const supplierNames = useMemo(() => (suppliers || []).map(s => s.name), [suppliers]);
+
   const handleItemSelect = (id) => {
     setSelItemId(id);
     const item = inventory.find(i => i.id === id);
