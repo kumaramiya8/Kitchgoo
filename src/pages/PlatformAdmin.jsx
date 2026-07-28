@@ -8,12 +8,11 @@ import {
   ExternalLink, Copy, Play, Pause, Clock, Users, Monitor, Smartphone,
   CheckCircle, XCircle, Filter, Calendar, ArrowUpRight, Settings,
   Database, Mail, MessageSquare, DollarSign, Building2, Hotel,
-  BarChart3, CircleDot, ShieldCheck, ShieldAlert, LogOut, Clipboard, User,
-  Edit3, Save, Activity, CheckSquare, Server, Layers
+  BarChart3, CircleDot, ShieldCheck, ShieldAlert, LogOut, Clipboard, User
 } from 'lucide-react';
 import { useAuth } from '../db/AuthContext';
 import { useApp } from '../db/AppContext';
-import { genId, getAll, remove as dbRemove, update as dbUpdate } from '../db/database';
+import { genId, getAll, remove as dbRemove } from '../db/database';
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -72,15 +71,15 @@ const WEBHOOK_EVENTS = [
 const INTEGRATION_CATEGORIES = ['All', 'Accounting', 'Payroll', 'Marketing', 'Communication', 'Hotel'];
 
 const INTEGRATIONS_LIST = [
-  { id: 'quickbooks', name: 'QuickBooks', category: 'Accounting', description: 'Sync sales, expenses, and invoices automatically with QuickBooks Online.', color: '#2CA01C', fields: ['Client ID', 'Client Secret', 'Company ID'] },
-  { id: 'xero', name: 'Xero', category: 'Accounting', description: 'Seamless accounting integration with Xero for real-time financial data.', color: '#13B5EA', fields: ['Client ID', 'Tenant ID'] },
-  { id: 'gusto', name: 'Gusto', category: 'Payroll', description: 'Automate payroll processing, tip distribution, and tax filings.', color: '#F45D48', fields: ['API Key', 'Company ID'] },
-  { id: 'hotel_pms', name: 'Hotel PMS', category: 'Hotel', description: 'Connect room charges and guest folios with hotel property management.', color: '#1e5e4a', fields: ['Server Endpoint URL', 'API Key'] },
-  { id: 'mailchimp', name: 'Mailchimp', category: 'Marketing', description: 'Sync guest data for email campaigns, promotions, and newsletters.', color: '#FFE01B', fields: ['API Key', 'Audience ID'] },
-  { id: 'twilio', name: 'Twilio', category: 'Communication', description: 'SMS notifications for orders, reservations, and marketing messages.', color: '#F22F46', fields: ['Account SID', 'Auth Token', 'From Phone Number'] },
-  { id: 'stripe', name: 'Stripe', category: 'Accounting', description: 'Accept online payments and manage subscriptions seamlessly.', color: '#635BFF', fields: ['Publishable Key', 'Secret Key', 'Webhook Secret'] },
-  { id: 'hubspot', name: 'HubSpot', category: 'Marketing', description: 'CRM integration for guest relationship management and marketing automation.', color: '#FF7A59', fields: ['Private Access Token'] },
-  { id: 'slack', name: 'Slack', category: 'Communication', description: 'Get real-time alerts for orders, low stock, and reservations in Slack.', color: '#4A154B', fields: ['Webhook URL', 'Channel Name'] },
+  { id: 'quickbooks', name: 'QuickBooks', category: 'Accounting', description: 'Sync sales, expenses, and invoices automatically with QuickBooks Online.', color: '#2CA01C' },
+  { id: 'xero', name: 'Xero', category: 'Accounting', description: 'Seamless accounting integration with Xero for real-time financial data.', color: '#13B5EA' },
+  { id: 'gusto', name: 'Gusto', category: 'Payroll', description: 'Automate payroll processing, tip distribution, and tax filings.', color: '#F45D48' },
+  { id: 'hotel_pms', name: 'Hotel PMS', category: 'Hotel', description: 'Connect room charges and guest folios with hotel property management.', color: '#1e5e4a' },
+  { id: 'mailchimp', name: 'Mailchimp', category: 'Marketing', description: 'Sync guest data for email campaigns, promotions, and newsletters.', color: '#FFE01B' },
+  { id: 'twilio', name: 'Twilio', category: 'Communication', description: 'SMS notifications for orders, reservations, and marketing messages.', color: '#F22F46' },
+  { id: 'stripe', name: 'Stripe', category: 'Accounting', description: 'Accept online payments and manage subscriptions seamlessly.', color: '#635BFF' },
+  { id: 'hubspot', name: 'HubSpot', category: 'Marketing', description: 'CRM integration for guest relationship management and marketing automation.', color: '#FF7A59' },
+  { id: 'slack', name: 'Slack', category: 'Communication', description: 'Get real-time alerts for orders, low stock, and reservations in Slack.', color: '#4A154B' },
 ];
 
 const ACTION_COLORS = {
@@ -94,35 +93,14 @@ const ACTION_COLORS = {
   settings: { bg: 'rgba(30, 94, 74,0.1)', text: '#1e5e4a' },
 };
 
-const DEFAULT_COMPLIANCE = [
+const COMPLIANCE_ITEMS = [
   { id: 'data_encryption', label: 'Data encrypted at rest and in transit', done: true },
   { id: 'consent_management', label: 'Cookie and consent management implemented', done: true },
   { id: 'right_to_delete', label: 'Right to erasure (deletion) workflows active', done: true },
   { id: 'data_portability', label: 'Data export available for guests on request', done: true },
   { id: 'breach_notification', label: 'Breach notification process documented', done: true },
-  { id: 'privacy_policy', label: 'Privacy policy published and accessible', done: true },
+  { id: 'privacy_policy', label: 'Privacy policy published and accessible', done: false },
   { id: 'dpo_appointed', label: 'Data Protection Officer appointed', done: false },
-];
-
-const DEFAULT_API_KEYS = [
-  { id: 'key_prod_1', name: 'Production Key', key: 'kg_live_aBcDeFgH1234XyZ56789qWeRtY', created: '2025-11-10T10:00:00Z', lastUsed: '2026-03-29T14:23:00Z', status: 'active' },
-  { id: 'key_stage_1', name: 'Staging Key', key: 'kg_test_mNoPqRsT9876UvWx54321zZyXw', created: '2026-01-05T08:00:00Z', lastUsed: '2026-03-28T09:15:00Z', status: 'active' },
-];
-
-const DEFAULT_WEBHOOKS = [
-  { id: 'wh_1', url: 'https://hooks.example.com/kitchgoo/orders', events: ['order.created', 'order.paid'], status: 'active', lastTriggered: '2026-03-29T18:45:00Z' },
-  { id: 'wh_2', url: 'https://inventory.example.com/webhook', events: ['inventory.low', 'inventory.updated'], status: 'paused', lastTriggered: '2026-03-27T12:00:00Z' },
-];
-
-const DEFAULT_INTEGRATIONS = {
-  quickbooks: { active: true, config: { 'Client ID': 'qb_live_9921', 'Company ID': '91384022' }, lastSync: '2026-03-29T16:30:00Z' },
-  twilio: { active: true, config: { 'Account SID': 'AC_8930219481', 'From Phone Number': '+18005550199' }, lastSync: '2026-03-29T18:00:00Z' },
-};
-
-const DEFAULT_SESSIONS = [
-  { id: 'sess_1', user: 'Admin', device: 'Chrome on MacOS', ip: '192.168.1.100', lastActive: new Date().toISOString(), current: true },
-  { id: 'sess_2', user: 'Priya M.', device: 'Safari on iPad', ip: '192.168.1.102', lastActive: new Date(Date.now() - 3600000).toISOString(), current: false },
-  { id: 'sess_3', user: 'Chef Ravi', device: 'Chrome on Android', ip: '192.168.1.105', lastActive: new Date(Date.now() - 14400000).toISOString(), current: false },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -132,6 +110,9 @@ const fmtDate = (iso) =>
 
 const fmtDateTime = (iso) =>
   iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) + ' IST' : '--';
+
+const fmtTime = (iso) =>
+  iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--';
 
 const maskKey = (key) => key ? key.slice(0, 8) + '****' + key.slice(-4) : '';
 
@@ -182,7 +163,7 @@ const Modal = ({ title, onClose, children, wide }) =>
 const Badge = ({ children, bg, color, style: sx }) => (
   <span style={{
     padding: '3px 10px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 700,
-    background: bg, color, whiteSpace: 'nowrap', textTransform: 'capitalize', ...sx,
+    background: bg, color, whiteSpace: 'nowrap', ...sx,
   }}>
     {children}
   </span>
@@ -237,14 +218,13 @@ const Toggle = ({ value, onChange, label, description }) => (
 // ── TENANT ACCOUNTS TAB ────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-const AccountsTab = ({ addAuditEntry }) => {
+const AccountsTab = () => {
   const { register, impersonateAccount } = useAuth();
   const { reload } = useApp();
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editingUser, setEditingUser] = useState(null);
   const [form, setForm] = useState({
     accountName: '',
     ownerName: '',
@@ -260,9 +240,9 @@ const AccountsTab = ({ addAuditEntry }) => {
   const [flagsMap, setFlagsMap] = useState({});
   const [flagsLoading, setFlagsLoading] = useState({});
 
-  const loadUsers = useCallback(() => {
+  const loadUsers = () => {
     setUsers(getAll('users') || []);
-  }, []);
+  };
 
   const loadFlags = async () => {
     try {
@@ -275,7 +255,7 @@ const AccountsTab = ({ addAuditEntry }) => {
   useEffect(() => {
     loadUsers();
     loadFlags();
-  }, [loadUsers]);
+  }, []);
 
   const handleToggleAuditLog = async (accountId, currentDisabled) => {
     setFlagsLoading(prev => ({ ...prev, [accountId]: true }));
@@ -290,7 +270,6 @@ const AccountsTab = ({ addAuditEntry }) => {
       const data = await res.json();
       if (data.success) {
         setFlagsMap(prev => ({ ...prev, [accountId]: newFlags }));
-        addAuditEntry?.('account.flags_update', 'system', 'Admin', `${!currentDisabled ? 'Disabled' : 'Enabled'} audit logging for account ${accountId}`);
       }
     } finally {
       setFlagsLoading(prev => ({ ...prev, [accountId]: false }));
@@ -307,23 +286,10 @@ const AccountsTab = ({ addAuditEntry }) => {
       return (
         (u.restaurantName || '').toLowerCase().includes(s) ||
         (u.name || '').toLowerCase().includes(s) ||
-        (u.email || '').toLowerCase().includes(s) ||
-        (u.plan || '').toLowerCase().includes(s)
+        (u.email || '').toLowerCase().includes(s)
       );
     });
   }, [users, search]);
-
-  // Metrics summary
-  const metrics = useMemo(() => {
-    const total = tenantAccounts.length;
-    const active = tenantAccounts.filter(a => (a.status || 'active') === 'active').length;
-    const mrr = tenantAccounts.reduce((acc, curr) => {
-      const p = curr.plan || 'pro';
-      const planObj = PLANS.find(x => x.id === p) || PLANS[1];
-      return acc + (curr.status === 'suspended' ? 0 : planObj.price);
-    }, 0);
-    return { total, active, mrr, totalUsers: users.length };
-  }, [tenantAccounts, users]);
 
   const handleCreateAccount = async (e) => {
     e.preventDefault();
@@ -345,16 +311,15 @@ const AccountsTab = ({ addAuditEntry }) => {
 
     setLoading(false);
     if (result.success) {
-      // Find created user and apply plan & status
-      const updatedUsers = getAll('users') || [];
-      const created = updatedUsers.find(u => u.email === form.email);
-      if (created) {
-        await dbUpdate('users', created.id, { plan: form.plan, status: form.status });
-      }
-      addAuditEntry?.('account.create', 'system', 'Admin', `Created tenant account ${form.accountName} (${form.plan} plan)`);
       setShowCreateModal(false);
       setForm({
-        accountName: '', ownerName: '', email: '', password: '', phone: '', plan: 'pro', status: 'active'
+        accountName: '',
+        ownerName: '',
+        email: '',
+        password: '',
+        phone: '',
+        plan: 'pro',
+        status: 'active'
       });
       loadUsers();
     } else {
@@ -362,33 +327,9 @@ const AccountsTab = ({ addAuditEntry }) => {
     }
   };
 
-  const handleUpdateAccount = async (e) => {
-    e.preventDefault();
-    if (!editingUser) return;
-    setLoading(true);
-    try {
-      await dbUpdate('users', editingUser.id, {
-        name: editingUser.name,
-        email: editingUser.email,
-        phone: editingUser.phone,
-        plan: editingUser.plan || 'pro',
-        status: editingUser.status || 'active',
-        restaurantName: editingUser.restaurantName,
-      });
-      addAuditEntry?.('account.update', 'system', 'Admin', `Updated tenant account ${editingUser.restaurantName}`);
-      setEditingUser(null);
-      loadUsers();
-    } catch (err) {
-      alert('Failed to update account: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteAccount = async (userId, userName, restaurantName) => {
-    if (window.confirm(`Are you sure you want to delete account "${restaurantName}" for user "${userName}"?`)) {
+  const handleDeleteAccount = async (userId, userName) => {
+    if (window.confirm(`Are you sure you want to delete account for user "${userName}"?`)) {
       await dbRemove('users', userId);
-      addAuditEntry?.('account.delete', 'system', 'Admin', `Deleted account ${restaurantName}`);
       loadUsers();
     }
   };
@@ -396,7 +337,6 @@ const AccountsTab = ({ addAuditEntry }) => {
   const handleOpenAccount = async (tenantName) => {
     const res = await impersonateAccount(tenantName);
     if (res.success) {
-      addAuditEntry?.('account.impersonate', 'system', 'Admin', `Impersonated account ${tenantName}`);
       reload();
       navigate('/');
     } else {
@@ -405,34 +345,13 @@ const AccountsTab = ({ addAuditEntry }) => {
   };
 
   return (
-    <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Overview Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
-        <div style={{ padding: '16px', background: 'var(--card-bg)', borderRadius: '14px', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Accounts</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{metrics.total}</div>
-        </div>
-        <div style={{ padding: '16px', background: 'var(--card-bg)', borderRadius: '14px', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Tenants</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--success)', marginTop: '4px' }}>{metrics.active}</div>
-        </div>
-        <div style={{ padding: '16px', background: 'var(--card-bg)', borderRadius: '14px', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Estimated MRR</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>&#8377;{metrics.mrr.toLocaleString('en-IN')}</div>
-        </div>
-        <div style={{ padding: '16px', background: 'var(--card-bg)', borderRadius: '14px', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Platform Users</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--accent-blue, #2563eb)', marginTop: '4px' }}>{metrics.totalUsers}</div>
-        </div>
-      </div>
-
-      {/* Action Row */}
+    <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ position: 'relative', flex: '0 1 320px', minWidth: '200px' }}>
+        <div style={{ position: 'relative', flex: '0 1 300px', minWidth: '200px' }}>
           <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input 
             className="input-field" 
-            placeholder="Search accounts or email..." 
+            placeholder="Search accounts..." 
             value={search} 
             onChange={e => setSearch(e.target.value)}
             style={{ paddingLeft: '32px', width: '100%' }} 
@@ -447,17 +366,15 @@ const AccountsTab = ({ addAuditEntry }) => {
         </button>
       </div>
 
-      {/* Table */}
       <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
         <div className="table-wrapper">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
             <thead>
               <tr style={{ background: 'rgba(30, 94, 74,0.04)' }}>
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Account Name</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Owner</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Plan</th>
-                <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Status</th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Created</th>
+                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Owner Name</th>
+                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Email Address</th>
+                <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Created At</th>
                 <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Audit Log</th>
                 <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>Actions</th>
               </tr>
@@ -465,103 +382,83 @@ const AccountsTab = ({ addAuditEntry }) => {
             <tbody>
               {tenantAccounts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     No tenant accounts found. Click "Create Account" to add one.
                   </td>
                 </tr>
               ) : (
-                tenantAccounts.map(account => {
-                  const plan = account.plan || 'pro';
-                  const status = account.status || 'active';
-                  const statusBg = status === 'active' ? 'rgba(34,197,94,0.1)' : status === 'trial' ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)';
-                  const statusColor = status === 'active' ? '#16a34a' : status === 'trial' ? '#2563eb' : '#dc2626';
-
-                  return (
-                    <tr key={account.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {account.restaurantName}
-                      </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                        <div>{account.name}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{account.email}</div>
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <Badge bg="rgba(30, 94, 74,0.08)" color="var(--primary)">{plan}</Badge>
-                      </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                        <Badge bg={statusBg} color={statusColor}>{status}</Badge>
-                      </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>
-                        {account.createdAt ? new Date(account.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '--'}
-                      </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                        {(() => {
-                          const accountId = account.restaurantName;
-                          const disabled = !!(flagsMap[accountId]?.audit_log_disabled);
-                          const busy = !!flagsLoading[accountId];
-                          return (
-                            <button
-                              onClick={() => handleToggleAuditLog(accountId, disabled)}
-                              disabled={busy}
-                              title={disabled ? 'Audit log disabled — click to enable' : 'Audit log enabled — click to disable'}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: busy ? 'wait' : 'pointer',
-                                padding: '2px',
-                                opacity: busy ? 0.5 : 1,
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                fontSize: '0.75rem',
-                                color: disabled ? 'var(--text-muted)' : 'var(--primary)',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {disabled
-                                ? <><ToggleLeft size={18} /> Off</>
-                                : <><ToggleRight size={18} /> On</>
-                              }
-                            </button>
-                          );
-                        })()}
-                      </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                tenantAccounts.map(account => (
+                  <tr key={account.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {account.restaurantName}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      {account.name}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      {account.email}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>
+                      {account.createdAt ? new Date(account.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '--'}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      {(() => {
+                        const accountId = account.restaurantName;
+                        const disabled = !!(flagsMap[accountId]?.audit_log_disabled);
+                        const busy = !!flagsLoading[accountId];
+                        return (
                           <button
-                            className="btn btn-sm btn-secondary"
-                            onClick={() => setEditingUser({ ...account })}
-                            title="Edit Account Details"
-                            style={{ padding: '5px 8px' }}
+                            onClick={() => handleToggleAuditLog(accountId, disabled)}
+                            disabled={busy}
+                            title={disabled ? 'Audit log disabled — click to enable' : 'Audit log enabled — click to disable'}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: busy ? 'wait' : 'pointer',
+                              padding: '2px',
+                              opacity: busy ? 0.5 : 1,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '0.75rem',
+                              color: disabled ? 'var(--text-muted)' : 'var(--primary)',
+                              fontWeight: 600,
+                            }}
                           >
-                            <Edit3 size={13} />
+                            {disabled
+                              ? <><ToggleLeft size={20} /> Off</>
+                              : <><ToggleRight size={20} /> On</>
+                            }
                           </button>
-                          <button
-                            className="btn btn-sm btn-primary"
-                            onClick={() => handleOpenAccount(account.restaurantName)}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
-                          >
-                            <ExternalLink size={12} /> Open
-                          </button>
-                          <button
-                            className="btn btn-sm btn-danger"
-                            onClick={() => handleDeleteAccount(account.id, account.name, account.restaurantName)}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                        );
+                      })()}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={() => handleOpenAccount(account.restaurantName)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
+                        >
+                          <ExternalLink size={12} /> Open Account
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => handleDeleteAccount(account.id, account.name)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Create Account Modal */}
       {showCreateModal && (
         <Modal title="Create Tenant Account" onClose={() => setShowCreateModal(false)}>
           <form onSubmit={handleCreateAccount}>
@@ -618,31 +515,14 @@ const AccountsTab = ({ addAuditEntry }) => {
                   </button>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="input-group">
-                  <label className="input-label">Subscription Plan</label>
-                  <select 
-                    className="input-field" 
-                    value={form.plan} 
-                    onChange={e => setForm(prev => ({ ...prev, plan: e.target.value }))}
-                  >
-                    <option value="basic">Basic (&#8377;2,999/mo)</option>
-                    <option value="pro">Pro (&#8377;7,999/mo)</option>
-                    <option value="enterprise">Enterprise (&#8377;19,999/mo)</option>
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Account Status</label>
-                  <select 
-                    className="input-field" 
-                    value={form.status} 
-                    onChange={e => setForm(prev => ({ ...prev, status: e.target.value }))}
-                  >
-                    <option value="active">Active</option>
-                    <option value="trial">Trial</option>
-                    <option value="suspended">Suspended</option>
-                  </select>
-                </div>
+              <div className="input-group">
+                <label className="input-label">Phone Number</label>
+                <input 
+                  className="input-field" 
+                  placeholder="+91 XXXXX XXXXX" 
+                  value={form.phone} 
+                  onChange={e => setForm(prev => ({ ...prev, phone: e.target.value }))}
+                />
               </div>
 
               {error && (
@@ -660,76 +540,6 @@ const AccountsTab = ({ addAuditEntry }) => {
           </form>
         </Modal>
       )}
-
-      {/* Edit Account Modal */}
-      {editingUser && (
-        <Modal title={`Edit Account — ${editingUser.restaurantName}`} onClose={() => setEditingUser(null)}>
-          <form onSubmit={handleUpdateAccount}>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div className="input-group">
-                <label className="input-label">Account Name</label>
-                <input 
-                  className="input-field" 
-                  value={editingUser.restaurantName || ''} 
-                  onChange={e => setEditingUser(prev => ({ ...prev, restaurantName: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Owner Name</label>
-                <input 
-                  className="input-field" 
-                  value={editingUser.name || ''} 
-                  onChange={e => setEditingUser(prev => ({ ...prev, name: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Owner Email</label>
-                <input 
-                  className="input-field" 
-                  type="email" 
-                  value={editingUser.email || ''} 
-                  onChange={e => setEditingUser(prev => ({ ...prev, email: e.target.value }))}
-                  required
-                />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="input-group">
-                  <label className="input-label">Subscription Plan</label>
-                  <select 
-                    className="input-field" 
-                    value={editingUser.plan || 'pro'} 
-                    onChange={e => setEditingUser(prev => ({ ...prev, plan: e.target.value }))}
-                  >
-                    <option value="basic">Basic (&#8377;2,999/mo)</option>
-                    <option value="pro">Pro (&#8377;7,999/mo)</option>
-                    <option value="enterprise">Enterprise (&#8377;19,999/mo)</option>
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Status</label>
-                  <select 
-                    className="input-field" 
-                    value={editingUser.status || 'active'} 
-                    onChange={e => setEditingUser(prev => ({ ...prev, status: e.target.value }))}
-                  >
-                    <option value="active">Active</option>
-                    <option value="trial">Trial</option>
-                    <option value="suspended">Suspended</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setEditingUser(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={loading}>
-                {loading ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
     </div>
   );
 };
@@ -738,75 +548,13 @@ const AccountsTab = ({ addAuditEntry }) => {
 // ── SUBSCRIPTION TAB ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntry, user }) => {
-  const currentPlanId = settings?.subscription?.plan || 'pro';
-  const plan = PLANS.find(p => p.id === currentPlanId) || PLANS[1];
-  
-  const [updatingPlan, setUpdatingPlan] = useState(null);
-  const [successMsg, setSuccessMsg] = useState('');
-  const [showBillingModal, setShowBillingModal] = useState(false);
-
-  const paymentMethod = settings?.subscription?.paymentMethod || 'Visa ending 4242';
-  const nextBillingDate = settings?.subscription?.nextBillingDate || '15 Aug 2026';
-  const gstNumber = settings?.subscription?.gstNumber || '07AAAAA0000A1Z5';
-
-  const [billingForm, setBillingForm] = useState({
-    paymentMethod,
-    nextBillingDate,
-    gstNumber,
-  });
-
-  const usage = useMemo(() => {
-    const realTransactions = (orders || []).length;
-    const sms = settings?.subscription?.usage?.sms ?? 847;
-    const apiCalls = settings?.subscription?.usage?.apiCalls ?? 12890;
-    return { sms, transactions: realTransactions || 3241, apiCalls };
-  }, [orders, settings]);
-
-  const handlePlanChange = async (planId) => {
-    const targetPlan = PLANS.find(p => p.id === planId);
-    if (!targetPlan) return;
-    setUpdatingPlan(planId);
-    
-    await updateSettingsSection('subscription', {
-      ...settings?.subscription,
-      plan: planId,
-      updatedAt: new Date().toISOString(),
-    });
-
-    addAuditEntry?.('subscription.change', user?.id || 'system', user?.name || 'Admin', `Changed subscription plan to ${targetPlan.name}`);
-    setSuccessMsg(`Plan successfully updated to ${targetPlan.name}!`);
-    setTimeout(() => setSuccessMsg(''), 3000);
-    setUpdatingPlan(null);
-  };
-
-  const handleSaveBilling = async (e) => {
-    e.preventDefault();
-    await updateSettingsSection('subscription', {
-      ...settings?.subscription,
-      paymentMethod: billingForm.paymentMethod,
-      nextBillingDate: billingForm.nextBillingDate,
-      gstNumber: billingForm.gstNumber,
-    });
-    addAuditEntry?.('subscription.billing_update', user?.id || 'system', user?.name || 'Admin', 'Updated billing details');
-    setShowBillingModal(false);
-    setSuccessMsg('Billing details updated successfully!');
-    setTimeout(() => setSuccessMsg(''), 3000);
-  };
+const SubscriptionTab = ({ settings }) => {
+  const currentPlan = settings?.subscription?.plan || 'pro';
+  const plan = PLANS.find(p => p.id === currentPlan) || PLANS[1];
+  const usage = settings?.subscription?.usage || { sms: 847, transactions: 3241, apiCalls: 12890 };
 
   return (
     <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Success Notification */}
-      {successMsg && (
-        <div style={{
-          background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
-          borderRadius: '12px', padding: '14px 20px', color: '#16a34a', fontWeight: 600,
-          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem'
-        }}>
-          <CheckCircle size={18} /> {successMsg}
-        </div>
-      )}
-
       {/* Current Plan Banner */}
       <div style={{
         background: 'linear-gradient(135deg, #1e5e4a, #2e7d5b)', borderRadius: '16px',
@@ -814,9 +562,9 @@ const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntr
       }}>
         <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
         <div style={{ position: 'absolute', bottom: -20, right: 60, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1, flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
           <div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Current Subscription Plan</div>
+            <div style={{ fontSize: '0.75rem', opacity: 0.8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Current Plan</div>
             <div style={{ fontSize: '2rem', fontWeight: 800 }}>{plan.name}</div>
             <div style={{ fontSize: '0.85rem', opacity: 0.9, marginTop: '4px' }}>
               <span style={{ fontSize: '1.5rem', fontWeight: 800 }}>&#8377;{plan.price.toLocaleString('en-IN')}</span>{plan.period}
@@ -824,18 +572,8 @@ const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntr
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Next billing date</div>
-            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>{nextBillingDate}</div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '4px' }}>{paymentMethod}</div>
-            <button 
-              onClick={() => setShowBillingModal(true)}
-              style={{
-                marginTop: '10px', background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
-                color: 'white', padding: '5px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 600,
-                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px'
-              }}
-            >
-              <Edit3 size={12} /> Manage Billing
-            </button>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>15 Apr 2026</div>
+            <div style={{ fontSize: '0.72rem', opacity: 0.7, marginTop: '6px' }}>Visa ending 4242</div>
           </div>
         </div>
       </div>
@@ -845,14 +583,14 @@ const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntr
         <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Usage This Billing Cycle</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
           <UsageMeter label="SMS Credits" used={usage.sms} total={plan.sms} icon={MessageSquare} />
-          <UsageMeter label="Processed Transactions" used={usage.transactions} total={plan.transactions} icon={DollarSign} />
+          <UsageMeter label="Online Transactions" used={usage.transactions} total={plan.transactions} icon={DollarSign} />
           <UsageMeter label="API Calls" used={usage.apiCalls} total={plan.apiCalls} icon={Zap} />
         </div>
       </div>
 
       {/* Feature Comparison Table */}
       <div>
-        <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Plan Features</h3>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Plan Comparison</h3>
         <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
           <div className="table-wrapper">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
@@ -862,11 +600,11 @@ const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntr
                   {PLANS.map(p => (
                     <th key={p.id} style={{
                       padding: '12px 16px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid var(--border-subtle)',
-                      color: p.id === currentPlanId ? 'var(--primary)' : 'var(--text-primary)',
-                      background: p.id === currentPlanId ? 'rgba(30, 94, 74,0.06)' : 'transparent',
+                      color: p.id === currentPlan ? 'var(--primary)' : 'var(--text-primary)',
+                      background: p.id === currentPlan ? 'rgba(30, 94, 74,0.06)' : 'transparent',
                     }}>
                       {p.name}
-                      {p.id === currentPlanId && <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--primary)', marginTop: '2px' }}>CURRENT</div>}
+                      {p.id === currentPlan && <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--primary)', marginTop: '2px' }}>CURRENT</div>}
                     </th>
                   ))}
                 </tr>
@@ -878,7 +616,7 @@ const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntr
                     {PLANS.map(p => (
                       <td key={p.id} style={{
                         padding: '10px 16px', textAlign: 'center', borderBottom: '1px solid var(--border-subtle)',
-                        background: p.id === currentPlanId ? 'rgba(30, 94, 74,0.03)' : 'transparent',
+                        background: p.id === currentPlan ? 'rgba(30, 94, 74,0.03)' : 'transparent',
                       }}>
                         {p.features[feature]
                           ? <CheckCircle size={16} style={{ color: 'var(--success)' }} />
@@ -894,73 +632,15 @@ const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntr
         </div>
       </div>
 
-      {/* Upgrade / Downgrade Action Buttons */}
-      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-        {PLANS.map(p => {
-          const isCurrent = p.id === currentPlanId;
-          const isHigher = PLANS.indexOf(p) > PLANS.findIndex(x => x.id === currentPlanId);
-          return (
-            <button
-              key={p.id}
-              onClick={() => !isCurrent && handlePlanChange(p.id)}
-              disabled={isCurrent || updatingPlan === p.id}
-              className={isCurrent ? 'btn btn-secondary' : isHigher ? 'btn btn-primary' : 'btn btn-secondary'}
-              style={{ minWidth: '180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-            >
-              {updatingPlan === p.id ? (
-                <><RefreshCw size={14} className="spin" /> Updating...</>
-              ) : isCurrent ? (
-                <><Check size={14} /> Active Plan</>
-              ) : isHigher ? (
-                <>Upgrade to {p.name}</>
-              ) : (
-                <>Downgrade to {p.name}</>
-              )}
-            </button>
-          );
-        })}
+      {/* Upgrade / Downgrade Buttons */}
+      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+        {PLANS.filter(p => p.id !== currentPlan).map(p => (
+          <button key={p.id} className={PLANS.indexOf(p) > PLANS.findIndex(x => x.id === currentPlan) ? 'btn btn-primary' : 'btn btn-secondary'}
+            style={{ minWidth: '160px' }}>
+            {PLANS.indexOf(p) > PLANS.findIndex(x => x.id === currentPlan) ? 'Upgrade' : 'Downgrade'} to {p.name}
+          </button>
+        ))}
       </div>
-
-      {/* Edit Billing Modal */}
-      {showBillingModal && (
-        <Modal title="Manage Billing & Payment Details" onClose={() => setShowBillingModal(false)}>
-          <form onSubmit={handleSaveBilling}>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div className="input-group">
-                <label className="input-label">Payment Method</label>
-                <input 
-                  className="input-field" 
-                  placeholder="e.g. Visa ending 4242 or UPI / Bank Transfer" 
-                  value={billingForm.paymentMethod} 
-                  onChange={e => setBillingForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="input-group">
-                <label className="input-label">Next Billing Date</label>
-                <input 
-                  className="input-field" 
-                  value={billingForm.nextBillingDate} 
-                  onChange={e => setBillingForm(prev => ({ ...prev, nextBillingDate: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="input-group">
-                <label className="input-label">GSTIN / Tax Registration</label>
-                <input 
-                  className="input-field" 
-                  value={billingForm.gstNumber} 
-                  onChange={e => setBillingForm(prev => ({ ...prev, gstNumber: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowBillingModal(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary">Save Billing Info</button>
-            </div>
-          </form>
-        </Modal>
-      )}
     </div>
   );
 };
@@ -969,52 +649,42 @@ const SubscriptionTab = ({ settings, orders, updateSettingsSection, addAuditEntr
 // ── AUDIT LOGS TAB ────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-const AuditLogsTab = ({ auditLog, addAuditEntry }) => {
+const AuditLogsTab = ({ auditLog }) => {
   const [search, setSearch] = useState('');
   const [filterUser, setFilterUser] = useState('');
   const [filterAction, setFilterAction] = useState('');
   const [filterAccount, setFilterAccount] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [allLogs, setAllLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
 
-  // Fetch all audit logs across all tenants if platform admin
-  const fetchAllAuditLogs = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/data/audit-all', { credentials: 'include' });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.auditLog)) {
-        setAllLogs(data.auditLog);
-      } else {
-        setAllLogs(auditLog || []);
-      }
-    } catch {
-      setAllLogs(auditLog || []);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAllAuditLogs();
+  // Generate demo data if none exists
+  const logs = useMemo(() => {
+    if (auditLog && auditLog.length > 0) return auditLog;
+    const demoActions = [
+      { action: 'login', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Logged in from Chrome/Windows', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'menu.update', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Updated price of "Butter Chicken" from 350 to 380', ip: '192.168.1.105', accountId: 'Delhi Cafe' },
+      { action: 'order.void', user: 'manager@kitchgoo.com', userName: 'Priya M.', details: 'Voided order #1042 - customer complaint', ip: '192.168.1.102', accountId: 'Delhi Cafe' },
+      { action: 'inventory.create', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Added new item "Truffle Oil" to inventory', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'settings.update', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Changed GST rate from 5% to 5.5%', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'staff.create', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Added new staff member "Karan S."', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+      { action: 'menu.delete', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Removed "Seasonal Salad" from lunch menu', ip: '192.168.1.105', accountId: 'Delhi Cafe' },
+      { action: 'order.comp', user: 'manager@kitchgoo.com', userName: 'Priya M.', details: 'Comp on order #1038 - regular guest courtesy', ip: '192.168.1.102', accountId: 'Delhi Cafe' },
+      { action: 'logout', user: 'chef@kitchgoo.com', userName: 'Chef Ravi', details: 'Session ended', ip: '192.168.1.105', accountId: 'Delhi Cafe' },
+      { action: 'price.update', user: 'admin@kitchgoo.com', userName: 'Admin', details: 'Bulk price update: 12 items adjusted', ip: '192.168.1.100', accountId: 'Kitchgoo' },
+    ];
+    return demoActions.map((d, i) => ({
+      id: `demo_${i}`,
+      timestamp: new Date(Date.now() - i * 3600000 * (1 + Math.random() * 3)).toISOString(),
+      ...d,
+    }));
   }, [auditLog]);
 
-  const handleSeedDemoLogs = () => {
-    addAuditEntry?.('account.create', 'system', 'Admin', 'Created tenant account "Kiko Cafe"');
-    addAuditEntry?.('settings.update', 'system', 'Admin', 'Updated system security and password policy');
-    addAuditEntry?.('integration.connect', 'system', 'Admin', 'Connected QuickBooks Online integration');
-    addAuditEntry?.('subscription.change', 'system', 'Admin', 'Upgraded subscription plan to Enterprise');
-    fetchAllAuditLogs();
-  };
-
-  const users = useMemo(() => [...new Set(allLogs.map(l => l.userName || l.user))], [allLogs]);
-  const actions = useMemo(() => [...new Set(allLogs.map(l => l.action))], [allLogs]);
-  const accounts = useMemo(() => [...new Set(allLogs.map(l => l.accountId || 'Kitchgoo'))], [allLogs]);
+  const users = useMemo(() => [...new Set(logs.map(l => l.userName || l.user))], [logs]);
+  const actions = useMemo(() => [...new Set(logs.map(l => l.action))], [logs]);
+  const accounts = useMemo(() => [...new Set(logs.map(l => l.accountId || 'Kitchgoo'))], [logs]);
 
   const filtered = useMemo(() => {
-    return allLogs.filter(l => {
+    return logs.filter(l => {
       if (search) {
         const s = search.toLowerCase();
         if (
@@ -1028,10 +698,13 @@ const AuditLogsTab = ({ auditLog, addAuditEntry }) => {
       if (filterAction && l.action !== filterAction) return false;
       if (filterAccount && (l.accountId || 'Kitchgoo') !== filterAccount) return false;
       if (dateFrom && l.timestamp < dateFrom) return false;
+      if (dateTo && l.timestamp < dateTo + 'T23:59:59') {
+        // keep it
+      }
       if (dateTo && new Date(l.timestamp) > new Date(dateTo + 'T23:59:59')) return false;
       return true;
     });
-  }, [allLogs, search, filterUser, filterAction, filterAccount, dateFrom, dateTo]);
+  }, [logs, search, filterUser, filterAction, filterAccount, dateFrom, dateTo]);
 
   const exportCSV = useCallback(() => {
     const header = 'Timestamp,Account,User,Action,Details,IP Address';
@@ -1074,15 +747,11 @@ const AuditLogsTab = ({ auditLog, addAuditEntry }) => {
         <button className="btn btn-secondary" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Download size={14} /> Export CSV
         </button>
-        <button className="btn btn-secondary" onClick={handleSeedDemoLogs} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Plus size={14} /> Add Test Entry
-        </button>
       </div>
 
       {/* Count */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-        <span>Showing {filtered.length} of {allLogs.length} entries</span>
-        {loading && <span><RefreshCw size={12} className="spin" style={{ display: 'inline', marginRight: 4 }} /> Syncing...</span>}
+      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+        Showing {filtered.length} of {logs.length} entries
       </div>
 
       {/* Table */}
@@ -1098,15 +767,11 @@ const AuditLogsTab = ({ auditLog, addAuditEntry }) => {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                    No audit log entries found. Click "Add Test Entry" to create a sample audit event.
-                  </td>
-                </tr>
+                <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No audit log entries found.</td></tr>
               ) : filtered.slice(0, 100).map(l => {
                 const ac = getActionColor(l.action);
                 return (
-                  <tr key={l.id || l.timestamp} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <tr key={l.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                     <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{fmtDateTime(l.timestamp)}</td>
                     <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{l.accountId || 'Kitchgoo'}</td>
                     <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{l.userName || l.user}</td>
@@ -1114,7 +779,7 @@ const AuditLogsTab = ({ auditLog, addAuditEntry }) => {
                       <Badge bg={ac.bg} color={ac.text}>{l.action}</Badge>
                     </td>
                     <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', maxWidth: '340px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.details}</td>
-                    <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.75rem' }}>{l.ip || '192.168.1.100'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.75rem' }}>{l.ip || '--'}</td>
                   </tr>
                 );
               })}
@@ -1130,10 +795,15 @@ const AuditLogsTab = ({ auditLog, addAuditEntry }) => {
 // ── API & WEBHOOKS TAB ────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
-  const [apiKeys, setApiKeys] = useState(() => settings?.api?.keys || DEFAULT_API_KEYS);
-  const [webhooks, setWebhooks] = useState(() => settings?.api?.webhooks || DEFAULT_WEBHOOKS);
-
+const ApiWebhooksTab = ({ addAuditEntry }) => {
+  const [apiKeys, setApiKeys] = useState([
+    { id: '1', name: 'Production Key', key: 'kg_live_aBcDeFgH1234XyZ56789qWeRtY', created: '2025-11-10T10:00:00Z', lastUsed: '2026-03-29T14:23:00Z', status: 'active' },
+    { id: '2', name: 'Staging Key', key: 'kg_test_mNoPqRsT9876UvWx54321zZyXw', created: '2026-01-05T08:00:00Z', lastUsed: '2026-03-28T09:15:00Z', status: 'active' },
+  ]);
+  const [webhooks, setWebhooks] = useState([
+    { id: '1', url: 'https://hooks.example.com/kitchgoo/orders', events: ['order.created', 'order.paid'], status: 'active', lastTriggered: '2026-03-29T18:45:00Z' },
+    { id: '2', url: 'https://inventory.example.com/webhook', events: ['inventory.low', 'inventory.updated'], status: 'paused', lastTriggered: '2026-03-27T12:00:00Z' },
+  ]);
   const [showNewKey, setShowNewKey] = useState(null);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
@@ -1141,82 +811,50 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [webhookEvents, setWebhookEvents] = useState([]);
   const [visibleKeys, setVisibleKeys] = useState({});
-  const [testResult, setTestResult] = useState(null);
+  const [testingWebhook, setTestingWebhook] = useState(null);
 
-  // Sync settings when loaded
-  useEffect(() => {
-    if (settings?.api?.keys) setApiKeys(settings.api.keys);
-    if (settings?.api?.webhooks) setWebhooks(settings.api.webhooks);
-  }, [settings]);
-
-  const saveApiSettings = async (keys, hooks) => {
-    setApiKeys(keys);
-    setWebhooks(hooks);
-    await updateSettingsSection('api', { keys, webhooks, updatedAt: new Date().toISOString() });
-  };
-
-  const handleGenerateKey = async () => {
+  const handleGenerateKey = () => {
     const key = generateApiKey();
     const newKey = {
       id: genId(), name: newKeyName || 'New API Key', key,
       created: new Date().toISOString(), lastUsed: null, status: 'active',
     };
-    const updatedKeys = [...apiKeys, newKey];
-    await saveApiSettings(updatedKeys, webhooks);
+    setApiKeys(prev => [...prev, newKey]);
     setShowNewKey(key);
     setShowKeyModal(false);
     setNewKeyName('');
-    addAuditEntry?.('api_key.create', 'system', 'Admin', `Generated API key: ${newKeyName || 'New API Key'}`);
+    addAuditEntry?.('api_key.create', 'system', 'Admin', `Generated new API key: ${newKeyName || 'New API Key'}`);
   };
 
-  const handleRevokeKey = async (id) => {
-    const updatedKeys = apiKeys.map(k => k.id === id ? { ...k, status: 'revoked' } : k);
-    await saveApiSettings(updatedKeys, webhooks);
+  const handleRevokeKey = (id) => {
+    setApiKeys(prev => prev.map(k => k.id === id ? { ...k, status: 'revoked' } : k));
     addAuditEntry?.('api_key.delete', 'system', 'Admin', 'Revoked API key');
   };
 
-  const handleAddWebhook = async () => {
+  const handleAddWebhook = () => {
     if (!webhookUrl) return;
     const wh = {
       id: genId(), url: webhookUrl, events: webhookEvents,
       status: 'active', lastTriggered: null,
     };
-    const updatedWebhooks = [...webhooks, wh];
-    await saveApiSettings(apiKeys, updatedWebhooks);
+    setWebhooks(prev => [...prev, wh]);
     setShowWebhookModal(false);
     setWebhookUrl('');
     setWebhookEvents([]);
-    addAuditEntry?.('webhook.create', 'system', 'Admin', `Added webhook endpoint: ${webhookUrl}`);
+    addAuditEntry?.('webhook.create', 'system', 'Admin', `Added webhook: ${webhookUrl}`);
   };
 
-  const handleTestWebhook = async (wh) => {
-    const now = new Date().toISOString();
-    const updatedWebhooks = webhooks.map(w => w.id === wh.id ? { ...w, lastTriggered: now } : w);
-    await saveApiSettings(apiKeys, updatedWebhooks);
-
-    setTestResult({
-      url: wh.url,
-      event: wh.events[0] || 'order.created',
-      status: 200,
-      latency: Math.floor(25 + Math.random() * 35),
-      timestamp: now,
-      payload: {
-        event: wh.events[0] || 'order.created',
-        timestamp: now,
-        data: { orderId: 'ORD-1042', amount: 850, items: 3, tenant: 'Kitchgoo' }
-      }
-    });
-    addAuditEntry?.('webhook.test', 'system', 'Admin', `Tested webhook endpoint: ${wh.url}`);
+  const handleTestWebhook = (id) => {
+    setTestingWebhook(id);
+    setTimeout(() => setTestingWebhook(null), 2000);
   };
 
-  const toggleWebhookStatus = async (id) => {
-    const updatedWebhooks = webhooks.map(w => w.id === id ? { ...w, status: w.status === 'active' ? 'paused' : 'active' } : w);
-    await saveApiSettings(apiKeys, updatedWebhooks);
+  const toggleWebhookStatus = (id) => {
+    setWebhooks(prev => prev.map(w => w.id === id ? { ...w, status: w.status === 'active' ? 'paused' : 'active' } : w));
   };
 
-  const removeWebhook = async (id) => {
-    const updatedWebhooks = webhooks.filter(w => w.id !== id);
-    await saveApiSettings(apiKeys, updatedWebhooks);
+  const removeWebhook = (id) => {
+    setWebhooks(prev => prev.filter(w => w.id !== id));
     addAuditEntry?.('webhook.delete', 'system', 'Admin', 'Removed webhook endpoint');
   };
 
@@ -1226,7 +864,7 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
 
   return (
     <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-      {/* One-time key reveal banner */}
+      {/* One-time key reveal */}
       {showNewKey && (
         <div style={{
           background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '12px',
@@ -1235,7 +873,7 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
           <ShieldCheck size={20} style={{ color: 'var(--success)' }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
-              New API Key Generated — Copy it now! It will not be shown again.
+              New API Key Generated - Copy it now! It will not be shown again.
             </div>
             <code style={{
               fontSize: '0.78rem', background: 'rgba(0,0,0,0.06)', padding: '6px 10px', borderRadius: '6px',
@@ -1317,7 +955,7 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Globe size={18} style={{ color: 'var(--accent-blue, #2563eb)' }} /> Webhook Endpoints
+            <Globe size={18} style={{ color: 'var(--accent-blue)' }} /> Webhooks
           </h3>
           <button className="btn btn-primary btn-sm" onClick={() => setShowWebhookModal(true)}
             style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -1348,9 +986,9 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <button className="btn btn-sm btn-secondary" onClick={() => handleTestWebhook(w)}
+                  <button className="btn btn-sm btn-secondary" onClick={() => handleTestWebhook(w.id)}
                     style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Play size={13} /> Test Ping
+                    {testingWebhook === w.id ? <><RefreshCw size={13} className="spin" /> Testing...</> : <><Play size={13} /> Test</>}
                   </button>
                   <button className="btn btn-sm btn-secondary" onClick={() => toggleWebhookStatus(w.id)}
                     style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1373,7 +1011,7 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
           <div className="modal-body">
             <div className="input-group">
               <label className="input-label">Key Name</label>
-              <input className="input-field" placeholder="e.g., Production, Mobile App, POS Terminal" value={newKeyName} onChange={e => setNewKeyName(e.target.value)} />
+              <input className="input-field" placeholder="e.g., Production, Staging, Mobile App" value={newKeyName} onChange={e => setNewKeyName(e.target.value)} />
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '8px', padding: '10px', background: 'rgba(245,158,11,0.08)', borderRadius: '8px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
               <AlertTriangle size={16} style={{ color: 'var(--warning)', flexShrink: 0, marginTop: '1px' }} />
@@ -1399,11 +1037,11 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
               <label className="input-label">Subscribe to Events</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
                 {WEBHOOK_EVENTS.map(evt => (
-                  <button key={evt} type="button" onClick={() => toggleEvent(evt)}
+                  <button key={evt} onClick={() => toggleEvent(evt)}
                     style={{
                       padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 600,
                       border: '1px solid', cursor: 'pointer', transition: 'all 0.15s ease',
-                      background: webhookEvents.includes(evt) ? 'rgba(30, 94, 74,0.1)' : 'transparent',
+                      background: webhookEvents.includes(evt) ? 'var(--primary-light)' : 'transparent',
                       borderColor: webhookEvents.includes(evt) ? 'var(--primary)' : 'var(--border-subtle)',
                       color: webhookEvents.includes(evt) ? 'var(--primary)' : 'var(--text-secondary)',
                     }}>
@@ -1420,33 +1058,6 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
           </div>
         </Modal>
       )}
-
-      {/* Test Webhook Results Modal */}
-      {testResult && (
-        <Modal title="Webhook Ping Test Result" onClose={() => setTestResult(null)} wide>
-          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Badge bg="rgba(34,197,94,0.12)" color="#16a34a" style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
-                {testResult.status} OK
-              </Badge>
-              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Response time: {testResult.latency} ms</span>
-            </div>
-            <div className="input-group">
-              <label className="input-label">Target URL</label>
-              <code style={{ fontSize: '0.8rem', padding: '8px', background: 'rgba(0,0,0,0.04)', borderRadius: '6px', display: 'block' }}>{testResult.url}</code>
-            </div>
-            <div className="input-group">
-              <label className="input-label">Simulated Payload Sent</label>
-              <pre style={{ fontSize: '0.78rem', background: '#1e293b', color: '#f8fafc', padding: '12px', borderRadius: '8px', overflowX: 'auto', margin: 0 }}>
-                {JSON.stringify(testResult.payload, null, 2)}
-              </pre>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-primary" onClick={() => setTestResult(null)}>Close</button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 };
@@ -1455,91 +1066,31 @@ const ApiWebhooksTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
 // ── INTEGRATIONS TAB ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-const IntegrationsTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
+const IntegrationsTab = ({ addAuditEntry }) => {
   const [category, setCategory] = useState('All');
-  const [integrationsState, setIntegrationsState] = useState(() => settings?.integrations || DEFAULT_INTEGRATIONS);
-  const [activeModal, setActiveModal] = useState(null);
-  const [formConfig, setFormConfig] = useState({});
-  const [syncingId, setSyncingId] = useState(null);
-  const [toast, setToast] = useState('');
-
-  useEffect(() => {
-    if (settings?.integrations) setIntegrationsState(settings.integrations);
-  }, [settings]);
-
-  const saveIntegrations = async (nextState) => {
-    setIntegrationsState(nextState);
-    await updateSettingsSection('integrations', nextState);
-  };
+  const [connected, setConnected] = useState({
+    quickbooks: { active: true, lastSync: '2026-03-29T16:30:00Z' },
+    twilio: { active: true, lastSync: '2026-03-29T18:00:00Z' },
+  });
 
   const filtered = category === 'All' ? INTEGRATIONS_LIST : INTEGRATIONS_LIST.filter(i => i.category === category);
 
-  const handleOpenConfig = (integ) => {
-    const existing = integrationsState[integ.id]?.config || {};
-    setFormConfig(existing);
-    setActiveModal(integ);
-  };
-
-  const handleSaveConfig = async (e) => {
-    e.preventDefault();
-    if (!activeModal) return;
-
-    const nextState = {
-      ...integrationsState,
-      [activeModal.id]: {
-        active: true,
-        config: formConfig,
-        lastSync: new Date().toISOString(),
+  const toggleConnect = (id, name) => {
+    setConnected(prev => {
+      const next = { ...prev };
+      if (next[id]) {
+        delete next[id];
+        addAuditEntry?.('integration.disconnect', 'system', 'Admin', `Disconnected ${name}`);
+      } else {
+        next[id] = { active: true, lastSync: new Date().toISOString() };
+        addAuditEntry?.('integration.connect', 'system', 'Admin', `Connected ${name}`);
       }
-    };
-    await saveIntegrations(nextState);
-    addAuditEntry?.('integration.connect', 'system', 'Admin', `Connected / configured integration: ${activeModal.name}`);
-    setToast(`Successfully connected ${activeModal.name}!`);
-    setTimeout(() => setToast(''), 3000);
-    setActiveModal(null);
-  };
-
-  const handleDisconnect = async (integId, integName) => {
-    if (window.confirm(`Are you sure you want to disconnect ${integName}?`)) {
-      const nextState = { ...integrationsState };
-      delete nextState[integId];
-      await saveIntegrations(nextState);
-      addAuditEntry?.('integration.disconnect', 'system', 'Admin', `Disconnected integration: ${integName}`);
-      setToast(`Disconnected ${integName}.`);
-      setTimeout(() => setToast(''), 3000);
-    }
-  };
-
-  const handleSyncNow = async (integId, integName) => {
-    setSyncingId(integId);
-    setTimeout(async () => {
-      const nextState = {
-        ...integrationsState,
-        [integId]: {
-          ...(integrationsState[integId] || { active: true }),
-          lastSync: new Date().toISOString()
-        }
-      };
-      await saveIntegrations(nextState);
-      setSyncingId(null);
-      setToast(`Synced ${integName} successfully!`);
-      setTimeout(() => setToast(''), 3000);
-    }, 1200);
+      return next;
+    });
   };
 
   return (
     <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Toast alert */}
-      {toast && (
-        <div style={{
-          background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
-          borderRadius: '12px', padding: '12px 18px', color: '#16a34a', fontWeight: 600,
-          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem'
-        }}>
-          <CheckCircle size={16} /> {toast}
-        </div>
-      )}
-
       {/* Category Filter */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         {INTEGRATION_CATEGORIES.map(cat => (
@@ -1553,9 +1104,7 @@ const IntegrationsTab = ({ settings, updateSettingsSection, addAuditEntry }) => 
       {/* Integration Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '16px' }}>
         {filtered.map(integ => {
-          const integData = integrationsState[integ.id];
-          const isConnected = !!integData?.active;
-
+          const isConnected = !!connected[integ.id];
           return (
             <div key={integ.id} className="card" style={{
               padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px',
@@ -1563,6 +1112,7 @@ const IntegrationsTab = ({ settings, updateSettingsSection, addAuditEntry }) => 
               transition: 'all 0.2s ease',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {/* Logo placeholder */}
                 <div style={{
                   width: 44, height: 44, borderRadius: '12px', flexShrink: 0,
                   background: integ.color, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1583,80 +1133,22 @@ const IntegrationsTab = ({ settings, updateSettingsSection, addAuditEntry }) => 
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.45', flex: 1 }}>
                 {integ.description}
               </div>
-              {isConnected && integData?.lastSync && (
+              {isConnected && connected[integ.id]?.lastSync && (
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <RefreshCw size={12} className={syncingId === integ.id ? 'spin' : ''} />
-                  Last sync: {fmtDateTime(integData.lastSync)}
+                  <RefreshCw size={12} /> Last sync: {fmtDateTime(connected[integ.id].lastSync)}
                 </div>
               )}
-              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                {isConnected ? (
-                  <>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => handleOpenConfig(integ)}
-                    >
-                      Configure
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => handleSyncNow(integ.id, integ.name)}
-                      disabled={syncingId === integ.id}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <RefreshCw size={12} className={syncingId === integ.id ? 'spin' : ''} />
-                      Sync
-                    </button>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => handleDisconnect(integ.id, integ.name)}
-                    >
-                      Disconnect
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => handleOpenConfig(integ)}
-                  >
-                    Connect
-                  </button>
-                )}
-              </div>
+              <button
+                className={isConnected ? 'btn btn-danger btn-sm' : 'btn btn-primary btn-sm'}
+                onClick={() => toggleConnect(integ.id, integ.name)}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                {isConnected ? 'Disconnect' : 'Connect'}
+              </button>
             </div>
           );
         })}
       </div>
-
-      {/* Integration Setup Modal */}
-      {activeModal && (
-        <Modal title={`Configure ${activeModal.name}`} onClose={() => setActiveModal(null)}>
-          <form onSubmit={handleSaveConfig}>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-                Enter your credentials to link {activeModal.name} with your Kitchgoo account.
-              </p>
-              {activeModal.fields.map(fieldName => (
-                <div className="input-group" key={fieldName}>
-                  <label className="input-label">{fieldName} <span style={{ color: 'red' }}>*</span></label>
-                  <input
-                    className="input-field"
-                    type={fieldName.toLowerCase().includes('secret') || fieldName.toLowerCase().includes('token') || fieldName.toLowerCase().includes('key') ? 'password' : 'text'}
-                    placeholder={`Enter ${fieldName}`}
-                    value={formConfig[fieldName] || ''}
-                    onChange={e => setFormConfig(prev => ({ ...prev, [fieldName]: e.target.value }))}
-                    required
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={() => setActiveModal(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary">Save & Connect</button>
-            </div>
-          </form>
-        </Modal>
-      )}
     </div>
   );
 };
@@ -1673,61 +1165,38 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
     expiryDays: securitySettings.passwordExpiryDays || 90,
   });
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(securitySettings.twoFactorEnabled || false);
-  const [compliance, setCompliance] = useState(() => securitySettings.compliance || DEFAULT_COMPLIANCE);
-  const [activeSessions, setActiveSessions] = useState(() => securitySettings.sessions || DEFAULT_SESSIONS);
+  const [compliance, setCompliance] = useState(COMPLIANCE_ITEMS);
   const [saved, setSaved] = useState(false);
 
-  const toggleComplianceItem = async (id) => {
-    const updated = compliance.map(item => item.id === id ? { ...item, done: !item.done } : item);
-    setCompliance(updated);
-    await updateSettingsSection?.('security', {
-      ...securitySettings,
-      compliance: updated,
-    });
-    addAuditEntry?.('security.compliance_toggle', 'system', 'Admin', `Updated compliance item: ${id}`);
-  };
+  const sessions = [
+    { id: '1', user: 'Admin', device: 'Chrome on MacOS', ip: '192.168.1.100', lastActive: '2026-03-30T10:15:00Z', current: true },
+    { id: '2', user: 'Priya M.', device: 'Safari on iPad', ip: '192.168.1.102', lastActive: '2026-03-30T09:45:00Z', current: false },
+    { id: '3', user: 'Chef Ravi', device: 'Chrome on Android', ip: '192.168.1.105', lastActive: '2026-03-29T22:30:00Z', current: false },
+    { id: '4', user: 'Karan S.', device: 'Firefox on Windows', ip: '192.168.1.110', lastActive: '2026-03-29T18:00:00Z', current: false },
+  ];
 
-  const handleSavePolicy = async () => {
-    await updateSettingsSection?.('security', {
-      ...securitySettings,
+  const [activeSessions, setActiveSessions] = useState(sessions);
+
+  const handleSavePolicy = () => {
+    updateSettingsSection?.('security', {
       minPasswordLength: passwordPolicy.minLength,
       requireSpecialChars: passwordPolicy.requireSpecial,
       passwordExpiryDays: passwordPolicy.expiryDays,
       twoFactorEnabled,
-      compliance,
-      sessions: activeSessions,
     });
-    addAuditEntry?.('settings.update', 'system', 'Admin', 'Updated security policy settings');
+    addAuditEntry?.('settings.update', 'system', 'Admin', 'Updated security / password policy settings');
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
 
-  const handleLogoutSession = async (id) => {
-    const updated = activeSessions.filter(s => s.id !== id);
-    setActiveSessions(updated);
-    await updateSettingsSection?.('security', {
-      ...securitySettings,
-      sessions: updated,
-    });
-    addAuditEntry?.('session.terminate', 'system', 'Admin', `Terminated active user session: ${id}`);
+  const handleLogoutSession = (id) => {
+    setActiveSessions(prev => prev.filter(s => s.id !== id));
+    addAuditEntry?.('session.terminate', 'system', 'Admin', `Terminated session ${id}`);
   };
 
   const handleDataExport = () => {
-    addAuditEntry?.('gdpr.export_request', 'system', 'Admin', 'Generated full GDPR data export');
-    const exportData = {
-      exportDate: new Date().toISOString(),
-      platform: 'Kitchgoo SaaS',
-      users: getAll('users') || [],
-      settings: settings || {},
-    };
-    const jsonStr = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `kitchgoo-gdpr-export-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    addAuditEntry?.('gdpr.export_request', 'system', 'Admin', 'GDPR data export requested');
+    alert('Data export request submitted. You will receive a download link via email within 24 hours.');
   };
 
   return (
@@ -1747,7 +1216,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>PCI DSS Compliant</div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Your payment processing meets PCI DSS Level 1 security standards. Last audit: 15 Feb 2026
+            Your payment processing meets PCI DSS Level 1 requirements. Last audit: 15 Feb 2026
           </div>
         </div>
         <Badge bg="rgba(34,197,94,0.12)" color="#16a34a" style={{ fontSize: '0.75rem', padding: '5px 14px' }}>
@@ -1755,36 +1224,28 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
         </Badge>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '20px' }}>
         {/* GDPR / CCPA Compliance */}
         <div className="card" style={{ padding: '20px' }}>
           <h3 style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Shield size={17} style={{ color: 'var(--primary)' }} /> GDPR / Privacy Compliance
+            <Shield size={17} style={{ color: 'var(--primary)' }} /> GDPR / CCPA Compliance
           </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {compliance.map(item => (
-              <div 
-                key={item.id} 
-                onClick={() => toggleComplianceItem(item.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '10px',
-                  padding: '8px 12px', borderRadius: '8px', cursor: 'pointer',
-                  background: item.done ? 'rgba(34,197,94,0.04)' : 'rgba(245,158,11,0.04)',
-                  transition: 'background 0.15s ease',
-                }}
-              >
+              <div key={item.id} style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                padding: '8px 12px', borderRadius: '8px',
+                background: item.done ? 'rgba(34,197,94,0.04)' : 'rgba(245,158,11,0.04)',
+              }}>
                 {item.done
                   ? <CheckCircle size={16} style={{ color: 'var(--success)', flexShrink: 0 }} />
                   : <AlertTriangle size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
                 }
                 <span style={{
                   fontSize: '0.8rem', color: item.done ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  fontWeight: item.done ? 500 : 400, flex: 1
+                  fontWeight: item.done ? 500 : 400,
                 }}>
                   {item.label}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: item.done ? 'var(--success)' : 'var(--warning)', fontWeight: 700 }}>
-                  {item.done ? 'Done' : 'Action Required'}
                 </span>
               </div>
             ))}
@@ -1792,7 +1253,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
           <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--border-subtle)' }}>
             <button className="btn btn-secondary btn-sm" onClick={handleDataExport}
               style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <Download size={14} /> Download System Data Export (GDPR)
+              <Database size={14} /> Request Data Export (GDPR)
             </button>
           </div>
         </div>
@@ -1800,7 +1261,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
         {/* Password Policy */}
         <div className="card" style={{ padding: '20px' }}>
           <h3 style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Lock size={17} style={{ color: 'var(--primary)' }} /> Password Policy & Access
+            <Lock size={17} style={{ color: 'var(--primary)' }} /> Password Policy
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div className="input-group">
@@ -1828,7 +1289,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
             />
           </div>
           <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button className="btn btn-primary btn-sm" onClick={handleSavePolicy}>Save Security Policy</button>
+            <button className="btn btn-primary btn-sm" onClick={handleSavePolicy}>Save Policy</button>
             {saved && <span style={{ fontSize: '0.78rem', color: 'var(--success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Check size={14} /> Saved
             </span>}
@@ -1839,7 +1300,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
       {/* Active Sessions */}
       <div>
         <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Monitor size={18} style={{ color: 'var(--accent-blue, #2563eb)' }} /> Active User Sessions
+          <Monitor size={18} style={{ color: 'var(--accent-blue)' }} /> Active Sessions
         </h3>
         <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
           <div className="table-wrapper">
@@ -1873,7 +1334,7 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
                       {!s.current && (
                         <button className="btn btn-danger btn-sm" onClick={() => handleLogoutSession(s.id)}
                           style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}>
-                          <LogOut size={12} /> Terminate
+                          <LogOut size={12} /> End
                         </button>
                       )}
                     </td>
@@ -1896,7 +1357,6 @@ const SecurityTab = ({ settings, updateSettingsSection, addAuditEntry }) => {
 // ═══════════════════════════════════════════════════════════════
 
 const ProfileTab = ({ user, updateProfile, addAuditEntry }) => {
-  const [name, setName] = useState(user?.name || 'Platform Administrator');
   const [email, setEmail] = useState(user?.email || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -1904,13 +1364,6 @@ const ProfileTab = ({ user, updateProfile, addAuditEntry }) => {
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-
-  useEffect(() => {
-    if (user) {
-      if (user.name) setName(user.name);
-      if (user.email) setEmail(user.email);
-    }
-  }, [user]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -1930,7 +1383,7 @@ const ProfileTab = ({ user, updateProfile, addAuditEntry }) => {
     setLoading(true);
     setMessage({ type: '', text: '' });
     try {
-      const payload = { name: name.trim(), email: email.trim() };
+      const payload = { email: email.trim() };
       if (password) {
         payload.password = password;
       }
@@ -1939,7 +1392,7 @@ const ProfileTab = ({ user, updateProfile, addAuditEntry }) => {
         setMessage({ type: 'success', text: 'Profile updated successfully!' });
         setPassword('');
         setConfirmPassword('');
-        addAuditEntry?.('profile.update', user?.id || 'system', user?.name || 'Admin', 'Updated platform administrator profile credentials');
+        addAuditEntry?.('profile.update', user?.id || 'system', user?.name || 'Admin', 'Updated platform admin profile credentials');
       } else {
         setMessage({ type: 'error', text: res.error || 'Failed to update profile.' });
       }
@@ -1954,10 +1407,10 @@ const ProfileTab = ({ user, updateProfile, addAuditEntry }) => {
     <div className="animate-fade-up" style={{ display: 'flex', justifyContent: 'center' }}>
       <div className="card" style={{ padding: '28px', maxWidth: '480px', width: '100%', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Settings size={18} style={{ color: 'var(--primary)' }} /> Edit Admin Profile
+          <Settings size={18} style={{ color: 'var(--primary)' }} /> Edit Profile
         </h3>
         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
-          Update your platform administrator account details and login password.
+          Update your platform administrator email and login password.
         </p>
 
         {message.text && (
@@ -1976,8 +1429,8 @@ const ProfileTab = ({ user, updateProfile, addAuditEntry }) => {
 
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="input-group">
-            <label className="input-label">Full Name</label>
-            <input className="input-field" value={name} onChange={e => setName(e.target.value)} required />
+            <label className="input-label">Username / Name</label>
+            <input className="input-field" value={user?.name || ''} disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} />
           </div>
 
           <div className="input-group">
@@ -2089,11 +1542,11 @@ export default function PlatformAdmin() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'accounts' && <AccountsTab addAuditEntry={addAuditEntry} />}
-      {activeTab === 'subscription' && <SubscriptionTab settings={settings} orders={orders} updateSettingsSection={updateSettingsSection} addAuditEntry={addAuditEntry} user={user} />}
-      {activeTab === 'audit' && <AuditLogsTab auditLog={auditLog} addAuditEntry={addAuditEntry} />}
-      {activeTab === 'api' && <ApiWebhooksTab settings={settings} updateSettingsSection={updateSettingsSection} addAuditEntry={addAuditEntry} />}
-      {activeTab === 'integrations' && <IntegrationsTab settings={settings} updateSettingsSection={updateSettingsSection} addAuditEntry={addAuditEntry} />}
+      {activeTab === 'accounts' && <AccountsTab />}
+      {activeTab === 'subscription' && <SubscriptionTab settings={settings} />}
+      {activeTab === 'audit' && <AuditLogsTab auditLog={auditLog} />}
+      {activeTab === 'api' && <ApiWebhooksTab addAuditEntry={addAuditEntry} />}
+      {activeTab === 'integrations' && <IntegrationsTab addAuditEntry={addAuditEntry} />}
       {activeTab === 'security' && <SecurityTab settings={settings} updateSettingsSection={updateSettingsSection} addAuditEntry={addAuditEntry} />}
       {activeTab === 'profile' && <ProfileTab user={user} updateProfile={updateProfile} addAuditEntry={addAuditEntry} />}
     </div>
