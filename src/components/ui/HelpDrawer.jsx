@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Sparkles, X, Send, Compass, Settings, AlertCircle, Check, ArrowRight, Package, Trash2, Bot, Cpu } from 'lucide-react';
-import { Badge, Button, Card } from '@astryxdesign/core';
+import { Sparkles, X, Send, Compass, Settings, AlertCircle, Check, ArrowRight, Package, Trash2 } from 'lucide-react';
 import { useApp } from '../../db/AppContext';
 import { useNavigate } from 'react-router-dom';
-
 
 const QuickPrompts = [
   { text: "📊 Analyze today's sales and performance", icon: "📊" },
@@ -691,8 +689,7 @@ const HelpDrawer = ({ isOpen, onClose }) => {
               <div className="sidebar-logo-icon">
                 <Sparkles size={18} />
               </div>
-              <span className="sidebar-logo-text" style={{ fontSize: '1.05rem', fontWeight: 800 }}>Astryx AI Copilot</span>
-              <Badge variant="primary" style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: '12px' }}>AI Powered</Badge>
+              <span className="sidebar-logo-text" style={{ fontSize: '1.05rem', fontWeight: 800 }}>Copilot Help</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {messages.length > 1 && (
@@ -734,10 +731,9 @@ const HelpDrawer = ({ isOpen, onClose }) => {
               marginTop: '-4px' 
             }}
           >
-            Astryx Design Automation &amp; Intelligence
+            AI Help &amp; Automation
           </span>
         </div>
-
 
         {/* Chat Thread */}
         <div 
