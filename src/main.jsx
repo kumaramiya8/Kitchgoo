@@ -7,6 +7,8 @@ import { AuthProvider } from './db/AuthContext.jsx'
 import { initDB } from './db/database.js'
 import { isConfigured } from './lib/supabase.js'
 import './index.css'
+import '@astryxdesign/core/astryx.css'
+
 
 // ── Service worker: production only ───────────────────────────
 // In dev the SW must never run — intercepting Vite's module requests serves
