@@ -10,12 +10,13 @@ import {
   CreditCard, Timer, Users, Activity, Store, Bike, Copy
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { isModuleEnabled } from '../../shared/seeds';
 
 /* ── Constants ──────────────────────────────────────────── */
 const TABS = [
   { key: 'live', label: 'Live Orders', icon: Activity },
   { key: 'thirdparty', label: 'Third-Party', icon: Layers },
-  { key: 'online', label: 'Online Ordering', icon: Globe },
+  { key: 'online', label: 'Online Ordering', icon: Globe, module: 'onlineOrdering' },
   { key: 'dispatch', label: 'Driver Dispatch', icon: Bike },
   { key: 'zones', label: 'Delivery Zones', icon: Map },
 ];
@@ -147,6 +148,16 @@ const Delivery = () => {
   const [zoneModal, setZoneModal] = useState(null);
   const [onlineDetailModal, setOnlineDetailModal] = useState(null);
   const [trackingSent, setTrackingSent] = useState({});
+
+  const visibleTabs = useMemo(() => {
+    return TABS.filter(t => !t.module || isModuleEnabled(settings, t.module));
+  }, [settings]);
+
+  useEffect(() => {
+    if (!visibleTabs.some(t => t.key === tab)) {
+      setTab(visibleTabs[0]?.key || 'live');
+    }
+  }, [visibleTabs, tab]);
 
   /* ── Local state for features not backed by context ──── */
   const [platformConnections, setPlatformConnections] = useState({
@@ -335,7 +346,7 @@ const Delivery = () => {
         background: 'rgba(255,255,255,0.5)', padding: 4, borderRadius: 12,
         width: 'fit-content', border: '1px solid var(--border-subtle)',
       }}>
-        {TABS.map(t => {
+        {visibleTabs.map(t => {
           const Icon = t.icon;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}

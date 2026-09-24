@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
 import { getAll, update as dbUpdate, remove as dbRemove, getCurrentTenant } from '../db/database';
 import { uploadImage } from '../lib/api';
+import { isModuleEnabled } from '../../shared/seeds';
 import {
   Store, CreditCard, Truck, Bell, Printer, Palette, Shield,
   Clock, Save, ToggleLeft, ToggleRight, X, Edit2, ChevronLeft, ChevronRight,
@@ -24,7 +25,7 @@ const SECTIONS = [
   { id: 'payments', label: 'Payment Methods', icon: DollarSign },
   { id: 'operations', label: 'Operations', icon: Clock },
   { id: 'menuConfig', label: 'Menu Categories', icon: LayoutGrid },
-  { id: 'delivery', label: 'Delivery Platforms', icon: Truck },
+  { id: 'delivery', label: 'Delivery Platforms', icon: Truck, module: 'delivery' },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'printer', label: 'Printer & Receipt', icon: Printer },
   { id: 'modules', label: 'Module Toggles', icon: Layers },
@@ -497,7 +498,7 @@ const ModulesSection = ({ data, onChange, isMobile }) => (
     </div>
     {MODULE_DEFS.map(m => {
       const Icon = m.icon;
-      const enabled = data[m.key] !== false;
+      const enabled = isModuleEnabled(data, m.key);
       return (
         <div key={m.key} style={{
           display: 'flex', alignItems: 'center', gap: '14px',
@@ -1494,13 +1495,31 @@ const Settings = () => {
     setLocalSettings(prev => ({ ...prev, roles: updatedRoles }));
   };
 
-  const handleSave = () => {
-    Object.keys(localSettings).forEach(section => {
-      updateSettingsSection(section, localSettings[section]);
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  const handleSave = async () => {
+    try {
+      const changed = Object.keys(localSettings).filter(
+        sec => JSON.stringify(localSettings[sec]) !== JSON.stringify(settings?.[sec])
+      );
+      const toSave = changed.length > 0 ? changed : [activeSection];
+      for (const section of toSave) {
+        await updateSettingsSection(section, localSettings[section]);
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error('[Settings] Failed to save settings:', err);
+    }
   };
+
+  const visibleSections = useMemo(() => {
+    return SECTIONS.filter(s => !s.module || isModuleEnabled(localSettings?.modules, s.module));
+  }, [localSettings?.modules]);
+
+  useEffect(() => {
+    if (!visibleSections.some(s => s.id === activeSection)) {
+      setActiveSection('restaurant');
+    }
+  }, [visibleSections, activeSection]);
 
   const sectionChange = (field, value) => handleChange(activeSection, field, value);
 
@@ -1515,7 +1534,17 @@ const Settings = () => {
       case 'delivery': return <DeliverySection data={s} onChange={sectionChange} isMobile={isMobile} />;
       case 'notifications': return <NotificationsSection data={s} onChange={sectionChange} isMobile={isMobile} />;
       case 'printer': return <PrinterSection data={s} onChange={sectionChange} isMobile={isMobile} />;
-      case 'modules': return <ModulesSection data={localSettings.modules || {}} onChange={(field, value) => handleChange('modules', field, value)} isMobile={isMobile} />;
+      case 'modules': return (
+        <ModulesSection
+          data={localSettings.modules || {}}
+          onChange={async (field, value) => {
+            const updated = { ...(localSettings.modules || {}), [field]: value };
+            handleChange('modules', field, value);
+            await updateSettingsSection('modules', updated);
+          }}
+          isMobile={isMobile}
+        />
+      );
       case 'naming': return <NamingSection data={localSettings.naming || {}} onChange={(field, value) => handleChange('naming', field, value)} isMobile={isMobile} />;
       case 'workflow': return <WorkflowSection data={localSettings.workflow || {}} onChange={(field, value) => handleChange('workflow', field, value)} isMobile={isMobile} />;
       case 'receipt': return <ReceiptBuilderSection data={localSettings.receipt || {}} onChange={(field, value) => handleChange('receipt', field, value)} isMobile={isMobile} />;
@@ -1536,11 +1565,11 @@ const Settings = () => {
         <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '6px 10px 10px' }}>
           Configuration
         </div>
-        {SECTIONS.map((s, idx) => {
+        {visibleSections.map((s, idx) => {
           const Icon = s.icon;
           const active = activeSection === s.id;
           // Group separators
-          const showSep = idx === 8 || idx === 12;
+          const showSep = s.id === 'modules' || s.id === 'roles';
           return (
             <React.Fragment key={s.id}>
               {showSep && (

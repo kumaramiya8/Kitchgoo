@@ -14,7 +14,7 @@
 
 import { isConfigured } from '../lib/supabase';
 import { api } from '../lib/api';
-import { SEEDS, FLEX_COLLECTIONS, ROW_TABLES } from '../../shared/seeds';
+import { SEEDS, FLEX_COLLECTIONS, ROW_TABLES, DEFAULT_MODULES } from '../../shared/seeds';
 import { toCamelCase } from '../../shared/mappers';
 import { localDayStr, todayLocalStr } from '../../shared/dates';
 import { stripItems } from '../../shared/items';
@@ -669,6 +669,11 @@ export function getSettings() {
   const current = _cache['settings'] || SEEDS.settings;
   if (!current.menuCategories) {
     current.menuCategories = SEEDS.settings.menuCategories;
+  }
+  if (!current.modules) {
+    current.modules = { ...DEFAULT_MODULES };
+  } else {
+    current.modules = { ...DEFAULT_MODULES, ...current.modules };
   }
   return current;
 }

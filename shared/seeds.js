@@ -16,6 +16,33 @@ export const FLEX_COLLECTIONS = [
 // Relational tables with real columns
 export const ROW_TABLES = ['users', 'menu', 'inventory', 'orders'];
 
+export const DEFAULT_MODULES = {
+  tableManagement: true,
+  reservations: true,
+  kds: true,
+  delivery: true,
+  onlineOrdering: true,
+  qrAiOrdering: true,
+  loyalty: true,
+  campaigns: true,
+  multiLocation: false,
+  platformAdmin: false,
+};
+
+export function isModuleEnabled(modulesOrSettings, key) {
+  if (!key) return true;
+  const modules = (modulesOrSettings && typeof modulesOrSettings === 'object' && 'modules' in modulesOrSettings)
+    ? modulesOrSettings.modules
+    : modulesOrSettings;
+  if (!modules || typeof modules !== 'object') {
+    return DEFAULT_MODULES[key] ?? true;
+  }
+  if (modules[key] !== undefined) {
+    return modules[key] === true;
+  }
+  return DEFAULT_MODULES[key] ?? true;
+}
+
 export const SEEDS = {
   settings: {
     restaurant: {
@@ -122,15 +149,7 @@ export const SEEDS = {
       { id: 'waiter',  name: 'Waiter',  permissions: ['pos', 'kds.view', 'reservations.view'] },
     ],
     modules: {
-      tableManagement: true,
-      reservations: true,
-      kds: true,
-      delivery: true,
-      onlineOrdering: true,
-      loyalty: true,
-      campaigns: true,
-      multiLocation: false,
-      platformAdmin: false,
+      ...DEFAULT_MODULES,
     },
     naming: {
       checks: 'Checks',

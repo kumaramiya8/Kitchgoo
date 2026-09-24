@@ -22,6 +22,7 @@ import {
 import { useApp } from '../../db/AppContext';
 import { useAuth } from '../../db/AuthContext';
 import { usePermissions } from '../../db/usePermissions';
+import { isModuleEnabled } from '../../../shared/seeds';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { settings } = useApp();
@@ -35,28 +36,34 @@ const Sidebar = ({ isOpen, onClose }) => {
   const operationsNav = [
     { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: null },
     { name: 'POS & Billing',    path: '/pos',        icon: ShoppingCart,    perm: 'pos' },
-    { name: 'Kitchen Display',  path: '/kds',        icon: Monitor,         perm: 'kds' },
+    { name: 'Kitchen Display',  path: '/kds',        icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Menu',             path: '/menu',       icon: MenuSquare,      perm: 'menu' },
     { name: 'Inventory',        path: '/inventory',  icon: Package,         perm: 'inventory' },
-    { name: 'Delivery & Online',path: '/delivery',   icon: Truck,           perm: 'delivery' },
+    { name: 'Delivery & Online',path: '/delivery',   icon: Truck,           perm: 'delivery', module: 'delivery' },
   ];
 
   const managementNav = [
     { name: 'Staff & Workforce', path: '/staff',        icon: Users,        perm: 'staff' },
     { name: 'Attendance',        path: '/attendance',   icon: Clock,        perm: null },
     { name: 'Guests & CRM',      path: '/guests',       icon: UserCheck,    perm: 'guests' },
-    { name: 'Reservations',      path: '/reservations', icon: CalendarDays, perm: 'reservations' },
+    { name: 'Reservations',      path: '/reservations', icon: CalendarDays, perm: 'reservations', module: 'reservations' },
     { name: 'Reports',           path: '/reports',      icon: BarChart3,    perm: 'reports' },
   ];
 
   const enterpriseNav = [
-    { name: 'Multi-Location', path: '/multi-location', icon: Globe,   perm: null },
-    { name: 'Platform Admin', path: '/platform-admin', icon: Shield,  perm: null },
+    { name: 'Multi-Location', path: '/multi-location', icon: Globe,   perm: null, module: 'multiLocation' },
+    { name: 'Platform Admin', path: '/platform-admin', icon: Shield,  perm: null, module: 'platformAdmin' },
   ];
+
+  const isItemVisible = (item) => {
+    if (item.module && !isModuleEnabled(settings, item.module)) return false;
+    if (item.perm && !can(item.perm)) return false;
+    return true;
+  };
 
   const renderNavItems = (items) =>
     items
-      .filter(item => !item.perm || can(item.perm))
+      .filter(isItemVisible)
       .map((item) => (
         <NavLink
           key={item.path}
@@ -118,10 +125,12 @@ const Sidebar = ({ isOpen, onClose }) => {
           </div>
 
           {/* Enterprise */}
-          <div className="sidebar-section">
-            <div className="sidebar-section-label">Enterprise</div>
-            {renderNavItems(enterpriseNav.filter(n => n.name !== 'Platform Admin'))}
-          </div>
+          {enterpriseNav.filter(n => n.name !== 'Platform Admin').some(isItemVisible) && (
+            <div className="sidebar-section">
+              <div className="sidebar-section-label">Enterprise</div>
+              {renderNavItems(enterpriseNav.filter(n => n.name !== 'Platform Admin'))}
+            </div>
+          )}
         </>
       )}
 

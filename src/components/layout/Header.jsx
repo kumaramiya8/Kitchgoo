@@ -7,18 +7,19 @@ import { useNavigate } from 'react-router-dom';
 import HelpDrawer from '../ui/HelpDrawer';
 import Tooltip from '../ui/Tooltip';
 import { toggleThemeWithReveal } from '../../lib/theme';
+import { isModuleEnabled } from '../../../shared/seeds';
 
 const SEARCHABLE_ITEMS = [
   // Pages
   { name: 'Dashboard', type: 'page', path: '/', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'] },
   { name: 'POS & Billing', type: 'page', path: '/pos', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Waiter'] },
-  { name: 'Kitchen Display System', type: 'page', path: '/kds', allowedRoles: ['Owner', 'Manager', 'Chef'] },
+  { name: 'Kitchen Display System', type: 'page', path: '/kds', module: 'kds', allowedRoles: ['Owner', 'Manager', 'Chef'] },
   { name: 'Menu Management', type: 'page', path: '/menu', allowedRoles: ['Owner', 'Manager', 'Chef'] },
   { name: 'Inventory & Supply Chain', type: 'page', path: '/inventory', allowedRoles: ['Owner', 'Manager', 'Chef'] },
-  { name: 'Delivery & Online Ordering', type: 'page', path: '/delivery', allowedRoles: ['Owner', 'Manager', 'Cashier'] },
+  { name: 'Delivery & Online Ordering', type: 'page', path: '/delivery', module: 'delivery', allowedRoles: ['Owner', 'Manager', 'Cashier'] },
   { name: 'Staff & Workforce', type: 'page', path: '/staff', allowedRoles: ['Owner', 'Manager'] },
   { name: 'Guests & CRM', type: 'page', path: '/guests', allowedRoles: ['Owner', 'Manager', 'Cashier'] },
-  { name: 'Reservations & Waitlist', type: 'page', path: '/reservations', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Waiter'] },
+  { name: 'Reservations & Waitlist', type: 'page', path: '/reservations', module: 'reservations', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Waiter'] },
   { name: 'Reports & Analytics', type: 'page', path: '/reports', allowedRoles: ['Owner', 'Manager'] },
   
   // Settings Sections
@@ -27,7 +28,7 @@ const SEARCHABLE_ITEMS = [
   { name: 'Settings: Payment Methods', type: 'setting', path: '/settings?tab=payments', allowedRoles: ['Owner'] },
   { name: 'Settings: Operations', type: 'setting', path: '/settings?tab=operations', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'] },
   { name: 'Settings: Menu Categories', type: 'setting', path: '/settings?tab=menuConfig', allowedRoles: ['Owner', 'Manager'] },
-  { name: 'Settings: Delivery Platforms', type: 'setting', path: '/settings?tab=delivery', allowedRoles: ['Owner', 'Manager'] },
+  { name: 'Settings: Delivery Platforms', type: 'setting', path: '/settings?tab=delivery', module: 'delivery', allowedRoles: ['Owner', 'Manager'] },
   { name: 'Settings: Notifications', type: 'setting', path: '/settings?tab=notifications', allowedRoles: ['Owner', 'Manager'] },
   { name: 'Settings: Printer & Receipt', type: 'setting', path: '/settings?tab=printer', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef'] },
   { name: 'Settings: Module Toggles', type: 'setting', path: '/settings?tab=modules', allowedRoles: ['Owner', 'Manager'] },
@@ -90,11 +91,16 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
       if (!nameMatches) return false;
 
       // 2. Match role permission
-      return item.allowedRoles.some(r => r.toLowerCase() === userRole);
+      if (!item.allowedRoles.some(r => r.toLowerCase() === userRole)) return false;
+
+      // 3. Match module toggle
+      if (item.module && !isModuleEnabled(settings, item.module)) return false;
+
+      return true;
     });
 
     setSearchResults(filtered);
-  }, [searchQuery, user]);
+  }, [searchQuery, user, settings]);
 
   // Position dropdown relative to button
   const openDropdown = () => {

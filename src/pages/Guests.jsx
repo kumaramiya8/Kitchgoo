@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
+import { isModuleEnabled } from '../../shared/seeds';
 
 // ── Constants ─────────────────────────────────────────────────
 const TIERS = ['Bronze', 'Silver', 'Gold', 'VIP'];
@@ -29,8 +30,8 @@ const SEATING_PREFS = ['Window', 'Corner Booth', 'Patio/Outdoor', 'Bar', 'Privat
 const TABS = [
   { id: 'directory', label: 'Guest Directory', icon: Users },
   { id: 'profile', label: 'Guest Profile', icon: User },
-  { id: 'loyalty', label: 'Loyalty Program', icon: Award },
-  { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
+  { id: 'loyalty', label: 'Loyalty Program', icon: Award, module: 'loyalty' },
+  { id: 'campaigns', label: 'Campaigns', icon: Megaphone, module: 'campaigns' },
   { id: 'segmentation', label: 'Segmentation', icon: Target },
 ];
 
@@ -467,6 +468,16 @@ const Guests = () => {
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState(null);
   const [invoiceOrder, setInvoiceOrder] = useState(null);
+
+  const visibleTabs = useMemo(() => {
+    return TABS.filter(t => !t.module || isModuleEnabled(settings, t.module));
+  }, [settings]);
+
+  useEffect(() => {
+    if (!visibleTabs.some(t => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0]?.id || 'directory');
+    }
+  }, [visibleTabs, activeTab]);
 
   // Profile sub-tab
   const [profileTab, setProfileTab] = useState('orders');
@@ -1411,7 +1422,7 @@ const Guests = () => {
         borderBottom: '1px solid var(--border-subtle)',
         overflowX: 'auto',
       }}>
-        {TABS.map(t => {
+        {visibleTabs.map(t => {
           const Icon = t.icon;
           const isDisabled = t.id === 'profile' && !selectedGuest;
           return (

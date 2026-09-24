@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { localDayStr, todayLocalStr } from '../../shared/dates';
+import { isModuleEnabled } from '../../shared/seeds';
 import AttendanceCalendar from '../components/AttendanceCalendar';
 import { recordTs, recordDay, localDay } from '../lib/attendance';
 
@@ -202,14 +203,16 @@ const Dashboard = () => {
           changeUp={true}
           icon={CheckCircle}
         />
-        <StatCard
-          label="Active Deliveries"
-          value={activeDeliveries}
-          subLabel={`${deliveryOrders.length} total delivery orders`}
-          changeValue={activeDeliveries > 0 ? `${activeDeliveries} in progress` : 'All fulfilled'}
-          changeUp={false}
-          icon={Truck}
-        />
+        {isModuleEnabled(settings, 'delivery') && (
+          <StatCard
+            label="Active Deliveries"
+            value={activeDeliveries}
+            subLabel={`${deliveryOrders.length} total delivery orders`}
+            changeValue={activeDeliveries > 0 ? `${activeDeliveries} in progress` : 'All fulfilled'}
+            changeUp={false}
+            icon={Truck}
+          />
+        )}
         <StatCard
           label="Low Stock Alerts"
           value={lowStockCount}
@@ -224,13 +227,13 @@ const Dashboard = () => {
       {/* Secondary Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px', marginBottom: '20px' }}>
         {[
-          { label: 'KDS Active', value: activeKDSCount, icon: Utensils, color: activeKDSCount > 0 ? 'var(--warning)' : 'var(--success)' },
-          { label: 'Reservations', value: todayReservations, icon: Clock, color: 'var(--accent-blue)' },
-          { label: 'Waitlist', value: waitlistCount, icon: Users, color: waitlistCount > 0 ? 'var(--warning)' : 'var(--text-muted)' },
+          isModuleEnabled(settings, 'kds') && { label: 'KDS Active', value: activeKDSCount, icon: Utensils, color: activeKDSCount > 0 ? 'var(--warning)' : 'var(--success)' },
+          isModuleEnabled(settings, 'reservations') && { label: 'Reservations', value: todayReservations, icon: Clock, color: 'var(--accent-blue)' },
+          isModuleEnabled(settings, 'reservations') && { label: 'Waitlist', value: waitlistCount, icon: Users, color: waitlistCount > 0 ? 'var(--warning)' : 'var(--text-muted)' },
           { label: 'Staff On Duty', value: activeStaff, icon: Users, color: 'var(--primary)' },
           { label: 'Total Guests', value: totalGuests, icon: Star, color: 'var(--primary)' },
-          { label: 'VIP Guests', value: vipGuests, icon: Star, color: '#f59e0b' },
-        ].map(s => (
+          isModuleEnabled(settings, 'loyalty') && { label: 'VIP Guests', value: vipGuests, icon: Star, color: '#f59e0b' },
+        ].filter(Boolean).map(s => (
           <div key={s.label} className="card animate-fade-up" style={{ padding: '14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: 36, height: 36, borderRadius: '10px', background: `${s.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: s.color, flexShrink: 0 }}>
               <s.icon size={18} />

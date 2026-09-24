@@ -10,12 +10,15 @@ import {
   Clock,
 } from 'lucide-react';
 import { useAuth } from '../../db/AuthContext';
+import { useApp } from '../../db/AppContext';
 import { usePermissions } from '../../db/usePermissions';
+import { isModuleEnabled } from '../../../shared/seeds';
 
 // Mobile-only tab bar. Items with a perm field are hidden when the user's role
 // lacks that permission. Attendance is always visible — every staff member
 // needs to clock in/out regardless of role.
 const BottomNav = ({ onMoreClick }) => {
+  const { settings } = useApp();
   const { user } = useAuth();
   const can = usePermissions();
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
@@ -23,14 +26,18 @@ const BottomNav = ({ onMoreClick }) => {
   const allItems = [
     { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: null },
     { name: 'POS',        path: '/pos',         icon: ShoppingCart,    perm: 'pos' },
-    { name: 'Kitchen',    path: '/kds',         icon: Monitor,         perm: 'kds' },
+    { name: 'Kitchen',    path: '/kds',         icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Attendance', path: '/attendance',  icon: Clock,           perm: null },
     { name: 'Reports',    path: '/reports',     icon: BarChart3,       perm: 'reports' },
   ];
 
   const items = isPlatformAdmin
     ? [{ name: 'Admin', path: '/', icon: Shield, perm: null }]
-    : allItems.filter(item => !item.perm || can(item.perm));
+    : allItems.filter(item => {
+        if (item.module && !isModuleEnabled(settings, item.module)) return false;
+        if (item.perm && !can(item.perm)) return false;
+        return true;
+      });
 
   return (
     <nav className="bottom-nav">

@@ -14,6 +14,7 @@ import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import { getAll, insert, update, getById } from '../db/database';
 import { printReceipt } from '../utils/printReceipt';
+import { isModuleEnabled } from '../../shared/seeds';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const ORDER_TYPES = [
@@ -2029,8 +2030,17 @@ const POS = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const isTableManagementEnabled = isModuleEnabled(settings, 'tableManagement');
+  const isKdsEnabled = isModuleEnabled(settings, 'kds');
+
   const [orderType, setOrderType] = useState('dine-in');
-  const [view, setView] = useState('floor'); // 'floor' | 'order'
+  const [view, setView] = useState(() => (isTableManagementEnabled ? 'floor' : 'order')); // 'floor' | 'order'
+
+  useEffect(() => {
+    if (!isTableManagementEnabled && view === 'floor') {
+      setView('order');
+    }
+  }, [isTableManagementEnabled, view]);
   const [viewMode, setViewMode] = useState('map'); // 'grid' | 'map'
   const tables = posTables || [];
   const setTables = setPosTables;
@@ -2768,7 +2778,7 @@ const POS = () => {
 
     // Fire to KDS if dine-in order wasn't saved, or if it is takeout/delivery
     const wasFired = activeTable && savedOrders[activeTable.id]?.length > 0;
-    if (!wasFired) {
+    if (!wasFired && isKdsEnabled) {
       const kdsOrderId = order.id || Date.now().toString();
       try {
         await fireToKDS(kdsOrderId, cart, tableId, orderType);
@@ -2793,7 +2803,7 @@ const POS = () => {
     setDeliveryAddress('');
     setDriverInstructions('');
     setDeliveryChannel('In-House');
-    setView('floor');
+    setView(isTableManagementEnabled ? 'floor' : 'order');
     const displayMethod = paymentSplits && paymentSplits.length > 0
       ? `Split (${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')})`
       : paymentMethod;
@@ -3388,9 +3398,15 @@ const POS = () => {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => { setView('floor'); setCart([]); setDiscountAmount(0); }}>
-              <ChevronLeft size={15} /> Back
-            </button>
+            {isTableManagementEnabled ? (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setView('floor'); setCart([]); setDiscountAmount(0); }}>
+                <ChevronLeft size={15} /> Tables
+              </button>
+            ) : (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setCart([]); setDiscountAmount(0); }}>
+                <RotateCcw size={15} /> Clear Cart
+              </button>
+            )}
             <div>
               <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 {activeTable ? `Table ${activeTable.number || activeTable.id}` : orderType === 'takeout' ? 'Takeout' : 'Delivery'}
@@ -3642,7 +3658,7 @@ const POS = () => {
         <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.4)' }}>
           {/* Quick actions row */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
-            {unfiredCourses.length > 0 && (
+            {unfiredCourses.length > 0 && isKdsEnabled && (
               <button className="btn btn-secondary btn-sm" style={{ fontSize: '0.72rem', padding: '5px 8px' }} onClick={handleFireNextCourse}>
                 <Flame size={12} /> Fire C{Math.min(...unfiredCourses)}
               </button>
