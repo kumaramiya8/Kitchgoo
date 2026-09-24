@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
-import { getAll, update as dbUpdate, remove as dbRemove, getCurrentTenant } from '../db/database';
+import { getAll, update as dbUpdate, remove as dbRemove, getCurrentTenant, getSettings } from '../db/database';
 import { uploadImage } from '../lib/api';
 import { isModuleEnabled } from '../../shared/seeds';
 import {
@@ -1449,15 +1449,24 @@ const AttendanceSection = ({ data, onChange, isMobile }) => {
 const Settings = () => {
   const { settings, updateSettingsSection } = useApp();
   const [activeSection, setActiveSection] = useState('restaurant');
-  const [localSettings, setLocalSettings] = useState(null);
+  const [localSettings, setLocalSettings] = useState(() => (
+    settings ? JSON.parse(JSON.stringify(settings)) : getSettings()
+  ));
   const [saved, setSaved] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const [mobileView, setMobileView] = useState('menu'); // 'menu' | 'content'
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
 
+  const visibleSections = useMemo(() => {
+    const mods = localSettings?.modules || settings?.modules;
+    return SECTIONS.filter(s => !s.module || isModuleEnabled(mods, s.module));
+  }, [localSettings?.modules, settings?.modules]);
+
   useEffect(() => {
-    if (settings) setLocalSettings(JSON.parse(JSON.stringify(settings)));
+    if (settings) {
+      setLocalSettings(JSON.parse(JSON.stringify(settings)));
+    }
   }, [settings]);
 
   useEffect(() => {
@@ -1476,26 +1485,34 @@ const Settings = () => {
   useEffect(() => {
     if (tabParam) {
       setActiveSection(tabParam);
-      if (window.innerWidth <= 768) {
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
         setMobileView('content');
       }
     }
   }, [tabParam]);
 
-  if (!localSettings) return null;
+  useEffect(() => {
+    if (visibleSections.length > 0 && !visibleSections.some(s => s.id === activeSection)) {
+      setActiveSection(visibleSections[0]?.id || 'restaurant');
+    }
+  }, [visibleSections, activeSection]);
 
   const handleChange = (section, field, value) => {
-    setLocalSettings(prev => ({
-      ...prev,
-      [section]: field ? { ...prev[section], [field]: value } : value
-    }));
+    setLocalSettings(prev => {
+      const base = prev || settings || getSettings();
+      return {
+        ...base,
+        [section]: field ? { ...base[section], [field]: value } : value,
+      };
+    });
   };
 
   const handleRolesChange = (updatedRoles) => {
-    setLocalSettings(prev => ({ ...prev, roles: updatedRoles }));
+    setLocalSettings(prev => ({ ...(prev || {}), roles: updatedRoles }));
   };
 
   const handleSave = async () => {
+    if (!localSettings) return;
     try {
       const changed = Object.keys(localSettings).filter(
         sec => JSON.stringify(localSettings[sec]) !== JSON.stringify(settings?.[sec])
@@ -1511,21 +1528,22 @@ const Settings = () => {
     }
   };
 
-  const visibleSections = useMemo(() => {
-    return SECTIONS.filter(s => !s.module || isModuleEnabled(localSettings?.modules, s.module));
-  }, [localSettings?.modules]);
+  const currentSection = visibleSections.some(s => s.id === activeSection)
+    ? activeSection
+    : (visibleSections[0]?.id || 'restaurant');
 
-  useEffect(() => {
-    if (!visibleSections.some(s => s.id === activeSection)) {
-      setActiveSection('restaurant');
-    }
-  }, [visibleSections, activeSection]);
-
-  const sectionChange = (field, value) => handleChange(activeSection, field, value);
+  const sectionChange = (field, value) => handleChange(currentSection, field, value);
 
   const renderSection = () => {
-    const s = localSettings[activeSection] || {};
-    switch (activeSection) {
+    if (!localSettings) {
+      return (
+        <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          Loading configuration…
+        </div>
+      );
+    }
+    const s = localSettings[currentSection] || {};
+    switch (currentSection) {
       case 'restaurant': return <RestaurantSection data={s} onChange={sectionChange} isMobile={isMobile} />;
       case 'billing': return <BillingSection data={s} onChange={sectionChange} isMobile={isMobile} />;
       case 'payments': return <PaymentsSection data={s} onChange={sectionChange} isMobile={isMobile} />;
@@ -1556,7 +1574,7 @@ const Settings = () => {
     }
   };
 
-  const activeInfo = SECTIONS.find(s => s.id === activeSection);
+  const activeInfo = SECTIONS.find(s => s.id === currentSection) || visibleSections[0] || SECTIONS[0];
 
   return (
     <div className={`animate-fade-up settings-container ${mobileView === 'menu' ? 'show-menu' : 'show-content'}`}>
@@ -1567,7 +1585,7 @@ const Settings = () => {
         </div>
         {visibleSections.map((s, idx) => {
           const Icon = s.icon;
-          const active = activeSection === s.id;
+          const active = currentSection === s.id;
           // Group separators
           const showSep = s.id === 'modules' || s.id === 'roles';
           return (
@@ -1610,14 +1628,14 @@ const Settings = () => {
                 <ChevronLeft size={18} />
               </button>
             )}
-            {activeInfo && (
+            {activeInfo?.icon && (
               <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(30, 94, 74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
                 <activeInfo.icon size={20} />
               </div>
             )}
             <div>
-              <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>{activeInfo?.label}</h2>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure {activeInfo?.label.toLowerCase()} for your restaurant</p>
+              <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '2px' }}>{activeInfo?.label || 'Settings'}</h2>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Configure {(activeInfo?.label || 'settings').toLowerCase()} for your restaurant</p>
             </div>
           </div>
           <button className="btn btn-primary" onClick={handleSave} style={{ width: isMobile ? '100%' : 'auto' }}>

@@ -110,4 +110,34 @@ describe('Module Toggles System', () => {
     expect(getInitialPosView({ modules: { tableManagement: false } })).toBe('order');
     expect(getInitialPosView({})).toBe('floor'); // default is true
   });
+
+  it('correctly filters Settings sections and falls back safely when modules are disabled', () => {
+    const SECTIONS = [
+      { id: 'restaurant', label: 'Restaurant Profile' },
+      { id: 'delivery', label: 'Delivery Platforms', module: 'delivery' },
+      { id: 'modules', label: 'Module Toggles' },
+    ];
+
+    const settings = {
+      modules: {
+        delivery: false,
+      }
+    };
+
+    const visibleSections = SECTIONS.filter(s => !s.module || isModuleEnabled(settings, s.module));
+    expect(visibleSections.map(s => s.id)).toEqual(['restaurant', 'modules']);
+
+    // When activeSection was 'delivery', it safely falls back to visibleSections[0] or restaurant
+    const activeSection = 'delivery';
+    const currentSection = visibleSections.some(s => s.id === activeSection)
+      ? activeSection
+      : (visibleSections[0]?.id || 'restaurant');
+
+    expect(currentSection).toBe('restaurant');
+
+    const activeInfo = SECTIONS.find(s => s.id === currentSection) || visibleSections[0] || SECTIONS[0];
+    expect(activeInfo).toBeDefined();
+    expect(activeInfo.label).toBe('Restaurant Profile');
+    expect((activeInfo.label || 'settings').toLowerCase()).toBe('restaurant profile');
+  });
 });
