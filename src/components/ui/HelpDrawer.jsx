@@ -173,10 +173,21 @@ const HelpDrawer = ({ isOpen, onClose }) => {
       }
 
       // 3. Payment methods overall
-      const pm = (o.paymentMethod || 'Cash').toLowerCase();
-      if (pm.includes('cash')) paymentMethodsAll.cash += (o.total || 0);
-      else if (pm.includes('card')) paymentMethodsAll.card += (o.total || 0);
-      else paymentMethodsAll.upi += (o.total || 0);
+      const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+      if (Array.isArray(splits) && splits.length > 0) {
+        splits.forEach(sp => {
+          const pm = (sp.method || '').toLowerCase();
+          const amt = parseFloat(sp.amount || 0);
+          if (pm.includes('cash')) paymentMethodsAll.cash += amt;
+          else if (pm.includes('card')) paymentMethodsAll.card += amt;
+          else paymentMethodsAll.upi += amt;
+        });
+      } else {
+        const pm = (o.paymentMethod || 'Cash').toLowerCase();
+        if (pm.includes('cash')) paymentMethodsAll.cash += (o.total || 0);
+        else if (pm.includes('card')) paymentMethodsAll.card += (o.total || 0);
+        else paymentMethodsAll.upi += (o.total || 0);
+      }
 
       // 4. Order types overall
       const type = o.orderType || 'Dine-In';
@@ -217,10 +228,21 @@ const HelpDrawer = ({ isOpen, onClose }) => {
       overallAverageOrderValue: overallOrdersCount > 0 ? (overallRevenue / overallOrdersCount) : 0,
       topSellingItems,
       paymentMethodsBreakdown: todayOrders.reduce((acc, o) => {
-        const method = (o.paymentMethod || 'Cash').toLowerCase();
-        if (method.includes('cash')) acc.cash += (o.total || 0);
-        else if (method.includes('card')) acc.card += (o.total || 0);
-        else acc.upi += (o.total || 0);
+        const orderSplits = o.paymentSplits || o.timestamps?.paymentSplits;
+        if (Array.isArray(orderSplits) && orderSplits.length > 0) {
+          orderSplits.forEach(sp => {
+            const method = (sp.method || '').toLowerCase();
+            const amt = parseFloat(sp.amount || 0);
+            if (method.includes('cash')) acc.cash += amt;
+            else if (method.includes('card')) acc.card += amt;
+            else acc.upi += amt;
+          });
+        } else {
+          const method = (o.paymentMethod || 'Cash').toLowerCase();
+          if (method.includes('cash')) acc.cash += (o.total || 0);
+          else if (method.includes('card')) acc.card += (o.total || 0);
+          else acc.upi += (o.total || 0);
+        }
         return acc;
       }, { cash: 0, card: 0, upi: 0 }),
       monthlySales,

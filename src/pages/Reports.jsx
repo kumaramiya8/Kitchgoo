@@ -610,10 +610,23 @@ const DailySalesSummaryReport = ({ orders }) => {
       // Calculate gross sales (before discounts and taxes)
       day.gross += (totalAmount + disc - taxAmount);
 
-      const pMethod = (o.paymentMethod || 'Cash').toLowerCase();
-      if (pMethod.includes('cash')) day.cash += totalAmount;
-      else if (pMethod.includes('card')) day.card += totalAmount;
-      else day.upi += totalAmount; // UPI
+      const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+      if (Array.isArray(splits) && splits.length > 0) {
+        splits.forEach(sp => {
+          const pm = (sp.method || '').toLowerCase();
+          const amt = parseFloat(sp.amount || 0);
+          if (pm.includes('cash')) day.cash += amt;
+          else if (pm.includes('card')) day.card += amt;
+          else if (pm.includes('wallet')) day.wallet = (day.wallet || 0) + amt;
+          else day.upi += amt;
+        });
+      } else {
+        const pMethod = (o.paymentMethod || 'Cash').toLowerCase();
+        if (pMethod.includes('cash')) day.cash += totalAmount;
+        else if (pMethod.includes('card')) day.card += totalAmount;
+        else if (pMethod.includes('wallet')) day.wallet = (day.wallet || 0) + totalAmount;
+        else day.upi += totalAmount; // UPI
+      }
     });
 
     return Object.values(map);
@@ -633,15 +646,16 @@ const DailySalesSummaryReport = ({ orders }) => {
       tax: s.tax + r.tax,
       cash: s.cash + r.cash,
       card: s.card + r.card,
-      upi: s.upi + r.upi
-    }), { ordersCount: 0, gross: 0, discounts: 0, tax: 0, cash: 0, card: 0, upi: 0 });
+      upi: s.upi + r.upi,
+      wallet: (s.wallet || 0) + (r.wallet || 0)
+    }), { ordersCount: 0, gross: 0, discounts: 0, tax: 0, cash: 0, card: 0, upi: 0, wallet: 0 });
   }, [dailyData]);
 
   const handleExport = () => {
     const rows = [
-      'Date,Total Orders,Gross Sales,Discounts Applied,Net Sales,Tax Collected,Cash Totals,Card Totals,UPI Totals',
+      'Date,Total Orders,Gross Sales,Discounts Applied,Net Sales,Tax Collected,Cash Totals,Card Totals,UPI Totals,Wallet Totals',
       ...sortedDailyData.map(r =>
-        `"${r.date}",${r.ordersCount},${r.gross.toFixed(2)},${r.discounts.toFixed(2)},${(r.gross - r.discounts).toFixed(2)},${r.tax.toFixed(2)},${r.cash.toFixed(2)},${r.card.toFixed(2)},${r.upi.toFixed(2)}`
+        `"${r.date}",${r.ordersCount},${r.gross.toFixed(2)},${r.discounts.toFixed(2)},${(r.gross - r.discounts).toFixed(2)},${r.tax.toFixed(2)},${r.cash.toFixed(2)},${r.card.toFixed(2)},${r.upi.toFixed(2)},${(r.wallet || 0).toFixed(2)}`
       ),
     ];
     downloadCSV('daily_sales_summary.csv', rows);
@@ -703,6 +717,7 @@ const DailySalesSummaryReport = ({ orders }) => {
                   <Td right>{fmt(r.tax)}</Td>
                   <Td style={{ fontSize: '0.75rem' }}>
                     <span style={{ color: 'var(--success)', fontWeight: 600 }}>Cash:</span> {fmt(r.cash)} | <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>Card:</span> {fmt(r.card)} | <span style={{ color: 'var(--primary)', fontWeight: 600 }}>UPI:</span> {fmt(r.upi)}
+                    {r.wallet > 0 && <> | <span style={{ color: '#d97706', fontWeight: 600 }}>Wallet:</span> {fmt(r.wallet)}</>}
                   </Td>
                 </tr>
               ))}
@@ -715,6 +730,7 @@ const DailySalesSummaryReport = ({ orders }) => {
                 <TdSummary right bold>{fmt(totals.tax)}</TdSummary>
                 <TdSummary bold>
                   Cash: {fmt(totals.cash)} | Card: {fmt(totals.card)} | UPI: {fmt(totals.upi)}
+                  {totals.wallet > 0 && <> | Wallet: {fmt(totals.wallet)}</>}
                 </TdSummary>
               </tr>
             </tbody>
@@ -780,6 +796,13 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
       ${order.tip ? `<tr><td colspan="2">Tip</td><td style="text-align:right">₹${(order.tip || 0).toFixed(2)}</td></tr>` : ''}
       ${order.serviceCharge ? `<tr><td colspan="2">Service Charge</td><td style="text-align:right">₹${(order.serviceCharge || 0).toFixed(2)}</td></tr>` : ''}
       <tr><td colspan="2"><strong>TOTAL</strong></td><td style="text-align:right"><strong>₹${(order.total || 0).toFixed(2)}</strong></td></tr>
+      ${(() => {
+        const splits = order.paymentSplits || order.timestamps?.paymentSplits;
+        if (Array.isArray(splits) && splits.length > 0) {
+          return splits.map(sp => `<tr><td colspan="2" style="font-size:11px;color:#555;padding-left:12px;">&bull; Paid via ${sp.method}</td><td style="text-align:right;font-size:11px;color:#555;">₹${parseFloat(sp.amount || 0).toFixed(2)}</td></tr>`).join('');
+        }
+        return '';
+      })()}
       </table><p style="text-align:center;margin-top:16px">Payment: ${order.paymentMethod || 'N/A'}<br/>Thank you!</p>
       <script>window.print();</script></body></html>`);
   };
@@ -855,6 +878,18 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
               <div><span style={{ color: 'var(--text-muted)' }}>Server: </span><strong>{selectedOrder.serverName || 'N/A'}</strong></div>
               <div><span style={{ color: 'var(--text-muted)' }}>Payment: </span><strong>{selectedOrder.paymentMethod || 'N/A'}</strong></div>
               <div><span style={{ color: 'var(--text-muted)' }}>Status: </span><Badge label={selectedOrder.status || 'Closed'} color={selectedOrder.status === 'Voided' ? '#ef4444' : '#22c55e'} /></div>
+              {(selectedOrder.paymentSplits || selectedOrder.timestamps?.paymentSplits)?.length > 0 && (
+                <div style={{ gridColumn: 'span 2', padding: '8px 12px', background: 'rgba(30, 94, 74, 0.05)', borderRadius: 'var(--r-sm)', border: '1px solid rgba(30, 94, 74, 0.15)' }}>
+                  <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>Split Payment Breakdown:</span>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    {(selectedOrder.paymentSplits || selectedOrder.timestamps?.paymentSplits).map((sp, i) => (
+                      <span key={i} style={{ fontSize: '0.78rem' }}>
+                        <strong>{sp.method}:</strong> {fmt(sp.amount)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <TableWrap style={{ marginBottom: 16 }}>
               <thead>
@@ -954,14 +989,36 @@ const RegisterClosuresReport = () => {
             const total = o.total || 0;
             const tip = o.tip || 0;
             
-            if (method.includes('card')) {
-              cardSales += total;
-              cardTips += tip;
-            } else if (method.includes('upi') || method.includes('custom')) {
-              upiSales += total;
-              upiTips += tip;
-            } else if (method.includes('cash')) {
-              cashTips += tip;
+            const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+            if (Array.isArray(splits) && splits.length > 0) {
+              splits.forEach(sp => {
+                const m = (sp.method || '').toLowerCase();
+                const amt = parseFloat(sp.amount || 0);
+                if (m.includes('card')) {
+                  cardSales += amt;
+                } else if (m.includes('upi') || m.includes('custom') || m.includes('wallet')) {
+                  upiSales += amt;
+                }
+              });
+              if (tip > 0 && total > 0) {
+                splits.forEach(sp => {
+                  const m = (sp.method || '').toLowerCase();
+                  const share = (parseFloat(sp.amount || 0) / total) * tip;
+                  if (m.includes('card')) cardTips += share;
+                  else if (m.includes('upi') || m.includes('custom') || m.includes('wallet')) upiTips += share;
+                  else if (m.includes('cash')) cashTips += share;
+                });
+              }
+            } else {
+              if (method.includes('card')) {
+                cardSales += total;
+                cardTips += tip;
+              } else if (method.includes('upi') || method.includes('custom') || method.includes('wallet')) {
+                upiSales += total;
+                upiTips += tip;
+              } else if (method.includes('cash')) {
+                cashTips += tip;
+              }
             }
           }
         });
@@ -1416,7 +1473,17 @@ const SalesAccrualReport = ({ orders }) => {
     }
 
     if (paymentTypeFilter !== 'All') {
-      arr = arr.filter(o => (o.paymentMethod || 'N/A') === paymentTypeFilter);
+      arr = arr.filter(o => {
+        if (paymentTypeFilter === 'Split') {
+          return (o.paymentMethod || '').toLowerCase().startsWith('split') || (o.paymentSplits?.length > 1) || (o.timestamps?.paymentSplits?.length > 1);
+        }
+        if ((o.paymentMethod || 'N/A') === paymentTypeFilter) return true;
+        const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+        if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase() === paymentTypeFilter.toLowerCase())) {
+          return true;
+        }
+        return false;
+      });
     }
 
     const itemized = [];
@@ -1512,6 +1579,7 @@ const SalesAccrualReport = ({ orders }) => {
           <option value="Cash">Cash</option>
           <option value="Card">Card</option>
           <option value="UPI">UPI</option>
+          <option value="Split">Split</option>
         </Select>
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>

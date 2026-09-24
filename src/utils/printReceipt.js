@@ -117,6 +117,22 @@ export function printReceipt({ order, settings, tableId, guestName }) {
     <span class="sm">Payment: ${order.paymentMethod || 'Cash'}</span>
     <span class="badge">TAX INVOICE</span>
   </div>
+  ${(() => {
+    const splits = order.paymentSplits || order.timestamps?.paymentSplits;
+    if (Array.isArray(splits) && splits.length > 0) {
+      return `
+      <div style="margin: 3px 0 4px 0; padding: 3px 0; border-top: 1px dotted #ccc; font-size: 11px;">
+        ${splits.map(sp => `
+          <div class="row sm">
+            <span>&bull; ${sp.method}</span>
+            <span>${restaurant.currency || '₹'}${parseFloat(sp.amount || 0).toFixed(2)}</span>
+          </div>
+        `).join('')}
+      </div>
+      `;
+    }
+    return '';
+  })()}
 
   <div class="divider"></div>
 
@@ -157,6 +173,22 @@ export function printReceipt({ order, settings, tableId, guestName }) {
     <span>TOTAL</span>
     <span>${restaurant.currency || '₹'}${total.toFixed(2)}</span>
   </div>
+  ${(() => {
+    const splits = order.paymentSplits || order.timestamps?.paymentSplits;
+    if (Array.isArray(splits) && splits.length > 0) {
+      return `
+      <div style="margin-top: 4px; font-size: 11px;">
+        ${splits.map(sp => `
+          <div class="row sm">
+            <span style="color:#555;">Paid via ${sp.method}</span>
+            <span style="font-weight:600;">${restaurant.currency || '₹'}${parseFloat(sp.amount || 0).toFixed(2)}</span>
+          </div>
+        `).join('')}
+      </div>
+      `;
+    }
+    return '';
+  })()}
   <div class="divider"></div>
 
   ${showUpiQrHtml}

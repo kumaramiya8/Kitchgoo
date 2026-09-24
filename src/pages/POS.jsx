@@ -1441,6 +1441,7 @@ const PaymentModal = ({
   cart, cartTotal, tax, gstRate, grandTotal, serviceCharge, autoGratuity,
   discount, activeTable, currentGuest, onConfirm, onClose
 }) => {
+  const [isSplit, setIsSplit] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [tipAmount, setTipAmount] = useState('');
   const [cashTendered, setCashTendered] = useState('');
@@ -1457,6 +1458,101 @@ const PaymentModal = ({
     { key: 'Card', icon: CreditCard, color: '#3b82f6' },
     { key: 'Wallet', icon: Wallet, color: '#f59e0b' },
   ];
+
+  // Split payments state
+  const [splitRows, setSplitRows] = useState([
+    { id: '1', method: 'UPI', amount: '', cashTendered: '' },
+    { id: '2', method: 'Cash', amount: '', cashTendered: '' },
+  ]);
+
+  const totalAllocated = useMemo(() => {
+    return splitRows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+  }, [splitRows]);
+
+  const remainingToPay = useMemo(() => {
+    return Math.round((finalTotal - totalAllocated) * 100) / 100;
+  }, [finalTotal, totalAllocated]);
+
+  const handleToggleSplit = (enableSplit) => {
+    setIsSplit(enableSplit);
+    if (enableSplit) {
+      if (splitRows.every(r => !r.amount || parseFloat(r.amount) === 0)) {
+        const half = Math.round((finalTotal / 2) * 100) / 100;
+        setSplitRows([
+          { id: '1', method: paymentMethod === 'Cash' ? 'UPI' : paymentMethod, amount: half.toString(), cashTendered: '' },
+          { id: '2', method: 'Cash', amount: (Math.round((finalTotal - half) * 100) / 100).toString(), cashTendered: '' }
+        ]);
+      }
+    }
+  };
+
+  const updateRowMethod = (id, method) => {
+    setSplitRows(prev => prev.map(r => r.id === id ? { ...r, method } : r));
+  };
+
+  const updateRowAmount = (id, val) => {
+    setSplitRows(prev => prev.map(r => r.id === id ? { ...r, amount: val } : r));
+  };
+
+  const updateRowCashTendered = (id, val) => {
+    setSplitRows(prev => prev.map(r => r.id === id ? { ...r, cashTendered: val } : r));
+  };
+
+  const addSplitRow = () => {
+    const existingMethods = new Set(splitRows.map(r => r.method));
+    const nextMethod = payMethods.find(m => !existingMethods.has(m.key))?.key || 'Card';
+    const fillAmount = remainingToPay > 0 ? remainingToPay.toFixed(2) : '';
+    setSplitRows(prev => [...prev, {
+      id: Date.now().toString(),
+      method: nextMethod,
+      amount: fillAmount,
+      cashTendered: ''
+    }]);
+  };
+
+  const removeSplitRow = (id) => {
+    if (splitRows.length <= 2) return;
+    setSplitRows(prev => prev.filter(r => r.id !== id));
+  };
+
+  const autoFillRow = (id) => {
+    const currentVal = parseFloat(splitRows.find(r => r.id === id)?.amount || 0);
+    const newAmount = Math.max(0, currentVal + remainingToPay);
+    updateRowAmount(id, (Math.round(newAmount * 100) / 100).toString());
+  };
+
+  const handleSplitEvenly = () => {
+    const count = splitRows.length;
+    if (count === 0) return;
+    const share = Math.floor((finalTotal / count) * 100) / 100;
+    const remainder = Math.round((finalTotal - (share * count)) * 100) / 100;
+    setSplitRows(prev => prev.map((r, idx) => ({
+      ...r,
+      amount: (idx === 0 ? share + remainder : share).toFixed(2)
+    })));
+  };
+
+  const isSplitValid = useMemo(() => {
+    if (!isSplit) return true;
+    if (splitRows.length < 2) return false;
+    const allHaveAmount = splitRows.every(r => parseFloat(r.amount) > 0);
+    return allHaveAmount && Math.abs(remainingToPay) <= 0.01;
+  }, [isSplit, splitRows, remainingToPay]);
+
+  const handleSettle = () => {
+    if (!isSplit) {
+      onConfirm(paymentMethod, tipValue, finalTotal, null);
+    } else {
+      if (!isSplitValid) return;
+      const validSplits = splitRows.map(r => ({
+        method: r.method,
+        amount: Math.round((parseFloat(r.amount) || 0) * 100) / 100,
+        cashTendered: r.method === 'Cash' && r.cashTendered ? parseFloat(r.cashTendered) : undefined
+      }));
+      const methodLabel = `Split (${validSplits.map(s => `${s.method}: ₹${s.amount.toFixed(0)}`).join(', ')})`;
+      onConfirm(methodLabel, tipValue, finalTotal, validSplits);
+    }
+  };
 
   return (
     <Modal title="Settle Bill" onClose={onClose} wide>
@@ -1532,62 +1628,298 @@ const PaymentModal = ({
 
           {/* Right: Payment */}
           <div>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 10 }}>Payment Method</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-              {payMethods.map(pm => {
-                const Icon = pm.icon;
-                const active = paymentMethod === pm.key;
-                return (
-                  <button key={pm.key} onClick={() => setPaymentMethod(pm.key)}
-                    style={{
-                      padding: '14px 12px', borderRadius: 'var(--r-md)', cursor: 'pointer',
-                      border: `2px solid ${active ? pm.color : 'var(--border-subtle)'}`,
-                      background: active ? `${pm.color}10` : 'rgba(255,255,255,0.5)',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                      transition: 'all 0.15s',
-                    }}>
-                    <Icon size={22} style={{ color: active ? pm.color : 'var(--text-muted)' }} />
-                    <span style={{ fontWeight: active ? 700 : 500, fontSize: '0.82rem', color: active ? pm.color : 'var(--text-secondary)' }}>{pm.key}</span>
-                  </button>
-                );
-              })}
+            {/* Payment Mode Selector: Single vs Split */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Payment Mode</div>
+              <div style={{ display: 'flex', background: 'var(--border-subtle)', borderRadius: 'var(--r-md)', padding: 2 }}>
+                <button
+                  type="button"
+                  onClick={() => handleToggleSplit(false)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.74rem',
+                    fontWeight: !isSplit ? 700 : 500,
+                    border: 'none',
+                    borderRadius: 'var(--r-sm)',
+                    background: !isSplit ? 'var(--primary)' : 'transparent',
+                    color: !isSplit ? '#fff' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  Single Method
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleSplit(true)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.74rem',
+                    fontWeight: isSplit ? 700 : 500,
+                    border: 'none',
+                    borderRadius: 'var(--r-sm)',
+                    background: isSplit ? 'var(--primary)' : 'transparent',
+                    color: isSplit ? '#fff' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  <Split size={12} />
+                  Split / Partial
+                </button>
+              </div>
             </div>
 
+            {/* SINGLE PAYMENT MODE */}
+            {!isSplit && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+                  {payMethods.map(pm => {
+                    const Icon = pm.icon;
+                    const active = paymentMethod === pm.key;
+                    return (
+                      <button key={pm.key} onClick={() => setPaymentMethod(pm.key)}
+                        style={{
+                          padding: '12px 10px', borderRadius: 'var(--r-md)', cursor: 'pointer',
+                          border: `2px solid ${active ? pm.color : 'var(--border-subtle)'}`,
+                          background: active ? `${pm.color}10` : 'rgba(255,255,255,0.5)',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                          transition: 'all 0.15s',
+                        }}>
+                        <Icon size={20} style={{ color: active ? pm.color : 'var(--text-muted)' }} />
+                        <span style={{ fontWeight: active ? 700 : 500, fontSize: '0.82rem', color: active ? pm.color : 'var(--text-secondary)' }}>{pm.key}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {paymentMethod === 'Cash' && (
+                  <div className="input-group" style={{ marginBottom: 12 }}>
+                    <label className="input-label">Cash Tendered</label>
+                    <input className="input-field" type="number" value={cashTendered} onChange={e => setCashTendered(e.target.value)}
+                      placeholder={finalTotal.toFixed(2)}
+                    />
+                    {cashChange > 0 && (
+                      <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 'var(--r-sm)', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', fontSize: '0.82rem', fontWeight: 700, color: '#15803d' }}>
+                        Change: {cashChange.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* SPLIT / MULTI-TENDER PAYMENT MODE */}
+            {isSplit && (
+              <div style={{ marginBottom: 12 }}>
+                {/* Allocation summary banner */}
+                <div style={{
+                  background: Math.abs(remainingToPay) <= 0.01 ? 'rgba(34,197,94,0.08)' : remainingToPay > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(239,68,68,0.08)',
+                  border: `1px solid ${Math.abs(remainingToPay) <= 0.01 ? 'rgba(34,197,94,0.25)' : remainingToPay > 0 ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                  borderRadius: 'var(--r-md)',
+                  padding: '7px 10px',
+                  marginBottom: 10,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '0.78rem'
+                }}>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Paid: </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>₹{totalAllocated.toFixed(2)}</strong> / ₹{finalTotal.toFixed(2)}
+                  </div>
+                  <div>
+                    {Math.abs(remainingToPay) <= 0.01 ? (
+                      <span style={{ color: '#15803d', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <CheckCircle size={13} /> Balanced
+                      </span>
+                    ) : remainingToPay > 0 ? (
+                      <span style={{ color: '#b45309', fontWeight: 700 }}>
+                        Left: ₹{remainingToPay.toFixed(2)}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#b91c1c', fontWeight: 700 }}>
+                        Over: ₹{(-remainingToPay).toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Split Rows */}
+                <div style={{ maxHeight: 210, overflowY: 'auto', paddingRight: 2 }}>
+                  {splitRows.map((row) => {
+                    const isRowCash = row.method === 'Cash';
+                    const rowCashChange = isRowCash ? Math.max(0, (parseFloat(row.cashTendered) || 0) - (parseFloat(row.amount) || 0)) : 0;
+
+                    return (
+                      <div key={row.id} style={{
+                        background: 'rgba(0,0,0,0.02)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--r-md)',
+                        padding: '8px 10px',
+                        marginBottom: 8
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 6 }}>
+                          {/* Method Selector Pills */}
+                          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                            {payMethods.map(pm => {
+                              const selected = row.method === pm.key;
+                              const PMIcon = pm.icon;
+                              return (
+                                <button
+                                  key={pm.key}
+                                  type="button"
+                                  onClick={() => updateRowMethod(row.id, pm.key)}
+                                  style={{
+                                    padding: '3px 7px',
+                                    borderRadius: 'var(--r-sm)',
+                                    border: `1.5px solid ${selected ? pm.color : 'var(--border-subtle)'}`,
+                                    background: selected ? `${pm.color}15` : 'rgba(255,255,255,0.7)',
+                                    color: selected ? pm.color : 'var(--text-secondary)',
+                                    fontSize: '0.72rem',
+                                    fontWeight: selected ? 700 : 500,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 3
+                                  }}
+                                >
+                                  <PMIcon size={11} />
+                                  {pm.key}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {splitRows.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => removeSplitRow(row.id)}
+                              title="Remove method"
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: 'var(--text-muted)', padding: 2, display: 'flex', alignItems: 'center'
+                              }}
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <div style={{ position: 'relative', flex: 1 }}>
+                            <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>₹</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="input-field"
+                              style={{ paddingLeft: 22, height: 32, fontSize: '0.84rem', fontWeight: 700 }}
+                              placeholder="Amount"
+                              value={row.amount}
+                              onChange={e => updateRowAmount(row.id, e.target.value)}
+                            />
+                          </div>
+
+                          {remainingToPay > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => autoFillRow(row.id)}
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '0.7rem', padding: '4px 8px', height: 32, whiteSpace: 'nowrap' }}
+                              title={`Auto-fill remaining ₹${remainingToPay.toFixed(2)}`}
+                            >
+                              +₹{remainingToPay.toFixed(0)}
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Cash Tendered & Change on Cash split */}
+                        {isRowCash && parseFloat(row.amount) > 0 && (
+                          <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px dashed var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Cash Paid:</span>
+                            <input
+                              type="number"
+                              className="input-field"
+                              style={{ width: 85, height: 26, padding: '2px 6px', fontSize: '0.75rem' }}
+                              placeholder={row.amount || '0'}
+                              value={row.cashTendered}
+                              onChange={e => updateRowCashTendered(row.id, e.target.value)}
+                            />
+                            {rowCashChange > 0 && (
+                              <span style={{ fontWeight: 700, color: '#15803d' }}>
+                                Change: ₹{rowCashChange.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Quick actions for split */}
+                <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                  {splitRows.length < 4 && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={addSplitRow}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.73rem', padding: '4px 8px' }}
+                    >
+                      <Plus size={12} /> Add Method
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleSplitEvenly}
+                    style={{ fontSize: '0.73rem', padding: '4px 8px' }}
+                  >
+                    Split 50/50
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Tip section (shared) */}
             <div className="input-group">
               <label className="input-label">Add Tip</label>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                 {[10, 15, 20].map(pct => (
-                  <button key={pct} className="btn btn-secondary btn-sm" style={{ flex: 1 }}
+                  <button key={pct} className="btn btn-secondary btn-sm" style={{ flex: 1, padding: '4px' }}
                     onClick={() => setTipAmount(((cartTotal * pct) / 100).toFixed(0))}
                   >
                     {pct}%
                   </button>
                 ))}
               </div>
-              <input className="input-field" type="number" value={tipAmount} onChange={e => setTipAmount(e.target.value)} placeholder="Custom tip amount" />
+              <input className="input-field" type="number" value={tipAmount} onChange={e => setTipAmount(e.target.value)} placeholder="Custom tip amount" style={{ height: 32 }} />
             </div>
-
-            {paymentMethod === 'Cash' && (
-              <div className="input-group">
-                <label className="input-label">Cash Tendered</label>
-                <input className="input-field" type="number" value={cashTendered} onChange={e => setCashTendered(e.target.value)}
-                  placeholder={finalTotal.toFixed(2)}
-                />
-                {cashChange > 0 && (
-                  <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 'var(--r-sm)', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', fontSize: '0.82rem', fontWeight: 700, color: '#15803d' }}>
-                    Change: {cashChange.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
 
       <div className="modal-footer">
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-        <button className="btn btn-success" onClick={() => onConfirm(paymentMethod, tipValue, finalTotal)} style={{ minWidth: 200 }}>
-          <Printer size={15} /> Settle {finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}
+        <button
+          className="btn btn-success"
+          disabled={isSplit && !isSplitValid}
+          onClick={handleSettle}
+          style={{ minWidth: 200 }}
+        >
+          <Printer size={15} />
+          {!isSplit
+            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`
+            : isSplitValid
+            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)`
+            : remainingToPay > 0
+            ? `Allocate Remaining ₹${remainingToPay.toFixed(2)}`
+            : `Over-allocated by ₹${(-remainingToPay).toFixed(2)}`
+          }
         </button>
       </div>
     </Modal>
@@ -2369,7 +2701,7 @@ const POS = () => {
   };
 
   // ── Payment ───────────────────────────────────────────────
-  const handleConfirmPayment = async (paymentMethod, tipValue, finalTotal) => {
+  const handleConfirmPayment = async (paymentMethod, tipValue, finalTotal, paymentSplits = null) => {
     if (cart.length === 0) return;
 
     const extra = {
@@ -2386,6 +2718,7 @@ const POS = () => {
       discount: discountAmount,
       serviceCharge,
       partySize,
+      paymentSplits,
     };
 
     const tableId = activeTable?.id || null;
@@ -2402,14 +2735,22 @@ const POS = () => {
       }
     }
 
-    // Update cash drawer for cash payments
-    if (paymentMethod === 'Cash') {
-      updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + finalTotal });
+    // Update cash drawer for cash payments (either full cash or partial cash split)
+    let cashPortion = 0;
+    if (Array.isArray(paymentSplits) && paymentSplits.length > 0) {
+      cashPortion = paymentSplits
+        .filter(p => (p.method || '').toLowerCase() === 'cash')
+        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    } else if (paymentMethod === 'Cash') {
+      cashPortion = finalTotal;
+    }
+    if (cashPortion > 0) {
+      updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + cashPortion });
     }
 
     // Print receipt
     printReceipt({
-      order: { ...order, items: cart },
+      order: { ...order, items: cart, paymentSplits },
       settings, tableId,
       guestName: activeTable?.guestName || customerName,
     });
@@ -2453,7 +2794,10 @@ const POS = () => {
     setDriverInstructions('');
     setDeliveryChannel('In-House');
     setView('floor');
-    showSuccess(`Bill settled! ${(order.total || finalTotal).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} via ${paymentMethod}`);
+    const displayMethod = paymentSplits && paymentSplits.length > 0
+      ? `Split (${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')})`
+      : paymentMethod;
+    showSuccess(`Bill settled! ${(order.total || finalTotal).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} via ${displayMethod}`);
   };
 
   // Takeout/Delivery: go straight to order view

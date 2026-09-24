@@ -176,7 +176,13 @@ function applyTenantPayload(payload) {
   if (payload.menu) _cache['menu'] = payload.menu.map(toCamelCase);
   if (payload.inventory) _cache['inventory'] = payload.inventory.map(toCamelCase);
   if (payload.orders) {
-    let orders = payload.orders.map(toCamelCase);
+    let orders = payload.orders.map(o => {
+      const camel = toCamelCase(o);
+      if (!camel.paymentSplits && camel.timestamps?.paymentSplits) {
+        camel.paymentSplits = camel.timestamps.paymentSplits;
+      }
+      return camel;
+    });
     if (payload.ordersFrom) {
       // Bounded window from the server: keep any older rows already fetched
       const existing = (_cache['orders'] || []).filter(o =>
@@ -755,7 +761,9 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
       ticketPrinted: null,
       foodBumped: null,
       paid: new Date().toISOString(),
+      paymentSplits: extra.paymentSplits || null,
     },
+    paymentSplits: extra.paymentSplits || null,
     createdAt: new Date().toISOString(),
   };
 
