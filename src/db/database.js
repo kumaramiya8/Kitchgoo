@@ -950,6 +950,23 @@ export async function recallKDSTicket(ticketId) {
   return update('kds_tickets', ticketId, { status: 'active' });
 }
 
+export async function transferKDSTickets(fromTableId, toTableId, fromTableNum, toTableNum) {
+  const tickets = getAll('kds_tickets') || [];
+  const fromMatches = [String(fromTableId), String(fromTableNum)].filter(Boolean);
+  const activeTickets = tickets.filter(t =>
+    t.status === 'active' && fromMatches.includes(String(t.tableId))
+  );
+  for (const ticket of activeTickets) {
+    await update('kds_tickets', ticket.id, {
+      tableId: toTableId,
+      tableShiftedFrom: fromTableNum || fromTableId,
+      tableShiftedTo: toTableNum || toTableId,
+      shiftedAt: new Date().toISOString(),
+    });
+  }
+  return activeTickets.length;
+}
+
 // ─── Reservations ────────────────────────────────────────────
 export async function createReservation(data) {
   return insert('reservations', {

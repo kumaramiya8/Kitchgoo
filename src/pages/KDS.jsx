@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Monitor, Clock, CheckCircle, AlertTriangle, Bell, RotateCcw,
-  ChefHat, Flame, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown,
+  ChefHat, Flame, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, ArrowRightLeft,
   CornerDownLeft, Eye, BarChart3, ListChecks, Grid3X3, Utensils,
   Wine, IceCream, Salad, BookOpen, Keyboard, ChevronDown, ChevronUp,
   Timer, TrendingUp, Hash, Zap
@@ -602,12 +602,31 @@ export default function KDS() {
 
                 {/* Header */}
                 <div style={s.cardHeader}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
                       <Hash size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />
                       {ticket.orderId}
                     </span>
                     <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>T{ticket.tableId}</span>
+                    {ticket.tableShiftedFrom && (
+                      <span
+                        title={`Moved from Table ${ticket.tableShiftedFrom} at ${ticket.shiftedAt ? new Date(ticket.shiftedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}`}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          color: '#dc2626',
+                          border: '1px solid rgba(239, 68, 68, 0.35)',
+                          borderRadius: '4px',
+                          padding: '1px 5px',
+                          fontSize: '0.68rem',
+                          fontWeight: 800,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                        }}
+                      >
+                        <ArrowRightLeft size={10} /> T{ticket.tableShiftedFrom} ➔ T{ticket.tableId}
+                      </span>
+                    )}
                     <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
                     {isPaymentPending(ticket) ? (
                       <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
@@ -716,8 +735,28 @@ export default function KDS() {
                     <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
                       #{ticket.orderId}
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      Table {ticket.tableId} <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      Table {ticket.tableId}
+                      {ticket.tableShiftedFrom && (
+                        <span
+                          title={`Moved from Table ${ticket.tableShiftedFrom}`}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            color: '#dc2626',
+                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            borderRadius: '4px',
+                            padding: '1px 5px',
+                            fontSize: '0.68rem',
+                            fontWeight: 800,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                          }}
+                        >
+                          <ArrowRightLeft size={10} /> Moved: T{ticket.tableShiftedFrom} ➔ T{ticket.tableId}
+                        </span>
+                      )}
+                      <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
                       {isPaymentPending(ticket) ? (
                         <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
                       ) : (

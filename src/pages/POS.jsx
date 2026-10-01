@@ -13,7 +13,7 @@ import {
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import { getAll, insert, update, getById } from '../db/database';
-import { printReceipt } from '../utils/printReceipt';
+import { printReceipt, printTableTransferNotice } from '../utils/printReceipt';
 import { isModuleEnabled } from '../../shared/seeds';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -846,6 +846,217 @@ const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) =
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={() => { if (selectedTable) { onMerge(selectedTable); onClose(); } }} disabled={!selectedTable}>
           <ArrowRightLeft size={15} /> Merge Tab
+        </button>
+      </div>
+    </Modal>
+  );
+};
+
+
+// ─── Shift / Transfer Table Modal ──────────────────────────────────────────
+const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShift, onClose }) => {
+  const [selectedTableId, setSelectedTableId] = useState(null);
+  const [markNeedsCleaning, setMarkNeedsCleaning] = useState(true);
+  const [printNotice, setPrintNotice] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const currentItems = (currentCart && currentCart.length > 0)
+    ? currentCart
+    : (savedOrders[currentTable?.id] || []);
+
+  const totalAmount = currentItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
+
+  // Exclude the current table itself
+  const candidateTables = tables.filter(t => String(t.id) !== String(currentTable?.id));
+
+  const filteredTables = candidateTables.filter(t => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    const tNum = String(t.number || t.id).toLowerCase();
+    const sec = String(t.section || '').toLowerCase();
+    return tNum.includes(term) || sec.includes(term);
+  });
+
+  const selectedTarget = tables.find(t => String(t.id) === String(selectedTableId));
+  const isTargetOccupied = selectedTarget && selectedTarget.status !== 'available';
+
+  return (
+    <Modal title={`Shift Table ${currentTable?.number || currentTable?.id} to Another Table`} onClose={onClose} wide>
+      <div className="modal-body" style={{ maxHeight: '68vh', overflowY: 'auto' }}>
+        {/* Source Table Summary Banner */}
+        <div style={{
+          padding: '12px 16px', borderRadius: 'var(--r-md)',
+          background: 'rgba(30, 94, 74,0.06)', border: '1px solid rgba(30, 94, 74,0.2)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
+        }}>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+              Current Tab
+            </div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+              Table {currentTable?.number || currentTable?.id}
+              {currentTable?.guestName && <span style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-secondary)' }}> — {currentTable.guestName}</span>}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '1.05rem' }}>
+              {totalAmount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {currentItems.length} item{currentItems.length === 1 ? '' : 's'} on tab
+            </div>
+          </div>
+        </div>
+
+        {/* Search destination */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+            Select Destination Table:
+          </div>
+          <input
+            type="text"
+            className="input-field"
+            placeholder="Search by table number or section..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{ margin: 0, padding: '8px 12px', fontSize: '0.82rem' }}
+          />
+        </div>
+
+        {/* Table Selector Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+          gap: 10,
+          marginBottom: 16,
+          maxHeight: 240,
+          overflowY: 'auto',
+          padding: 2,
+        }}>
+          {filteredTables.map(t => {
+            const isSelected = String(selectedTableId) === String(t.id);
+            const isAvail = t.status === 'available';
+            const statusColor = TABLE_STATUS_COLORS[t.status] || '#94a3b8';
+            const tOrders = savedOrders[t.id] || [];
+
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setSelectedTableId(t.id)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 'var(--r-md)',
+                  cursor: 'pointer',
+                  border: isSelected
+                    ? '2px solid var(--primary)'
+                    : '1px solid var(--border-subtle)',
+                  background: isSelected
+                    ? 'rgba(30, 94, 74, 0.08)'
+                    : 'rgba(255,255,255,0.6)',
+                  textAlign: 'left',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  transition: 'all 0.15s ease',
+                  boxShadow: isSelected ? '0 0 0 2px rgba(30, 94, 74, 0.2)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-primary)' }}>
+                    T{t.number || t.id}
+                  </span>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: statusColor,
+                  }} />
+                </div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  {t.seats || 2} seats{t.section ? ` · ${t.section}` : ''}
+                </div>
+                <div style={{
+                  fontSize: '0.66rem',
+                  fontWeight: 600,
+                  color: isAvail ? 'var(--success)' : 'var(--text-secondary)',
+                  marginTop: 2,
+                }}>
+                  {isAvail ? 'Available' : (TABLE_STATUS_LABELS[t.status] || t.status)}
+                  {tOrders.length > 0 ? ` (${tOrders.length} items)` : ''}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Warning if destination is occupied */}
+        {selectedTarget && isTargetOccupied && (
+          <div style={{
+            padding: '10px 14px', borderRadius: 'var(--r-md)',
+            background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)',
+            color: '#b45309', fontSize: '0.78rem', marginBottom: 16,
+            display: 'flex', alignItems: 'flex-start', gap: 8,
+          }}>
+            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <strong>Table {selectedTarget.number || selectedTarget.id} is already occupied.</strong>
+              <div>
+                Shifting to this table will <strong>merge</strong> Table {currentTable?.number || currentTable?.id}&apos;s items into Table {selectedTarget.number || selectedTarget.id}&apos;s tab.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Shift Options */}
+        <div style={{
+          borderTop: '1px solid var(--border-subtle)',
+          paddingTop: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+            <input
+              type="checkbox"
+              checked={markNeedsCleaning}
+              onChange={e => setMarkNeedsCleaning(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
+            />
+            <span>Mark Table {currentTable?.number || currentTable?.id} as <strong>Needs Cleaning</strong> (bus table)</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+            <input
+              type="checkbox"
+              checked={printNotice}
+              onChange={e => setPrintNotice(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
+            />
+            <span>Print Kitchen Transfer Notice for food runners</span>
+          </label>
+        </div>
+      </div>
+
+      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button className="btn btn-secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            if (selectedTableId) {
+              onShift({
+                targetTableId: selectedTableId,
+                markNeedsCleaning,
+                printNotice,
+              });
+              onClose();
+            }
+          }}
+          disabled={!selectedTableId}
+        >
+          <ArrowRightLeft size={15} />
+          {isTargetOccupied
+            ? `Merge & Shift to Table ${selectedTarget?.number || selectedTarget?.id}`
+            : `Confirm Shift to Table ${selectedTarget?.number || selectedTarget?.id || ''}`}
         </button>
       </div>
     </Modal>
@@ -1936,7 +2147,7 @@ const POS = () => {
   const { user } = useAuth();
   const {
     menu, settings, floorPlans, staff, guests, modifiers, cashDrawer,
-    placeOrder, fireToKDS, updateCashDrawer, addAuditEntry,
+    placeOrder, fireToKDS, transferKDSTickets, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
     reservations,
@@ -2185,6 +2396,7 @@ const POS = () => {
   const [splitModal, setSplitModal] = useState(false);
   const [paymentModal, setPaymentModal] = useState(false);
   const [mergeModal, setMergeModal] = useState(false);
+  const [shiftTableModal, setShiftTableModal] = useState(false);
   const [cashDrawerModal, setCashDrawerModal] = useState(false);
   const [cleaningTable, setCleaningTable] = useState(null);
   const [startingFloat, setStartingFloat] = useState('5000');
@@ -2569,6 +2781,115 @@ const POS = () => {
       : t
     ));
     showSuccess(`Table ${fromTableId} merged into current tab`);
+  };
+
+  // ── Shift / Transfer Table ────────────────────────────────
+  const handleShiftTable = async ({ targetTableId, markNeedsCleaning, printNotice }) => {
+    if (!activeTable) return;
+    const fromTable = activeTable;
+    const toTable = tables.find(t => String(t.id) === String(targetTableId));
+    if (!toTable || String(fromTable.id) === String(toTable.id)) return;
+
+    // Items from current cart or saved order
+    const fromItems = (cart && cart.length > 0)
+      ? cart
+      : (savedOrders[fromTable.id] || []);
+
+    const targetExistingItems = savedOrders[toTable.id] || [];
+
+    // Combine items if target already has an order, else take fromItems
+    let finalTargetItems = [];
+    if (targetExistingItems.length > 0) {
+      finalTargetItems = [...targetExistingItems];
+      fromItems.forEach(item => {
+        const existing = finalTargetItems.find(i => (i._cartKey || i.id) === (item._cartKey || item.id));
+        if (existing) {
+          existing.qty += item.qty;
+        } else {
+          finalTargetItems.push({ ...item });
+        }
+      });
+    } else {
+      finalTargetItems = [...fromItems];
+    }
+
+    // 1. Update savedOrders
+    setSavedOrders(prev => {
+      const next = { ...prev };
+      delete next[fromTable.id];
+      next[toTable.id] = finalTargetItems;
+      return next;
+    });
+
+    // 2. Update tables status
+    const updatedToTable = {
+      ...toTable,
+      status: fromTable.status && fromTable.status !== 'available' ? fromTable.status : 'ordered',
+      guestName: fromTable.guestName || toTable.guestName,
+      guestId: fromTable.guestId || toTable.guestId,
+      seatedAt: fromTable.seatedAt || toTable.seatedAt || new Date().toISOString(),
+      partySize: fromTable.partySize || toTable.partySize || 1,
+      serverId: fromTable.serverId || toTable.serverId || user?.id || null,
+    };
+
+    setTables(prev => prev.map(t => {
+      if (String(t.id) === String(fromTable.id)) {
+        return {
+          ...t,
+          status: markNeedsCleaning ? 'needs-bussing' : 'available',
+          guestName: null,
+          guestId: null,
+          seatedAt: null,
+          partySize: null,
+        };
+      }
+      if (String(t.id) === String(toTable.id)) {
+        return updatedToTable;
+      }
+      return t;
+    }));
+
+    // 3. Update active table & cart so the screen stays on the new table
+    setActiveTable(updatedToTable);
+    setCart(finalTargetItems);
+
+    // 4. Transfer KDS tickets in real time
+    if (transferKDSTickets) {
+      try {
+        await transferKDSTickets(fromTable.id, toTable.id, fromTable.number, toTable.number);
+      } catch (err) {
+        console.error('[POS] Failed to transfer KDS tickets:', err);
+      }
+    }
+
+    // 5. Audit Log
+    addAuditEntry(
+      'TABLE_TRANSFER',
+      user?.role || 'staff',
+      user?.name || 'Staff',
+      `Shifted Table ${fromTable.number || fromTable.id} to Table ${toTable.number || toTable.id} (${fromItems.length} items)`
+    );
+
+    // 6. Broadcast Realtime
+    broadcastOrderCreated(toTable.id, `SHIFT-T${toTable.number || toTable.id}`);
+
+    // 7. Print Transfer Notice if requested
+    if (printNotice) {
+      try {
+        printTableTransferNotice({
+          fromTable,
+          toTable,
+          guestName: fromTable.guestName,
+          serverName: user?.name,
+          items: fromItems,
+          settings,
+        });
+      } catch (err) {
+        console.error('[POS] Failed to print transfer notice:', err);
+      }
+    }
+
+    showSuccess(`Table ${fromTable.number || fromTable.id} shifted to Table ${toTable.number || toTable.id}!`);
   };
 
   // ── Comp / Void / Discount ────────────────────────────────
@@ -3420,6 +3741,29 @@ const POS = () => {
                     <CreditCard size={10} /> Card on file
                   </span>
                 )}
+                {activeTable && orderType === 'dine-in' && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: '0.68rem',
+                      borderRadius: 'var(--r-sm)',
+                      marginLeft: 4,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      border: '1px solid rgba(30, 94, 74, 0.25)',
+                      background: 'rgba(30, 94, 74, 0.05)',
+                      color: 'var(--primary)',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setShiftTableModal(true)}
+                    title="Shift guest to another table"
+                  >
+                    <ArrowRightLeft size={11} /> Shift Table
+                  </button>
+                )}
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                 {cart.reduce((s, i) => s + i.qty, 0)} items in cart
@@ -3666,10 +4010,25 @@ const POS = () => {
             <button className="btn btn-secondary btn-sm" style={{ fontSize: '0.72rem', padding: '5px 8px' }} onClick={handleRepeatLastRound} disabled={cart.length === 0}>
               <RotateCcw size={12} /> Repeat Round
             </button>
-            {orderType === 'dine-in' && (
-              <button className="btn btn-secondary btn-sm" style={{ fontSize: '0.72rem', padding: '5px 8px' }} onClick={() => setMergeModal(true)}>
-                <ArrowRightLeft size={12} /> Merge
-              </button>
+            {orderType === 'dine-in' && activeTable && (
+              <>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.72rem', padding: '5px 8px' }}
+                  onClick={() => setShiftTableModal(true)}
+                  title="Shift this tab to another table"
+                >
+                  <ArrowRightLeft size={12} /> Shift Table
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.72rem', padding: '5px 8px' }}
+                  onClick={() => setMergeModal(true)}
+                  title="Merge another open tab into this table"
+                >
+                  Merge
+                </button>
+              </>
             )}
           </div>
 
@@ -3809,6 +4168,17 @@ const POS = () => {
               setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) && t.status === 'paying' ? { ...t, status: restore } : t));
             }
           }}
+        />
+      )}
+
+      {shiftTableModal && activeTable && (
+        <ShiftTableModal
+          currentTable={activeTable}
+          tables={tables}
+          savedOrders={savedOrders}
+          currentCart={cart}
+          onShift={handleShiftTable}
+          onClose={() => setShiftTableModal(false)}
         />
       )}
 

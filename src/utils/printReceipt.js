@@ -220,3 +220,95 @@ export function printReceipt({ order, settings, tableId, guestName }) {
     win.document.close();
   }
 }
+
+export function printTableTransferNotice({ fromTable, toTable, guestName, serverName, items = [], settings }) {
+  const restaurant = settings?.restaurant || {};
+  const d = new Date();
+  const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const fromNum = typeof fromTable === 'object' ? (fromTable.number || fromTable.id) : fromTable;
+  const toNum = typeof toTable === 'object' ? (toTable.number || toTable.id) : toTable;
+  const totalQty = items.reduce((s, i) => s + (i.qty || 1), 0);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Table Transfer Notice</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @page { size: 80mm auto; margin: 6mm; }
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      color: #000;
+      width: 72mm;
+      margin: 0 auto;
+      padding: 4px 0;
+    }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .title { font-size: 14px; font-weight: bold; margin: 4px 0 2px; }
+    .alert-box {
+      border: 2px dashed #000;
+      padding: 8px;
+      margin: 8px 0;
+      text-align: center;
+    }
+    .shift-arrow {
+      font-size: 15px;
+      font-weight: bold;
+      margin: 4px 0;
+    }
+    .divider { border-top: 1px dashed #000; margin: 6px 0; }
+    .row { display: flex; justify-content: space-between; margin: 2px 0; }
+    .item-row { display: flex; justify-content: space-between; font-size: 10px; margin: 2px 0; }
+    .footer-msg { text-align: center; font-size: 10px; margin-top: 6px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="center bold">${restaurant.name ? restaurant.name.toUpperCase() : 'KITCHGOO RESTAURANT'}</div>
+  <div class="center bold title">TABLE TRANSFER NOTICE</div>
+  <div class="center" style="font-size: 10px;">${dateStr} &nbsp; ${timeStr}</div>
+
+  <div class="alert-box">
+    <div style="font-size: 10px; text-transform: uppercase;">GUEST MOVED</div>
+    <div class="shift-arrow">TABLE ${fromNum} &#10132; TABLE ${toNum}</div>
+    <div style="font-size: 9px;">PLEASE DELIVER ALL PENDING FOOD TO TABLE ${toNum}</div>
+  </div>
+
+  <div class="divider"></div>
+  <div class="row"><span>Guest:</span><span class="bold">${guestName || 'Guest'}</span></div>
+  ${serverName ? `<div class="row"><span>Server:</span><span>${serverName}</span></div>` : ''}
+  <div class="row"><span>Items on Tab:</span><span>${items.length} items (${totalQty} qty)</span></div>
+
+  ${items.length > 0 ? `
+  <div class="divider"></div>
+  <div class="bold" style="font-size: 10px; margin-bottom: 3px;">ACTIVE ITEMS:</div>
+  ${items.map(i => `
+    <div class="item-row">
+      <span>${i.qty}x ${i.name || i.title || 'Item'}</span>
+      ${i.course ? `<span>[C${i.course}]</span>` : ''}
+    </div>
+  `).join('')}
+  ` : ''}
+
+  <div class="divider"></div>
+  <div class="footer-msg">*** ATTENTION RUNNERS & KITCHEN ***</div>
+  <div class="center" style="font-size: 9px; margin-top: 2px;">Update physical slips accordingly</div>
+
+  <script>
+    window.onload = () => {
+      setTimeout(() => { window.print(); }, 250);
+    };
+  <\/script>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes');
+  if (win) {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  }
+}
