@@ -27,6 +27,7 @@ import {
   bumpKDSTicket,
   recallKDSTicket,
   transferKDSTickets,
+  cancelKDSTickets,
   createReservation,
   addToWaitlist,
   logAudit,
@@ -730,6 +731,12 @@ export function AppProvider({ children }) {
     return count;
   }, []);
 
+  const cancelKDSTicketsAction = useCallback(async (tableId, tableNum) => {
+    const count = await cancelKDSTickets(tableId, tableNum);
+    setKdsTickets(getAll('kds_tickets'));
+    return count;
+  }, []);
+
   // ── Reservations & Waitlist ─────────────────────────────
   const addReservation = useCallback(async (data) => {
     await createReservation(data);
@@ -1055,7 +1062,7 @@ export function AppProvider({ children }) {
     // Delivery
     addDelivery, advanceDeliveryStatus, rejectDelivery, simulateNewDelivery, updateDeliveryOrder,
     // KDS
-    fireToKDS, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, transferKDSTickets: transferKDSTicketsAction,
+    fireToKDS, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, transferKDSTickets: transferKDSTicketsAction, cancelKDSTickets: cancelKDSTicketsAction,
     // Reservations & Waitlist
     addReservation, editReservation, cancelReservation,
     addWaitlistEntry, notifyWaitlist, seatWaitlist, removeWaitlist,

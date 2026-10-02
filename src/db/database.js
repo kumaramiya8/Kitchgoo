@@ -967,6 +967,21 @@ export async function transferKDSTickets(fromTableId, toTableId, fromTableNum, t
   return activeTickets.length;
 }
 
+export async function cancelKDSTickets(tableId, tableNum) {
+  const tickets = getAll('kds_tickets') || [];
+  const matches = [String(tableId), String(tableNum)].filter(Boolean);
+  const activeTickets = tickets.filter(t =>
+    t.status === 'active' && matches.includes(String(t.tableId))
+  );
+  for (const ticket of activeTickets) {
+    await update('kds_tickets', ticket.id, {
+      status: 'cancelled',
+      cancelledAt: new Date().toISOString(),
+    });
+  }
+  return activeTickets.length;
+}
+
 // ─── Reservations ────────────────────────────────────────────
 export async function createReservation(data) {
   return insert('reservations', {

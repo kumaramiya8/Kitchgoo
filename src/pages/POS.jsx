@@ -8,7 +8,7 @@ import {
   RotateCcw, Flame, Pause, Play, Hash, Users, CircleDot,
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
-  GripVertical, Coffee, ReceiptText
+  GripVertical, Coffee, ReceiptText, UserX
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -1057,6 +1057,105 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
           {isTargetOccupied
             ? `Merge & Shift to Table ${selectedTarget?.number || selectedTarget?.id}`
             : `Confirm Shift to Table ${selectedTarget?.number || selectedTarget?.id || ''}`}
+        </button>
+      </div>
+    </Modal>
+  );
+};
+
+
+// ─── Release / Clear Table Modal ──────────────────────────────────────────
+const ReleaseTableModal = ({ table, hasItems, itemCount, onConfirm, onClose }) => {
+  const [markStatus, setMarkStatus] = useState('available'); // 'available' | 'needs-bussing'
+  const [cancelKds, setCancelKds] = useState(true);
+
+  return (
+    <Modal title={`Release Table ${table?.number || table?.id}`} onClose={onClose}>
+      <div className="modal-body" style={{ padding: '20px 16px' }}>
+        <div style={{
+          padding: '12px 14px', borderRadius: 'var(--r-md)',
+          background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)',
+          marginBottom: 16, display: 'flex', alignItems: 'flex-start', gap: 10,
+        }}>
+          <AlertTriangle size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#991b1b', marginBottom: 2 }}>
+              Vacate Table {table?.number || table?.id}?
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              {hasItems
+                ? `This table has ${itemCount} active item${itemCount === 1 ? '' : 's'} on the tab. Releasing will cancel the order for ${table?.guestName || 'this guest'} and clear the tab.`
+                : `This will unseat ${table?.guestName || 'the guest'} and return the table to available.`}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+            Table Status After Release:
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <label style={{
+              flex: 1, padding: '10px 12px', borderRadius: 'var(--r-md)', cursor: 'pointer',
+              border: `1.5px solid ${markStatus === 'available' ? 'var(--primary)' : 'var(--border-subtle)'}`,
+              background: markStatus === 'available' ? 'rgba(30, 94, 74, 0.08)' : 'rgba(255,255,255,0.6)',
+              display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', fontWeight: 600,
+            }}>
+              <input
+                type="radio"
+                name="releaseStatus"
+                value="available"
+                checked={markStatus === 'available'}
+                onChange={() => setMarkStatus('available')}
+                style={{ accentColor: 'var(--primary)' }}
+              />
+              <span>Available (Ready)</span>
+            </label>
+            <label style={{
+              flex: 1, padding: '10px 12px', borderRadius: 'var(--r-md)', cursor: 'pointer',
+              border: `1.5px solid ${markStatus === 'needs-bussing' ? 'var(--primary)' : 'var(--border-subtle)'}`,
+              background: markStatus === 'needs-bussing' ? 'rgba(30, 94, 74, 0.08)' : 'rgba(255,255,255,0.6)',
+              display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', fontWeight: 600,
+            }}>
+              <input
+                type="radio"
+                name="releaseStatus"
+                value="needs-bussing"
+                checked={markStatus === 'needs-bussing'}
+                onChange={() => setMarkStatus('needs-bussing')}
+                style={{ accentColor: 'var(--primary)' }}
+              />
+              <span>Needs Cleaning (Bus)</span>
+            </label>
+          </div>
+        </div>
+
+        {hasItems && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+            <input
+              type="checkbox"
+              checked={cancelKds}
+              onChange={e => setCancelKds(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
+            />
+            <span>Cancel pending kitchen tickets (KDS) for this table</span>
+          </label>
+        )}
+      </div>
+
+      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button className="btn btn-secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          className="btn btn-danger"
+          onClick={() => {
+            onConfirm({ markStatus, cancelKds });
+            onClose();
+          }}
+          style={{ background: '#dc2626', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <UserX size={15} /> Release Table
         </button>
       </div>
     </Modal>
@@ -2147,7 +2246,7 @@ const POS = () => {
   const { user } = useAuth();
   const {
     menu, settings, floorPlans, staff, guests, modifiers, cashDrawer,
-    placeOrder, fireToKDS, transferKDSTickets, updateCashDrawer, addAuditEntry,
+    placeOrder, fireToKDS, transferKDSTickets, cancelKDSTickets, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
     reservations,
@@ -2397,6 +2496,7 @@ const POS = () => {
   const [paymentModal, setPaymentModal] = useState(false);
   const [mergeModal, setMergeModal] = useState(false);
   const [shiftTableModal, setShiftTableModal] = useState(false);
+  const [releaseModal, setReleaseModal] = useState(false);
   const [cashDrawerModal, setCashDrawerModal] = useState(false);
   const [cleaningTable, setCleaningTable] = useState(null);
   const [startingFloat, setStartingFloat] = useState('5000');
@@ -2890,6 +2990,84 @@ const POS = () => {
     }
 
     showSuccess(`Table ${fromTable.number || fromTable.id} shifted to Table ${toTable.number || toTable.id}!`);
+  };
+
+  // ── Release / Clear Table ─────────────────────────────────
+  const handleReleaseTable = async ({ markStatus = 'available', cancelKds = true } = {}) => {
+    if (!activeTable) return;
+    const tableToRelease = activeTable;
+    const tableId = tableToRelease.id;
+    const tableNum = tableToRelease.number || tableToRelease.id;
+    const currentItems = (cart && cart.length > 0) ? cart : (savedOrders[tableId] || []);
+
+    // 1. Clear saved orders for this table
+    setSavedOrders(prev => {
+      const next = { ...prev };
+      delete next[tableId];
+      return next;
+    });
+
+    // 2. Reset cart and tab states
+    setCart([]);
+    setDiscountAmount(0);
+    setFiredCourses(new Set([1]));
+    setIsHeld(false);
+    setHoldTimer(0);
+    setPartySize(1);
+    setHasCardOnFile(false);
+
+    // 3. Reset table status
+    setTables(prev => prev.map(t => {
+      if (String(t.id) === String(tableId)) {
+        return {
+          ...t,
+          status: markStatus,
+          guestName: null,
+          guestId: null,
+          seatedAt: null,
+          partySize: null,
+          serverId: null,
+        };
+      }
+      return t;
+    }));
+
+    // 4. Cancel active KDS tickets if requested
+    if (cancelKds && cancelKDSTickets) {
+      try {
+        await cancelKDSTickets(tableId, tableNum);
+      } catch (err) {
+        console.error('[POS] Failed to cancel KDS tickets:', err);
+      }
+    }
+
+    // 5. Audit Log
+    addAuditEntry(
+      'TABLE_RELEASE',
+      user?.role || 'staff',
+      user?.name || 'Staff',
+      `Released Table ${tableNum} (${currentItems.length} items cleared, status: ${markStatus})`
+    );
+
+    // 6. Broadcast Realtime
+    broadcastOrderCreated(tableId, `RELEASE-T${tableNum}`);
+
+    // 7. Reset active table and return to floor plan
+    setActiveTable(null);
+    setView('floor');
+    showSuccess(`Table ${tableNum} released (${markStatus === 'needs-bussing' ? 'needs cleaning' : 'available'})!`);
+  };
+
+  const requestReleaseTable = () => {
+    if (!activeTable) return;
+    const items = (cart && cart.length > 0) ? cart : (savedOrders[activeTable.id] || []);
+    if (items.length === 0) {
+      // Empty table: release immediately to available
+      handleReleaseTable({ markStatus: 'available', cancelKds: false });
+    } else {
+      // Table has items: show confirmation modal
+      setReleaseModal(true);
+    }
   };
 
   // ── Comp / Void / Discount ────────────────────────────────
@@ -3720,7 +3898,21 @@ const POS = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {isTableManagementEnabled ? (
-              <button className="btn btn-secondary btn-sm" onClick={() => { setView('floor'); setCart([]); setDiscountAmount(0); }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  const items = (cart && cart.length > 0) ? cart : (activeTable ? (savedOrders[activeTable.id] || []) : []);
+                  if (activeTable && items.length === 0 && (activeTable.status === 'seated' || activeTable.guestName)) {
+                    if (window.confirm(`Table ${activeTable.number || activeTable.id} has no orders. Release table and mark it available?`)) {
+                      handleReleaseTable({ markStatus: 'available', cancelKds: false });
+                      return;
+                    }
+                  }
+                  setView('floor');
+                  setCart([]);
+                  setDiscountAmount(0);
+                }}
+              >
                 <ChevronLeft size={15} /> Tables
               </button>
             ) : (
@@ -3742,27 +3934,50 @@ const POS = () => {
                   </span>
                 )}
                 {activeTable && orderType === 'dine-in' && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{
-                      padding: '2px 8px',
-                      fontSize: '0.68rem',
-                      borderRadius: 'var(--r-sm)',
-                      marginLeft: 4,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      border: '1px solid rgba(30, 94, 74, 0.25)',
-                      background: 'rgba(30, 94, 74, 0.05)',
-                      color: 'var(--primary)',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => setShiftTableModal(true)}
-                    title="Shift guest to another table"
-                  >
-                    <ArrowRightLeft size={11} /> Shift Table
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: '0.68rem',
+                        borderRadius: 'var(--r-sm)',
+                        marginLeft: 4,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        border: '1px solid rgba(30, 94, 74, 0.25)',
+                        background: 'rgba(30, 94, 74, 0.05)',
+                        color: 'var(--primary)',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => setShiftTableModal(true)}
+                      title="Shift guest to another table"
+                    >
+                      <ArrowRightLeft size={11} /> Shift Table
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: '0.68rem',
+                        borderRadius: 'var(--r-sm)',
+                        marginLeft: 4,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        border: '1px solid rgba(239, 68, 68, 0.35)',
+                        background: 'rgba(239, 68, 68, 0.08)',
+                        color: '#dc2626',
+                        cursor: 'pointer',
+                      }}
+                      onClick={requestReleaseTable}
+                      title="Release and clear table"
+                    >
+                      <UserX size={11} /> Release Table
+                    </button>
+                  </>
                 )}
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -4028,6 +4243,20 @@ const POS = () => {
                 >
                   Merge
                 </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    fontSize: '0.72rem',
+                    padding: '5px 8px',
+                    color: '#dc2626',
+                    borderColor: 'rgba(239, 68, 68, 0.35)',
+                    background: 'rgba(239, 68, 68, 0.05)',
+                  }}
+                  onClick={requestReleaseTable}
+                  title="Release and clear this table"
+                >
+                  <UserX size={12} /> Release Table
+                </button>
               </>
             )}
           </div>
@@ -4188,6 +4417,16 @@ const POS = () => {
           tables={tables} savedOrders={savedOrders}
           onMerge={handleMerge}
           onClose={() => setMergeModal(false)}
+        />
+      )}
+
+      {releaseModal && activeTable && (
+        <ReleaseTableModal
+          table={activeTable}
+          hasItems={((cart && cart.length > 0) ? cart : (savedOrders[activeTable.id] || [])).length > 0}
+          itemCount={((cart && cart.length > 0) ? cart : (savedOrders[activeTable.id] || [])).reduce((s, i) => s + (i.qty || 1), 0)}
+          onConfirm={handleReleaseTable}
+          onClose={() => setReleaseModal(false)}
         />
       )}
 
