@@ -31,3 +31,4 @@ dist-ssr
 semgrep*.json
 venv-semgrep/
 .agents/
+.claude/

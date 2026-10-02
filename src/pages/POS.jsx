@@ -8,7 +8,7 @@ import {
   RotateCcw, Flame, Pause, Play, Hash, Users, CircleDot,
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
-  GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check
+  GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check, Eye
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -16,6 +16,7 @@ import { getAll, insert, update, getById } from '../db/database';
 import { printReceipt, printTableTransferNotice, printKOT } from '../utils/printReceipt';
 import { getNoun } from '../utils/naming';
 import { isModuleEnabled } from '../../shared/seeds';
+import { calculateTableBill } from '../utils/tableOrders';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const ORDER_TYPES = [
@@ -2267,6 +2268,257 @@ const PaymentModal = ({
   );
 };
 
+// ─── Table Order Hover Card / Popover ────────────────────────
+const TableOrderHoverCard = ({
+  table,
+  summary,
+  statusColor,
+  statusLabel,
+  serverName,
+  position = 'top',
+  align = 'center',
+  onSettle,
+  onOpenOrder,
+  onReleaseTable,
+  onMouseEnter,
+  onMouseLeave,
+}) => {
+  if (!table) return null;
+  const {
+    items = [],
+    itemCount = 0,
+    subtotal = 0,
+    tax = 0,
+    serviceCharge = 0,
+    autoGratuity = 0,
+    grandTotal = 0,
+    hasOrder = false,
+  } = summary || {};
+
+  const stylePos = {
+    position: 'absolute',
+    [position === 'top' ? 'bottom' : 'top']: 'calc(100% + 8px)',
+    width: '280px',
+    maxWidth: '90vw',
+    background: 'var(--card-bg, #ffffff)',
+    backdropFilter: 'blur(20px)',
+    border: '1px solid var(--border-subtle, #e2e8f0)',
+    borderRadius: '16px',
+    padding: '14px',
+    boxShadow: '0 16px 36px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.08)',
+    zIndex: 1000,
+    pointerEvents: 'auto',
+    textAlign: 'left',
+    cursor: 'default',
+  };
+
+  if (align === 'left') {
+    stylePos.left = '0';
+    stylePos.transform = 'none';
+  } else if (align === 'right') {
+    stylePos.right = '0';
+    stylePos.transform = 'none';
+  } else {
+    stylePos.left = '50%';
+    stylePos.transform = 'translateX(-50%)';
+  }
+
+  return (
+    <div
+      className="table-order-hover-card animate-fade-in"
+      style={stylePos}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-primary)' }}>
+              Table {table.number || table.id}
+            </span>
+            <span style={{
+              fontSize: '0.62rem',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              padding: '2px 6px',
+              borderRadius: '6px',
+              background: `${statusColor || '#22c55e'}18`,
+              color: statusColor || 'var(--primary)',
+            }}>
+              {statusLabel || table.status}
+            </span>
+          </div>
+          {table.guestName && (
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <User size={11} /> <span>{table.guestName}</span>
+              {table.partySize && <span>({table.partySize} guests)</span>}
+            </div>
+          )}
+        </div>
+
+        {table.seatedAt && (
+          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+            <TurnTimer seatedAt={table.seatedAt} />
+          </div>
+        )}
+      </div>
+
+      {serverName && (
+        <div style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 600, marginBottom: '8px' }}>
+          Server: {serverName}
+        </div>
+      )}
+
+      {/* Items Section */}
+      {hasOrder ? (
+        <>
+          <div style={{
+            maxHeight: '130px',
+            overflowY: 'auto',
+            paddingRight: '4px',
+            marginBottom: '10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+          }}>
+            {items.map((item, idx) => {
+              const modPrice = (item.modifiers || []).reduce((sum, m) => sum + (Number(m.price) || 0), 0);
+              const lineTotal = ((Number(item.price) || 0) + modPrice) * (Number(item.qty || item.quantity) || 1);
+              return (
+                <div key={item._cartKey || item.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.75rem' }}>
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: '8px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span style={{
+                        display: 'inline-block',
+                        background: 'rgba(30, 94, 74, 0.1)',
+                        color: 'var(--primary)',
+                        padding: '0 4px',
+                        borderRadius: '4px',
+                        marginRight: '6px',
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                      }}>
+                        {item.qty || item.quantity || 1}x
+                      </span>
+                      {item.name}
+                    </div>
+                    {item.specialInstructions && (
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '22px' }}>
+                        "{item.specialInstructions}"
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                    ₹{lineTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Subtotals & Taxes */}
+          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '8px', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+              <span>Subtotal ({itemCount} items)</span>
+              <span>₹{subtotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+            </div>
+            {tax > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                <span>GST</span>
+                <span>₹{tax.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {serviceCharge > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                <span>Service Charge</span>
+                <span>₹{serviceCharge.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {autoGratuity > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                <span>Auto-Gratuity</span>
+                <span>₹{autoGratuity.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed var(--border-subtle)' }}>
+              <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-primary)' }}>Total Due</span>
+              <span style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
+                ₹{grandTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              style={{
+                flex: 1,
+                padding: '8px 10px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+              }}
+              onClick={(e) => onSettle(table, e)}
+            >
+              <ReceiptText size={14} /> Settle Bill
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{
+                padding: '8px 10px',
+                fontSize: '0.75rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+              }}
+              onClick={() => onOpenOrder(table)}
+              title="Open full order screen to add or edit items"
+            >
+              <Eye size={13} /> View
+            </button>
+          </div>
+        </>
+      ) : (
+        /* Empty or Seated Without Items */
+        <div style={{ textAlign: 'center', padding: '10px 0' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+            {table.status === 'seated' ? 'Guest seated • No items ordered yet' : 'Table is unoccupied'}
+          </div>
+          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+              onClick={() => onOpenOrder(table)}
+            >
+              {table.status === 'seated' ? 'Start Order' : 'Seat Table'}
+            </button>
+            {table.status === 'seated' && onReleaseTable && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '6px 10px', fontSize: '0.72rem', color: 'var(--danger)' }}
+                onClick={(e) => { e.stopPropagation(); onReleaseTable(table); }}
+              >
+                Release
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ─── Main POS Component ─────────────────────────────────────────────────
@@ -2548,6 +2800,37 @@ const POS = () => {
   // Party size for auto-gratuity
   const [partySize, setPartySize] = useState(1);
 
+  // Table Hover Card state & timers
+  const [hoveredTableId, setHoveredTableId] = useState(null);
+  const hoverTimeoutRef = useRef(null);
+
+  const handleTableMouseEnter = (tableId) => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    setHoveredTableId(tableId);
+  };
+
+  const handleTableMouseLeave = () => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredTableId(null);
+    }, 200);
+  };
+
+  const handlePopoverMouseEnter = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+  };
+
+  const handlePopoverMouseLeave = () => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredTableId(null);
+    }, 200);
+  };
+
   // ── Shift Open overlay ──────────────────────────────────────
   // Built here, but RETURNED AFTER all hooks (just before the main return).
   // A conditional early-return in the middle of the hook list changes the
@@ -2803,6 +3086,46 @@ const POS = () => {
       if (key === cartKey) return { ...i, seat };
       return i;
     }));
+  };
+
+  const getTableOrderSummary = useCallback((table) => {
+    if (!table) return null;
+    const items = (activeTable && String(activeTable.id) === String(table.id) && cart.length > 0)
+      ? cart
+      : (savedOrders[table.id] || []);
+
+    return calculateTableBill({
+      items,
+      settings,
+      partySize: table.partySize || 1,
+      discountAmount: (activeTable && String(activeTable.id) === String(table.id)) ? discountAmount : 0,
+      orderType: 'dine-in',
+    });
+  }, [activeTable, cart, savedOrders, settings, discountAmount]);
+
+  const handleDirectSettle = (table, e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    const tableItems = (activeTable && String(activeTable.id) === String(table.id) && cart.length > 0)
+      ? cart
+      : (savedOrders[table.id] || []);
+
+    if (tableItems.length === 0) {
+      showSuccess(`Table ${table.number || table.id} has no ordered items to settle.`);
+      return;
+    }
+    if (!checkRegisterBeforePayment()) return;
+
+    setActiveTable(table);
+    setCart(tableItems);
+    setOrderType('dine-in');
+    setPartySize(table.partySize || 1);
+    prePayStatusRef.current = table.status;
+    setTables(prev => prev.map(t => String(t.id) === String(table.id) ? { ...t, status: 'paying' } : t));
+    setHoveredTableId(null);
+    setPaymentModal(true);
   };
 
   const handleTableClick = (table) => {
@@ -3072,12 +3395,13 @@ const POS = () => {
   };
 
   // ── Release / Clear Table ─────────────────────────────────
-  const handleReleaseTable = async ({ markStatus = 'available', cancelKds = true } = {}) => {
-    if (!activeTable) return;
-    const tableToRelease = activeTable;
+  const handleReleaseTable = async ({ targetTable = null, markStatus = 'available', cancelKds = true } = {}) => {
+    const tableToRelease = targetTable || activeTable;
+    if (!tableToRelease) return;
     const tableId = tableToRelease.id;
     const tableNum = tableToRelease.number || tableToRelease.id;
-    const currentItems = (cart && cart.length > 0) ? cart : (savedOrders[tableId] || []);
+    const isActive = activeTable && String(activeTable.id) === String(tableId);
+    const currentItems = (isActive && cart && cart.length > 0) ? cart : (savedOrders[tableId] || []);
 
     // 1. Clear saved orders for this table
     setSavedOrders(prev => {
@@ -3086,14 +3410,18 @@ const POS = () => {
       return next;
     });
 
-    // 2. Reset cart and tab states
-    setCart([]);
-    setDiscountAmount(0);
-    setFiredCourses(new Set([1]));
-    setIsHeld(false);
-    setHoldTimer(0);
-    setPartySize(1);
-    setHasCardOnFile(false);
+    // 2. Reset cart and tab states if active
+    if (isActive) {
+      setCart([]);
+      setDiscountAmount(0);
+      setFiredCourses(new Set([1]));
+      setIsHeld(false);
+      setHoldTimer(0);
+      setPartySize(1);
+      setHasCardOnFile(false);
+      setActiveTable(null);
+      setView('floor');
+    }
 
     // 3. Reset table status
     setTables(prev => prev.map(t => {
@@ -3131,9 +3459,7 @@ const POS = () => {
     // 6. Broadcast Realtime
     broadcastOrderCreated(tableId, `RELEASE-T${tableNum}`);
 
-    // 7. Reset active table and return to floor plan
-    setActiveTable(null);
-    setView('floor');
+    setHoveredTableId(null);
     showSuccess(`Table ${tableNum} released (${markStatus === 'needs-bussing' ? 'needs cleaning' : 'available'})!`);
   };
 
@@ -3618,156 +3944,215 @@ const POS = () => {
                     const hasOrder = savedOrders[table.id]?.length > 0;
                     const serverName = table.serverId && serverMap[table.serverId]?.name;
                     const size = table.shape === 'bar' ? 80 : 90;
+                    const isHovered = String(hoveredTableId) === String(table.id);
+                    const align = posX < 140 ? 'left' : posX > 560 ? 'right' : 'center';
 
                     return (
-                      <button key={table.id} type="button" onClick={() => handleTableClick(table)}
+                      <div
+                        key={table.id}
                         style={{
                           position: 'absolute',
                           left: posX,
                           top: posY,
                           width: size,
                           height: size,
-                          padding: '12px 10px',
-                          textAlign: 'center',
-                          cursor: 'pointer',
-                          borderRadius: table.shape === 'round' ? '50%' : '14px',
-                          background: 'var(--card-bg)',
-                          backdropFilter: 'blur(20px)',
-                          border: `2px solid ${statusColor}40`,
-                          boxShadow: `0 4px 14px ${statusColor}15`,
-                          transition: 'all 0.2s',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                          zIndex: 2,
+                          zIndex: isHovered ? 100 : 2,
                         }}
-                        onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = `0 10px 28px ${statusColor}25`; }}
-                        onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 14px ${statusColor}15`; }}
+                        onMouseEnter={() => handleTableMouseEnter(table.id)}
+                        onMouseLeave={handleTableMouseLeave}
                       >
-                        <div style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          background: statusColor,
-                          boxShadow: `0 0 6px ${statusColor}80`,
-                          position: 'absolute',
-                          top: 10,
-                          right: 10,
-                        }} />
-
-                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: 2 }}>
-                          T{table.number}
-                        </div>
-                        <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
-                          {table.seats} seats
-                        </div>
-
-                        {isOccupied && (
-                          <div style={{ marginTop: 4, fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center' }}>
-                              <User size={8} /> <span style={{ maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.guestName || 'Guest'}</span>
-                            </div>
-                            <TurnTimer seatedAt={table.seatedAt} />
-                          </div>
-                        )}
-
-                        {serverName && (
-                          <div style={{ fontSize: '0.58rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2 }}>
-                            {serverName}
-                          </div>
-                        )}
-
-                        {hasOrder && (
+                        <button type="button" onClick={() => handleTableClick(table)}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            padding: '12px 10px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            borderRadius: table.shape === 'round' ? '50%' : '14px',
+                            background: 'var(--card-bg)',
+                            backdropFilter: 'blur(20px)',
+                            border: `2px solid ${statusColor}40`,
+                            boxShadow: `0 4px 14px ${statusColor}15`,
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            position: 'relative',
+                          }}
+                          onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = `0 10px 28px ${statusColor}25`; }}
+                          onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 14px ${statusColor}15`; }}
+                        >
                           <div style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            background: statusColor,
+                            boxShadow: `0 0 6px ${statusColor}80`,
                             position: 'absolute',
-                            bottom: 6,
-                            background: 'var(--primary)',
-                            color: 'white',
-                            borderRadius: '4px',
-                            padding: '1px 5px',
-                            fontSize: '0.55rem',
-                            fontWeight: 700,
-                          }}>
-                            KOT
+                            top: 10,
+                            right: 10,
+                          }} />
+
+                          <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: 2 }}>
+                            T{table.number}
                           </div>
+                          <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
+                            {table.seats} seats
+                          </div>
+
+                          {isOccupied && (
+                            <div style={{ marginTop: 4, fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center' }}>
+                                <User size={8} /> <span style={{ maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.guestName || 'Guest'}</span>
+                              </div>
+                              <TurnTimer seatedAt={table.seatedAt} />
+                            </div>
+                          )}
+
+                          {serverName && (
+                            <div style={{ fontSize: '0.58rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2 }}>
+                              {serverName}
+                            </div>
+                          )}
+
+                          {hasOrder && (
+                            <div style={{
+                              position: 'absolute',
+                              bottom: 6,
+                              background: 'var(--primary)',
+                              color: 'white',
+                              borderRadius: '4px',
+                              padding: '1px 5px',
+                              fontSize: '0.55rem',
+                              fontWeight: 700,
+                            }}>
+                              KOT
+                            </div>
+                          )}
+                        </button>
+
+                        {isHovered && (
+                          <TableOrderHoverCard
+                            table={table}
+                            summary={getTableOrderSummary(table)}
+                            statusColor={statusColor}
+                            statusLabel={TABLE_STATUS_LABELS[displayStatus(table)] || table.status}
+                            serverName={serverName}
+                            position={posY >= 200 ? 'top' : 'bottom'}
+                            align={align}
+                            onSettle={handleDirectSettle}
+                            onOpenOrder={handleTableClick}
+                            onReleaseTable={(t) => handleReleaseTable({ targetTable: t || table, markStatus: 'available', cancelKds: false })}
+                            onMouseEnter={handlePopoverMouseEnter}
+                            onMouseLeave={handlePopoverMouseLeave}
+                          />
                         )}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12 }}>
-                {tables.map(table => {
+                {tables.map((table, idx) => {
                   const statusColor = TABLE_STATUS_COLORS[displayStatus(table)] || TABLE_STATUS_COLORS.available;
                   const isOccupied = table.status !== 'available';
                   const hasOrder = savedOrders[table.id]?.length > 0;
                   const serverName = table.serverId && serverMap[table.serverId]?.name;
+                  const isHovered = String(hoveredTableId) === String(table.id);
 
                   return (
-                    <button key={table.id} type="button" onClick={() => handleTableClick(table)}
+                    <div
+                      key={table.id}
                       style={{
-                        padding: '16px 14px', textAlign: 'left', cursor: 'pointer',
-                        borderRadius: table.shape === 'round' ? '50%' : table.shape === 'bar' ? 'var(--r-xl)' : 'var(--r-xl)',
-                        background: 'var(--card-bg)', backdropFilter: 'blur(20px)',
-                        border: `2px solid ${statusColor}40`,
-                        boxShadow: `0 4px 14px ${statusColor}15`,
-                        transition: 'all 0.2s', position: 'relative',
-                        minHeight: table.shape === 'round' ? 155 : 'auto',
-                        display: 'flex', flexDirection: 'column',
-                        justifyContent: table.shape === 'round' ? 'center' : 'flex-start',
-                        alignItems: table.shape === 'round' ? 'center' : 'stretch',
+                        position: 'relative',
+                        zIndex: isHovered ? 100 : 1,
                       }}
-                      onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = `0 10px 28px ${statusColor}25`; }}
-                      onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 14px ${statusColor}15`; }}
+                      onMouseEnter={() => handleTableMouseEnter(table.id)}
+                      onMouseLeave={handleTableMouseLeave}
                     >
-                      <div style={{
-                        width: 10, height: 10, borderRadius: '50%', background: statusColor,
-                        boxShadow: `0 0 8px ${statusColor}80`,
-                        position: table.shape === 'round' ? 'absolute' : 'relative',
-                        top: table.shape === 'round' ? 12 : 'auto',
-                        right: table.shape === 'round' ? 12 : 'auto',
-                        marginBottom: table.shape === 'round' ? 0 : 8,
-                      }} />
-
-                      {table.shape === 'round' && <Circle size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
-                      {table.shape === 'bar' && <Coffee size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
-                      {table.shape === 'square' && <Square size={14} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
-
-                      <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: 2, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
-                        T{table.number}
-                      </div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: table.shape === 'round' ? 'center' : 'left' }}>
-                        {table.seats} seats{table.section ? ` | ${table.section}` : ''}
-                      </div>
-
-                      {isOccupied && (
-                        <div style={{ marginTop: 4, fontSize: '0.7rem', color: 'var(--text-secondary)', textAlign: table.shape === 'round' ? 'center' : 'left' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: table.shape === 'round' ? 'center' : 'flex-start' }}>
-                            <User size={10} /> {table.guestName || 'Guest'}
-                          </div>
-                          <TurnTimer seatedAt={table.seatedAt} />
-                        </div>
-                      )}
-
-                      {serverName && (
-                        <div style={{ fontSize: '0.62rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
-                          {serverName}
-                        </div>
-                      )}
-
-                      {hasOrder && (
+                      <button type="button" onClick={() => handleTableClick(table)}
+                        style={{
+                          width: '100%',
+                          padding: '16px 14px', textAlign: 'left', cursor: 'pointer',
+                          borderRadius: table.shape === 'round' ? '50%' : table.shape === 'bar' ? 'var(--r-xl)' : 'var(--r-xl)',
+                          background: 'var(--card-bg)', backdropFilter: 'blur(20px)',
+                          border: `2px solid ${statusColor}40`,
+                          boxShadow: `0 4px 14px ${statusColor}15`,
+                          transition: 'all 0.2s', position: 'relative',
+                          minHeight: table.shape === 'round' ? 155 : 'auto',
+                          display: 'flex', flexDirection: 'column',
+                          justifyContent: table.shape === 'round' ? 'center' : 'flex-start',
+                          alignItems: table.shape === 'round' ? 'center' : 'stretch',
+                        }}
+                        onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = `0 10px 28px ${statusColor}25`; }}
+                        onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 14px ${statusColor}15`; }}
+                      >
                         <div style={{
-                          position: 'absolute', top: 8, right: 8,
-                          background: 'var(--primary)', color: 'white',
-                          borderRadius: 'var(--r-sm)', padding: '1px 6px',
-                          fontSize: '0.62rem', fontWeight: 700,
-                        }}>
-                          KOT
+                          width: 10, height: 10, borderRadius: '50%', background: statusColor,
+                          boxShadow: `0 0 8px ${statusColor}80`,
+                          position: table.shape === 'round' ? 'absolute' : 'relative',
+                          top: table.shape === 'round' ? 12 : 'auto',
+                          right: table.shape === 'round' ? 12 : 'auto',
+                          marginBottom: table.shape === 'round' ? 0 : 8,
+                        }} />
+
+                        {table.shape === 'round' && <Circle size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
+                        {table.shape === 'bar' && <Coffee size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
+                        {table.shape === 'square' && <Square size={14} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
+
+                        <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: 2, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                          T{table.number}
                         </div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                          {table.seats} seats{table.section ? ` | ${table.section}` : ''}
+                        </div>
+
+                        {isOccupied && (
+                          <div style={{ marginTop: 4, fontSize: '0.7rem', color: 'var(--text-secondary)', textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: table.shape === 'round' ? 'center' : 'flex-start' }}>
+                              <User size={10} /> {table.guestName || 'Guest'}
+                            </div>
+                            <TurnTimer seatedAt={table.seatedAt} />
+                          </div>
+                        )}
+
+                        {serverName && (
+                          <div style={{ fontSize: '0.62rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                            {serverName}
+                          </div>
+                        )}
+
+                        {hasOrder && (
+                          <div style={{
+                            position: 'absolute', top: 8, right: 8,
+                            background: 'var(--primary)', color: 'white',
+                            borderRadius: 'var(--r-sm)', padding: '1px 6px',
+                            fontSize: '0.62rem', fontWeight: 700,
+                          }}>
+                            KOT
+                          </div>
+                        )}
+                      </button>
+
+                      {isHovered && (
+                        <TableOrderHoverCard
+                          table={table}
+                          summary={getTableOrderSummary(table)}
+                          statusColor={statusColor}
+                          statusLabel={TABLE_STATUS_LABELS[displayStatus(table)] || table.status}
+                          serverName={serverName}
+                          position={idx < 3 ? 'bottom' : 'top'}
+                          align="center"
+                          onSettle={handleDirectSettle}
+                          onOpenOrder={handleTableClick}
+                          onReleaseTable={(t) => handleReleaseTable({ targetTable: t || table, markStatus: 'available', cancelKds: false })}
+                          onMouseEnter={handlePopoverMouseEnter}
+                          onMouseLeave={handlePopoverMouseLeave}
+                        />
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
