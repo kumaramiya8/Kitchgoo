@@ -719,15 +719,28 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
   const counter = (_cache['bill_counter'] = (localRestore(bcKey) || _cache['bill_counter'] || 1001));
 
   const settings = getSettings();
-  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const tax = subtotal * (settings.billing.gstRate / 100);
-  const serviceCharge = settings.billing.enableServiceCharge
-    ? subtotal * (settings.billing.serviceCharge / 100) : 0;
+  const pricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
+  const itemsTotal = items.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
+  const gstRate = settings?.billing?.gstRate ?? 5;
+
+  let subtotal = 0;
+  let tax = 0;
+
+  if (pricesIncludeGst) {
+    tax = gstRate > 0 ? itemsTotal - (itemsTotal / (1 + gstRate / 100)) : 0;
+    subtotal = itemsTotal - tax;
+  } else {
+    subtotal = itemsTotal;
+    tax = subtotal * (gstRate / 100);
+  }
+
+  const serviceCharge = settings?.billing?.enableServiceCharge
+    ? subtotal * ((settings?.billing?.serviceCharge || 0) / 100) : 0;
 
   let autoGratuity = 0;
-  if (settings.billing.autoGratuityEnabled && extra.partySize >= (settings.billing.autoGratuityThreshold || 6)) {
-    const base = settings.billing.autoGratuityPreTax ? subtotal : (subtotal + tax);
-    autoGratuity = base * ((settings.billing.autoGratuityPercent || 18) / 100);
+  if (settings?.billing?.autoGratuityEnabled && extra.partySize >= (settings?.billing?.autoGratuityThreshold || 6)) {
+    const base = settings?.billing?.autoGratuityPreTax ? subtotal : (subtotal + tax);
+    autoGratuity = base * ((settings?.billing?.autoGratuityPercent || 18) / 100);
   }
 
   const discount = extra.discount || 0;
@@ -737,12 +750,13 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
 
   const order = {
     id: genId(),
-    billNo: `${settings.billing.billPrefix}-${getTenantCode(_currentTenant)}-${counter}`,
+    billNo: `${settings?.billing?.billPrefix || 'INV'}-${getTenantCode(_currentTenant)}-${counter}`,
     tableId,
     items: stripItems(items), // store names/prices, not the ordered items' menu images
     subtotal,
     tax,
-    taxRate: settings.billing.gstRate,
+    taxRate: gstRate,
+    pricesIncludeGst,
     serviceCharge,
     autoGratuity,
     discount,

@@ -207,6 +207,7 @@ const QRMenu = () => {
   }, [orders, menuItems]);
 
   const aiOrderingEnabled = settings?.modules?.qrAiOrdering !== false;
+  const pricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
 
   // Initialise welcome message when chat first opens
   useEffect(() => {
@@ -623,7 +624,9 @@ const QRMenu = () => {
             <div style={{ height: '1px', background: 'rgba(0,0,0,0.06)', margin: '12px 0' }} />
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Current Bill (Subtotal):</span>
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                {pricesIncludeGst ? 'Current Bill (Incl. GST):' : 'Current Bill (Subtotal):'}
+              </span>
               <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--primary)' }}>
                 ₹{billTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </span>

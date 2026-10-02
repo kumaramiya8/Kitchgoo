@@ -58,6 +58,7 @@ export const SEEDS = {
     },
     billing: {
       gstRate: 5,
+      pricesIncludeGst: true,
       serviceCharge: 0,
       enableServiceCharge: false,
       roundingMode: 'nearest',

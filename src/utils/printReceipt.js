@@ -17,14 +17,35 @@ export function printReceipt({ order, settings, tableId, guestName }) {
     return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  const subtotal = order.items.reduce((s, i) => s + i.price * i.qty, 0);
-  const taxRate = billing.gstRate ?? 5;
-  const tax = subtotal * (taxRate / 100);
+  const pricesIncludeGst = order.pricesIncludeGst !== undefined
+    ? order.pricesIncludeGst
+    : (billing.pricesIncludeGst !== false);
+  const taxRate = order.taxRate ?? billing.gstRate ?? 5;
+  const itemsTotal = (order.items || []).reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
+
+  const tax = order.tax !== undefined
+    ? order.tax
+    : (pricesIncludeGst
+      ? (taxRate > 0 ? itemsTotal - (itemsTotal / (1 + taxRate / 100)) : 0)
+      : itemsTotal * (taxRate / 100));
+
+  const subtotal = order.subtotal !== undefined
+    ? order.subtotal
+    : (pricesIncludeGst ? itemsTotal - tax : itemsTotal);
+
   const cgst = tax / 2;
   const sgst = tax / 2;
-  const serviceCharge = billing.enableServiceCharge
-    ? subtotal * ((billing.serviceCharge || 0) / 100) : 0;
-  const total = subtotal + tax + serviceCharge;
+  const serviceCharge = order.serviceCharge !== undefined
+    ? order.serviceCharge
+    : (billing.enableServiceCharge ? subtotal * ((billing.serviceCharge || 0) / 100) : 0);
+
+  const discount = order.discount || 0;
+  const autoGratuity = order.autoGratuity || 0;
+  const tip = order.tip || 0;
+
+  const total = order.total !== undefined
+    ? order.total
+    : (subtotal + tax + serviceCharge + autoGratuity - discount + tip);
 
   let showUpiQrHtml = '';
   if (payments.upi && payments.showUpiQr && payments.upiId) {
@@ -161,16 +182,18 @@ export function printReceipt({ order, settings, tableId, guestName }) {
   <div class="divider"></div>
 
   <!-- Totals -->
-  <div class="row"><span>Subtotal</span><span>${restaurant.currency || '₹'}${subtotal.toFixed(2)}</span></div>
+  <div class="row"><span>${pricesIncludeGst ? 'Taxable Amount' : 'Subtotal'}</span><span>${restaurant.currency || '₹'}${subtotal.toFixed(2)}</span></div>
   ${billing.showGstBreakdown ? `
-  <div class="row sm"><span>CGST @ ${taxRate / 2}%</span><span>${restaurant.currency || '₹'}${cgst.toFixed(2)}</span></div>
-  <div class="row sm"><span>SGST @ ${taxRate / 2}%</span><span>${restaurant.currency || '₹'}${sgst.toFixed(2)}</span></div>
-  ` : `<div class="row"><span>GST (${taxRate}%)</span><span>${restaurant.currency || '₹'}${tax.toFixed(2)}</span></div>`}
+  <div class="row sm"><span>CGST @ ${(taxRate / 2).toFixed(1)}%</span><span>${restaurant.currency || '₹'}${cgst.toFixed(2)}</span></div>
+  <div class="row sm"><span>SGST @ ${(taxRate / 2).toFixed(1)}%</span><span>${restaurant.currency || '₹'}${sgst.toFixed(2)}</span></div>
+  ` : `<div class="row sm"><span>GST (${taxRate}%${pricesIncludeGst ? ' incl.' : ''})</span><span>${restaurant.currency || '₹'}${tax.toFixed(2)}</span></div>`}
   ${serviceCharge > 0 ? `<div class="row"><span>Service Charge (${billing.serviceCharge}%)</span><span>${restaurant.currency || '₹'}${serviceCharge.toFixed(2)}</span></div>` : ''}
+  ${autoGratuity > 0 ? `<div class="row"><span>Auto-Gratuity</span><span>${restaurant.currency || '₹'}${autoGratuity.toFixed(2)}</span></div>` : ''}
+  ${discount > 0 ? `<div class="row"><span>Discount</span><span>-${restaurant.currency || '₹'}${discount.toFixed(2)}</span></div>` : ''}
 
   <div class="divider-solid"></div>
   <div class="row total-row">
-    <span>TOTAL</span>
+    <span>TOTAL ${pricesIncludeGst ? '(INCL. GST)' : ''}</span>
     <span>${restaurant.currency || '₹'}${total.toFixed(2)}</span>
   </div>
   ${(() => {

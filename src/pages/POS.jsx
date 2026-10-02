@@ -490,7 +490,7 @@ const ModifierModal = ({ item, modifierGroups, onConfirm, onClose }) => {
 
 
 // ─── Advanced Split Bill Modal ──────────────────────────────────────────────
-const SplitBillModal = ({ cart, grandTotal, gstRate, onClose, onApply }) => {
+const SplitBillModal = ({ cart, grandTotal, gstRate, pricesIncludeGst = true, onClose, onApply }) => {
   const [mode, setMode] = useState('even');
   const [splitCount, setSplitCount] = useState(2);
   const [itemAssignments, setItemAssignments] = useState(() => {
@@ -511,7 +511,9 @@ const SplitBillModal = ({ cart, grandTotal, gstRate, onClose, onApply }) => {
     const totals = {};
     cart.forEach(item => {
       const person = itemAssignments[item.id] || 'A';
-      const lineTotal = item.price * item.qty * (1 + gstRate / 100);
+      const lineTotal = pricesIncludeGst
+        ? item.price * item.qty
+        : item.price * item.qty * (1 + gstRate / 100);
       totals[person] = (totals[person] || 0) + lineTotal;
     });
     return totals;
@@ -521,7 +523,9 @@ const SplitBillModal = ({ cart, grandTotal, gstRate, onClose, onApply }) => {
     const totals = {};
     cart.forEach(item => {
       const seat = seatAssignments[item.id] || 1;
-      const lineTotal = item.price * item.qty * (1 + gstRate / 100);
+      const lineTotal = pricesIncludeGst
+        ? item.price * item.qty
+        : item.price * item.qty * (1 + gstRate / 100);
       totals[seat] = (totals[seat] || 0) + lineTotal;
     });
     return totals;
@@ -1749,7 +1753,7 @@ const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) 
 
 // ─── Payment Modal ──────────────────────────────────────────────────────────
 const PaymentModal = ({
-  cart, cartTotal, tax, gstRate, grandTotal, serviceCharge, autoGratuity,
+  cart, cartTotal, tax, gstRate, pricesIncludeGst = true, grandTotal, serviceCharge, autoGratuity,
   discount, activeTable, currentGuest, onConfirm, onClose
 }) => {
   const [isSplit, setIsSplit] = useState(false);
@@ -1894,11 +1898,11 @@ const PaymentModal = ({
 
               <div style={{ borderTop: '1px dashed var(--border-subtle)', marginTop: 8, paddingTop: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Subtotal</span>
-                  <span>{cartTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
+                  <span>{pricesIncludeGst ? 'Subtotal (Net)' : 'Subtotal'}</span>
+                  <span>{(pricesIncludeGst ? cartTotal - tax : cartTotal).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>GST ({gstRate}%)</span>
+                  <span>GST ({gstRate}%{pricesIncludeGst ? ' incl.' : ''})</span>
                   <span>{tax.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
                 </div>
                 {serviceCharge > 0 && (
@@ -2675,6 +2679,7 @@ const POS = () => {
   }, [staff]);
 
   const gstRate = settings?.billing?.gstRate ?? 5;
+  const pricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
   const serviceChargeRate = settings?.billing?.enableServiceCharge ? (settings?.billing?.serviceCharge || 0) : 0;
   const autoGratuityThreshold = settings?.billing?.autoGratuityThreshold || 6;
   const autoGratuityEnabled = settings?.billing?.autoGratuityEnabled !== false;
@@ -2689,12 +2694,21 @@ const POS = () => {
     }, 0);
   }, [cart]);
 
-  const tax = cartTotal * (gstRate / 100);
-  const serviceCharge = cartTotal * (serviceChargeRate / 100);
+  const tax = pricesIncludeGst
+    ? (gstRate > 0 ? cartTotal - (cartTotal / (1 + gstRate / 100)) : 0)
+    : cartTotal * (gstRate / 100);
+
+  const subtotalNet = pricesIncludeGst ? cartTotal - tax : cartTotal;
+
+  const serviceCharge = (autoGratuityPreTax ? subtotalNet : cartTotal) * (serviceChargeRate / 100);
+
   const autoGratuity = (autoGratuityEnabled && partySize >= autoGratuityThreshold)
-    ? (autoGratuityPreTax ? cartTotal : cartTotal + tax) * (autoGratuityRate / 100)
+    ? (autoGratuityPreTax ? subtotalNet : (pricesIncludeGst ? cartTotal : cartTotal + tax)) * (autoGratuityRate / 100)
     : 0;
-  const grandTotal = cartTotal + tax + serviceCharge + autoGratuity - discountAmount;
+
+  const grandTotal = pricesIncludeGst
+    ? cartTotal + serviceCharge + autoGratuity - discountAmount
+    : cartTotal + tax + serviceCharge + autoGratuity - discountAmount;
 
   // ── Helpers ───────────────────────────────────────────────
   const showSuccess = (msg) => {
@@ -4300,11 +4314,11 @@ const POS = () => {
         {/* Totals */}
         <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.6)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: '0.8rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Subtotal</span>
-            <span style={{ fontWeight: 600 }}>{cartTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
+            <span style={{ color: 'var(--text-muted)' }}>{pricesIncludeGst ? 'Subtotal (Net)' : 'Subtotal'}</span>
+            <span style={{ fontWeight: 600 }}>{subtotalNet.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: '0.8rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>GST ({gstRate}%)</span>
+            <span style={{ color: 'var(--text-muted)' }}>GST ({gstRate}%{pricesIncludeGst ? ' incl.' : ''})</span>
             <span style={{ fontWeight: 600 }}>{tax.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
           </div>
           {serviceCharge > 0 && (
@@ -4375,7 +4389,7 @@ const POS = () => {
 
       {splitModal && (
         <SplitBillModal
-          cart={cart} grandTotal={grandTotal} gstRate={gstRate}
+          cart={cart} grandTotal={grandTotal} gstRate={gstRate} pricesIncludeGst={pricesIncludeGst}
           onClose={() => setSplitModal(false)}
           onApply={(mode) => showSuccess(`Split applied: ${mode}`)}
         />
@@ -4383,7 +4397,7 @@ const POS = () => {
 
       {paymentModal && (
         <PaymentModal
-          cart={cart} cartTotal={cartTotal} tax={tax} gstRate={gstRate}
+          cart={cart} cartTotal={cartTotal} tax={tax} gstRate={gstRate} pricesIncludeGst={pricesIncludeGst}
           grandTotal={grandTotal} serviceCharge={serviceCharge}
           autoGratuity={autoGratuity} discount={discountAmount}
           activeTable={activeTable} currentGuest={currentGuest}

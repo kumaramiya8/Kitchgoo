@@ -176,6 +176,12 @@ const BillingSection = ({ data, onChange, isMobile }) => (
     </div>
 
     <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px', marginBottom: '14px' }}>
+      <Toggle
+        label="Menu Prices Include GST (Tax Inclusive)"
+        description="Menu item prices already include GST. When enabled, tax is extracted from item prices rather than added on top."
+        value={data.pricesIncludeGst !== false}
+        onChange={v => onChange('pricesIncludeGst', v)}
+      />
       <Toggle label="Enable Service Charge" description="Add a fixed % service charge to bills" value={data.enableServiceCharge} onChange={v => onChange('enableServiceCharge', v)} />
       {data.enableServiceCharge && (
         <div style={{ paddingTop: '10px' }}>

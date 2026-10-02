@@ -563,6 +563,7 @@ const MenuScreen = () => {
   ), [menu, searchTerm, filterCat]);
 
   const currency = settings?.restaurant?.currency || '\u20B9';
+  const pricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
 
   /* ── Menu Item Helpers ────────────────────────────────────────── */
   const calcMargin = (item) => {
@@ -893,7 +894,9 @@ const MenuScreen = () => {
         {/* Row 2: Price + Cost + Prep */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <div className="input-group">
-            <label className="input-label">Price ({currency}) *</label>
+            <label className="input-label">
+              Price ({currency}) * <span style={{ fontSize: '0.68rem', fontWeight: 500, color: 'var(--text-muted)' }}>{pricesIncludeGst ? '(Incl. GST)' : '(Excl. GST)'}</span>
+            </label>
             <input className="input-field" type="number" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="0.00" />
           </div>
           <div className="input-group">
