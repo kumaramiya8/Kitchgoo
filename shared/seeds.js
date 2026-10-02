@@ -54,6 +54,13 @@ export const EXPENSE_CATEGORIES = [
     subcategories: ['Staff Bonuses & Incentives', 'Staff Overtime', 'Staff Meals & Groceries', 'Uniforms & Aprons', 'Security / Valet Contractor', 'Staff Welfare & First Aid'],
   },
   {
+    id: 'inventory_cogs',
+    name: 'Raw Materials & Inventory (COGS)',
+    icon: 'Package',
+    color: '#059669',
+    subcategories: ['Supplier Purchase Orders', 'Fresh Produce & Vegetables', 'Dairy, Meat & Poultry', 'Dry Goods & Spices', 'Beverages & Syrups'],
+  },
+  {
     id: 'supplies_packaging',
     name: 'Supplies & Packaging',
     icon: 'Package',

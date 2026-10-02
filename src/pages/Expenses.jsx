@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Building2,
   Zap,
@@ -27,6 +28,9 @@ import {
   Repeat,
   Layers,
   ChevronRight,
+  ExternalLink,
+  ShoppingCart,
+  Boxes,
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -66,6 +70,7 @@ export default function Expenses() {
     addExpense,
     editExpense,
     deleteExpense,
+    purchaseOrders = [],
     orders = [],
     staff = [],
     settings,
@@ -74,6 +79,7 @@ export default function Expenses() {
 
   // Filters & State
   const [period, setPeriod] = useState('month'); // 'all', 'today', 'week', 'month', 'year'
+  const [outflowScope, setOutflowScope] = useState('all'); // 'all', 'overheads', 'purchases'
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'paid', 'pending'
   const [selectedMethod, setSelectedMethod] = useState('all');
@@ -114,12 +120,51 @@ export default function Expenses() {
     return map;
   }, []);
 
-  // Filter Expenses by Period
+  // Normalize Purchase Orders from Inventory into the expense structure
+  const normalizedPurchaseOrders = useMemo(() => {
+    return (purchaseOrders || []).map(po => {
+      const itemCount = Array.isArray(po.items) ? po.items.length : 0;
+      const itemsPreview = Array.isArray(po.items)
+        ? po.items.slice(0, 3).map(i => `${i.name || 'Item'} (${i.qty || 1}${i.unit || ''})`).join(', ') + (itemCount > 3 ? ` +${itemCount - 3} more` : '')
+        : '';
+      const isReceived = po.status === 'received';
+      const isCancelled = po.status === 'cancelled';
+
+      return {
+        id: `po_${po.id || po.poNumber || Math.random()}`,
+        originalPoId: po.id,
+        poNumber: po.poNumber || 'DRAFT',
+        isPurchaseOrder: true,
+        title: `Purchase Order #${po.poNumber || 'Draft'}`,
+        subtitle: itemsPreview || `${itemCount} ingredients/items`,
+        amount: Number(po.total || po.totalAmount || 0),
+        date: po.date || (po.createdAt ? po.createdAt.split('T')[0] : new Date().toISOString().split('T')[0]),
+        category: 'inventory_cogs',
+        subcategory: 'Supplier Purchase Orders',
+        payee: po.supplier || 'Supplier',
+        paymentMethod: po.paymentMethod || 'Supplier Invoicing',
+        status: isReceived ? 'paid' : (isCancelled ? 'cancelled' : 'pending'),
+        rawPoStatus: po.status,
+        invoiceNumber: po.poNumber || '',
+        notes: po.notes || '',
+        itemCount,
+      };
+    });
+  }, [purchaseOrders]);
+
+  // Combined Outflows based on Scope (All Outflows vs Overheads vs Purchases)
+  const allOutflows = useMemo(() => {
+    if (outflowScope === 'overheads') return expenses;
+    if (outflowScope === 'purchases') return normalizedPurchaseOrders;
+    return [...expenses, ...normalizedPurchaseOrders];
+  }, [expenses, normalizedPurchaseOrders, outflowScope]);
+
+  // Filter Expenses & Outflows by Period and Filters
   const filteredExpenses = useMemo(() => {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
-    return (expenses || []).filter(item => {
+    return allOutflows.filter(item => {
       // Date filter
       if (period !== 'all') {
         const itemDate = new Date(item.date || item.createdAt);
@@ -163,29 +208,32 @@ export default function Expenses() {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesTitle = (item.title || '').toLowerCase().includes(q);
+        const matchesSubtitle = (item.subtitle || '').toLowerCase().includes(q);
         const matchesPayee = (item.payee || '').toLowerCase().includes(q);
         const matchesInvoice = (item.invoiceNumber || '').toLowerCase().includes(q);
         const matchesNotes = (item.notes || '').toLowerCase().includes(q);
         const matchesSubcat = (item.subcategory || '').toLowerCase().includes(q);
-        if (!matchesTitle && !matchesPayee && !matchesInvoice && !matchesNotes && !matchesSubcat) {
+        if (!matchesTitle && !matchesSubtitle && !matchesPayee && !matchesInvoice && !matchesNotes && !matchesSubcat) {
           return false;
         }
       }
 
       return true;
     }).sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
-  }, [expenses, period, selectedCategory, selectedStatus, selectedMethod, searchQuery]);
+  }, [allOutflows, period, selectedCategory, selectedStatus, selectedMethod, searchQuery]);
 
   // Aggregate Metrics
   const metrics = useMemo(() => {
     const now = new Date();
     let totalPeriod = 0;
+    let periodOverheads = 0;
+    let periodPurchases = 0;
     let thisMonthTotal = 0;
     let pendingTotal = 0;
     let pendingCount = 0;
     const catTotals = {};
 
-    (expenses || []).forEach(e => {
+    allOutflows.forEach(e => {
       const amt = Number(e.amount) || 0;
       const d = new Date(e.date || e.createdAt);
 
@@ -205,10 +253,15 @@ export default function Expenses() {
       }
     });
 
-    // Period specific
+    // Period specific breakdown
     filteredExpenses.forEach(e => {
       const amt = Number(e.amount) || 0;
       totalPeriod += amt;
+      if (e.isPurchaseOrder) {
+        periodPurchases += amt;
+      } else {
+        periodOverheads += amt;
+      }
       catTotals[e.category] = (catTotals[e.category] || 0) + amt;
     });
 
@@ -224,6 +277,8 @@ export default function Expenses() {
 
     return {
       totalPeriod,
+      periodOverheads,
+      periodPurchases,
       countPeriod: filteredExpenses.length,
       thisMonthTotal,
       pendingTotal,
@@ -232,7 +287,7 @@ export default function Expenses() {
       topCategoryAmount: topCatAmt,
       categoryTotals: catTotals,
     };
-  }, [expenses, filteredExpenses, categoryMap]);
+  }, [allOutflows, filteredExpenses, categoryMap]);
 
   // P&L calculation for current period
   const pnlMetrics = useMemo(() => {
@@ -259,8 +314,56 @@ export default function Expenses() {
       return true;
     });
 
+    // Filter purchase orders in period for COGS
+    const periodPOs = normalizedPurchaseOrders.filter(po => {
+      if (period === 'all') return true;
+      const d = new Date(po.date);
+      if (isNaN(d.getTime())) return true;
+      if (period === 'today') {
+        return d.toISOString().split('T')[0] === now.toISOString().split('T')[0];
+      }
+      if (period === 'week') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(now.getDate() - 7);
+        return d >= oneWeekAgo;
+      }
+      if (period === 'month') {
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      }
+      if (period === 'year') {
+        return d.getFullYear() === now.getFullYear();
+      }
+      return true;
+    });
+
+    // Filter direct overhead expenses in period
+    const periodDirectExpenses = (expenses || []).filter(e => {
+      if (period === 'all') return true;
+      const d = new Date(e.date || e.createdAt);
+      if (isNaN(d.getTime())) return true;
+      if (period === 'today') {
+        return d.toISOString().split('T')[0] === now.toISOString().split('T')[0];
+      }
+      if (period === 'week') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(now.getDate() - 7);
+        return d >= oneWeekAgo;
+      }
+      if (period === 'month') {
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      }
+      if (period === 'year') {
+        return d.getFullYear() === now.getFullYear();
+      }
+      return true;
+    });
+
     const grossSales = periodOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-    const overheadExpenses = metrics.totalPeriod;
+    const cogsPurchases = periodPOs.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const grossProfit = grossSales - cogsPurchases;
+    const grossMarginPercent = grossSales > 0 ? (grossProfit / grossSales) * 100 : 0;
+
+    const overheadExpenses = periodDirectExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
     // Monthly labor cost approximation from staff salaries
     const monthlyLabor = (staff || []).reduce((sum, s) => sum + (Number(s.salary) || 0), 0);
@@ -269,19 +372,23 @@ export default function Expenses() {
     else if (period === 'week') periodLabor = (monthlyLabor / 30) * 7;
     else if (period === 'year') periodLabor = monthlyLabor * 12;
 
-    const totalOutflow = overheadExpenses + periodLabor;
+    const totalOutflow = cogsPurchases + overheadExpenses + periodLabor;
     const netProfit = grossSales - totalOutflow;
     const profitMargin = grossSales > 0 ? (netProfit / grossSales) * 100 : 0;
 
     return {
       grossSales,
       ordersCount: periodOrders.length,
+      cogsPurchases,
+      poCount: periodPOs.length,
+      grossProfit,
+      grossMarginPercent,
       overheadExpenses,
       periodLabor,
       netProfit,
       profitMargin,
     };
-  }, [orders, staff, metrics.totalPeriod, period]);
+  }, [orders, normalizedPurchaseOrders, expenses, staff, period]);
 
   // Recurring Expenses
   const recurringExpenses = useMemo(() => {
@@ -290,7 +397,7 @@ export default function Expenses() {
 
   // Open Log/Edit Modal
   const handleOpenModal = (expenseToEdit = null) => {
-    if (expenseToEdit) {
+    if (expenseToEdit && !expenseToEdit.isPurchaseOrder) {
       setEditingExpense(expenseToEdit);
       setForm({
         date: expenseToEdit.date || new Date().toISOString().split('T')[0],
@@ -379,6 +486,7 @@ export default function Expenses() {
     }
 
     const headers = [
+      'Type',
       'Date',
       'Title / Description',
       'Category',
@@ -396,6 +504,7 @@ export default function Expenses() {
     const escapeCell = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
 
     const rows = filteredExpenses.map(e => [
+      escapeCell(e.isPurchaseOrder ? 'Purchase Order (COGS)' : 'General Overhead'),
       e.date || '',
       escapeCell(e.title),
       escapeCell(categoryMap[e.category]?.name || e.category),
@@ -415,7 +524,7 @@ export default function Expenses() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `kitchgoo_expenses_${period}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `kitchgoo_expenses_${outflowScope}_${period}_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -429,7 +538,7 @@ export default function Expenses() {
             Expenses & Overheads
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: '4px 0 0 0' }}>
-            Track, categorize, and reconcile operational expenses, utility bills, rent, and overheads.
+            Unified ledger for operating overheads, utility bills, rent, and inventory purchase orders (COGS).
           </p>
         </div>
 
@@ -448,7 +557,7 @@ export default function Expenses() {
             onClick={() => handleOpenModal()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontSize: '0.88rem', fontWeight: 700 }}
           >
-            <Plus size={18} /> Log Expense
+            <Plus size={18} /> Log Overhead Expense
           </button>
         </div>
       </div>
@@ -459,7 +568,7 @@ export default function Expenses() {
         <div className="card" style={{ padding: '20px', borderRadius: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-              Period Expenses ({period.toUpperCase()})
+              Total Outflows ({period.toUpperCase()})
             </span>
             <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <TrendingDown size={18} />
@@ -469,7 +578,9 @@ export default function Expenses() {
             ₹{metrics.totalPeriod.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            {metrics.countPeriod} expense{metrics.countPeriod !== 1 ? 's' : ''} recorded
+            <span>₹{metrics.periodOverheads.toLocaleString('en-IN', { maximumFractionDigits: 0 })} Overheads</span>
+            {' • '}
+            <span style={{ color: '#059669', fontWeight: 600 }}>₹{metrics.periodPurchases.toLocaleString('en-IN', { maximumFractionDigits: 0 })} Purchases</span>
           </div>
         </div>
 
@@ -487,15 +598,15 @@ export default function Expenses() {
             ₹{metrics.thisMonthTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Current calendar month overhead
+            Total overheads & purchases this month
           </div>
         </div>
 
-        {/* Pending Bills */}
+        {/* Pending Bills & Unpaid POs */}
         <div className="card" style={{ padding: '20px', borderRadius: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-              Accounts Payable (Due)
+              Accounts Payable (Pending)
             </span>
             <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Clock size={18} />
@@ -505,7 +616,7 @@ export default function Expenses() {
             ₹{metrics.pendingTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            {metrics.pendingCount} unpaid / pending bill{metrics.pendingCount !== 1 ? 's' : ''}
+            {metrics.pendingCount} pending bill{metrics.pendingCount !== 1 ? 's' : ''} & POs
           </div>
         </div>
 
@@ -519,7 +630,7 @@ export default function Expenses() {
               <ArrowUpRight size={18} />
             </div>
           </div>
-          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {metrics.topCategory}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -528,7 +639,7 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* ─── Navigation Tabs & Filters ──────────────────────────── */}
+      {/* ─── Navigation Tabs & Outflow Scope Selector ───────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
@@ -537,7 +648,7 @@ export default function Expenses() {
             style={{ borderRadius: '8px', fontWeight: 700, padding: '8px 16px' }}
             onClick={() => setActiveTab('ledger')}
           >
-            All Expenses ({filteredExpenses.length})
+            All Outflows ({filteredExpenses.length})
           </button>
           <button
             type="button"
@@ -588,18 +699,70 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* ─── Filter Bar ─────────────────────────────────────────── */}
+      {/* ─── Filter Bar with Outflow Scope (Overheads vs POs) ──── */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Scope Pill Toggle */}
+        <div style={{ display: 'flex', background: 'var(--card-bg, #ffffff)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '2px' }}>
+          <button
+            type="button"
+            onClick={() => setOutflowScope('all')}
+            style={{
+              background: outflowScope === 'all' ? 'rgba(30, 94, 74, 0.12)' : 'transparent',
+              color: outflowScope === 'all' ? 'var(--primary)' : 'var(--text-secondary)',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '0.78rem',
+              fontWeight: outflowScope === 'all' ? 700 : 500,
+              cursor: 'pointer',
+            }}
+          >
+            All Outflows ({allOutflows.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setOutflowScope('overheads')}
+            style={{
+              background: outflowScope === 'overheads' ? 'rgba(30, 94, 74, 0.12)' : 'transparent',
+              color: outflowScope === 'overheads' ? 'var(--primary)' : 'var(--text-secondary)',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '0.78rem',
+              fontWeight: outflowScope === 'overheads' ? 700 : 500,
+              cursor: 'pointer',
+            }}
+          >
+            Overheads Only ({expenses.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setOutflowScope('purchases')}
+            style={{
+              background: outflowScope === 'purchases' ? 'rgba(5, 150, 105, 0.12)' : 'transparent',
+              color: outflowScope === 'purchases' ? '#059669' : 'var(--text-secondary)',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '0.78rem',
+              fontWeight: outflowScope === 'purchases' ? 700 : 500,
+              cursor: 'pointer',
+            }}
+          >
+            Inventory POs ({normalizedPurchaseOrders.length})
+          </button>
+        </div>
+
         {/* Search */}
-        <div style={{ position: 'relative', flex: '1 1 260px' }}>
+        <div style={{ position: 'relative', flex: '1 1 220px' }}>
           <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input
             type="text"
             className="input-field"
-            placeholder="Search by title, payee, or invoice #..."
+            placeholder="Search title, supplier, invoice #, items..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            style={{ paddingLeft: '38px', margin: 0, height: '40px', fontSize: '0.85rem' }}
+            style={{ paddingLeft: '38px', margin: 0, height: '38px', fontSize: '0.84rem' }}
           />
         </div>
 
@@ -608,7 +771,7 @@ export default function Expenses() {
           className="input-field"
           value={selectedCategory}
           onChange={e => setSelectedCategory(e.target.value)}
-          style={{ width: 'auto', minWidth: '180px', margin: 0, height: '40px', fontSize: '0.85rem' }}
+          style={{ width: 'auto', minWidth: '170px', margin: 0, height: '38px', fontSize: '0.82rem' }}
         >
           <option value="all">All Categories</option>
           {EXPENSE_CATEGORIES.map(cat => (
@@ -621,10 +784,10 @@ export default function Expenses() {
           className="input-field"
           value={selectedStatus}
           onChange={e => setSelectedStatus(e.target.value)}
-          style={{ width: 'auto', minWidth: '130px', margin: 0, height: '40px', fontSize: '0.85rem' }}
+          style={{ width: 'auto', minWidth: '120px', margin: 0, height: '38px', fontSize: '0.82rem' }}
         >
           <option value="all">All Statuses</option>
-          <option value="paid">Paid</option>
+          <option value="paid">Paid / Received</option>
           <option value="pending">Pending / Due</option>
         </select>
 
@@ -633,7 +796,7 @@ export default function Expenses() {
           className="input-field"
           value={selectedMethod}
           onChange={e => setSelectedMethod(e.target.value)}
-          style={{ width: 'auto', minWidth: '150px', margin: 0, height: '40px', fontSize: '0.85rem' }}
+          style={{ width: 'auto', minWidth: '130px', margin: 0, height: '38px', fontSize: '0.82rem' }}
         >
           <option value="all">All Modes</option>
           {PAYMENT_METHODS.map(m => (
@@ -641,19 +804,20 @@ export default function Expenses() {
           ))}
         </select>
 
-        {(selectedCategory !== 'all' || selectedStatus !== 'all' || selectedMethod !== 'all' || searchQuery) && (
+        {(selectedCategory !== 'all' || selectedStatus !== 'all' || selectedMethod !== 'all' || outflowScope !== 'all' || searchQuery) && (
           <button
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={() => {
+              setOutflowScope('all');
               setSelectedCategory('all');
               setSelectedStatus('all');
               setSelectedMethod('all');
               setSearchQuery('');
             }}
-            style={{ padding: '8px 12px', fontSize: '0.78rem' }}
+            style={{ padding: '6px 12px', fontSize: '0.78rem' }}
           >
-            Clear Filters
+            Reset
           </button>
         )}
       </div>
@@ -668,9 +832,9 @@ export default function Expenses() {
               <thead>
                 <tr style={{ background: 'var(--canvas, #f8fafc)', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   <th style={{ padding: '14px 18px', fontWeight: 700 }}>Date</th>
-                  <th style={{ padding: '14px 18px', fontWeight: 700 }}>Description</th>
+                  <th style={{ padding: '14px 18px', fontWeight: 700 }}>Type & Description</th>
                   <th style={{ padding: '14px 18px', fontWeight: 700 }}>Category</th>
-                  <th style={{ padding: '14px 18px', fontWeight: 700 }}>Payee / Vendor</th>
+                  <th style={{ padding: '14px 18px', fontWeight: 700 }}>Payee / Supplier</th>
                   <th style={{ padding: '14px 18px', fontWeight: 700 }}>Payment Mode</th>
                   <th style={{ padding: '14px 18px', fontWeight: 700 }}>Status</th>
                   <th style={{ padding: '14px 18px', fontWeight: 700, textAlign: 'right' }}>Amount (₹)</th>
@@ -685,27 +849,27 @@ export default function Expenses() {
                         <Wallet size={24} />
                       </div>
                       <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                        No Expenses Found
+                        No Records Found
                       </div>
-                      <p style={{ fontSize: '0.82rem', margin: '0 auto 16px auto', maxWidth: 320 }}>
-                        {expenses.length === 0
-                          ? 'Start by logging your first expense (Rent, electricity, packaging, etc.).'
-                          : 'No expenses match the selected filters.'}
+                      <p style={{ fontSize: '0.82rem', margin: '0 auto 16px auto', maxWidth: 360 }}>
+                        {allOutflows.length === 0
+                          ? 'No overhead expenses or purchase orders recorded yet.'
+                          : 'No expenses or purchase orders match the selected filters.'}
                       </p>
                       <button
                         type="button"
                         className="btn btn-primary btn-sm"
                         onClick={() => handleOpenModal()}
                       >
-                        <Plus size={15} /> Log Expense
+                        <Plus size={15} /> Log Overhead Expense
                       </button>
                     </td>
                   </tr>
                 ) : (
                   filteredExpenses.map((item, idx) => {
                     const cat = categoryMap[item.category];
-                    const CatIcon = cat?.icon && CATEGORY_ICON_MAP[cat.icon] ? CATEGORY_ICON_MAP[cat.icon] : Wallet;
-                    const catColor = cat?.color || 'var(--primary)';
+                    const CatIcon = cat?.icon && CATEGORY_ICON_MAP[cat.icon] ? CATEGORY_ICON_MAP[cat.icon] : (item.isPurchaseOrder ? Package : Wallet);
+                    const catColor = cat?.color || (item.isPurchaseOrder ? '#059669' : 'var(--primary)');
 
                     return (
                       <tr
@@ -713,6 +877,7 @@ export default function Expenses() {
                         style={{
                           borderBottom: '1px solid var(--border-subtle)',
                           transition: 'background 0.15s ease',
+                          background: item.isPurchaseOrder ? 'rgba(5, 150, 105, 0.02)' : 'transparent',
                         }}
                       >
                         {/* Date */}
@@ -720,23 +885,37 @@ export default function Expenses() {
                           {item.date || (item.createdAt ? item.createdAt.split('T')[0] : '--')}
                         </td>
 
-                        {/* Title & Notes */}
+                        {/* Title & Details */}
                         <td style={{ padding: '14px 18px' }}>
-                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                            {item.title}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {item.title}
+                            </span>
+                            {item.isPurchaseOrder && (
+                              <span style={{ fontSize: '0.65rem', background: 'rgba(5, 150, 105, 0.12)', color: '#059669', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
+                                COGS • PO
+                              </span>
+                            )}
                             {item.isRecurring && (
-                              <span style={{ marginLeft: 6, fontSize: '0.65rem', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                              <span style={{ fontSize: '0.65rem', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
                                 RECURRING
                               </span>
                             )}
                           </div>
-                          {(item.subcategory || item.invoiceNumber) && (
+
+                          {/* Subtitle / Items / Notes */}
+                          {item.subtitle && (
+                            <div style={{ fontSize: '0.73rem', color: '#059669', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <Boxes size={12} /> <span>{item.subtitle}</span>
+                            </div>
+                          )}
+                          {!item.isPurchaseOrder && (item.subcategory || item.invoiceNumber) && (
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
                               {item.subcategory}{item.subcategory && item.invoiceNumber ? ' • ' : ''}
                               {item.invoiceNumber && <span>Inv: #{item.invoiceNumber}</span>}
                             </div>
                           )}
-                          {item.notes && (
+                          {item.notes && !item.isPurchaseOrder && (
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 2 }}>
                               "{item.notes}"
                             </div>
@@ -747,17 +926,17 @@ export default function Expenses() {
                         <td style={{ padding: '14px 18px', whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 6, background: `${catColor}14`, color: catColor, fontSize: '0.75rem', fontWeight: 700 }}>
                             <CatIcon size={13} />
-                            <span>{cat?.name || item.category}</span>
+                            <span>{cat?.name || (item.isPurchaseOrder ? 'Raw Materials (COGS)' : item.category)}</span>
                           </div>
                         </td>
 
-                        {/* Payee */}
-                        <td style={{ padding: '14px 18px', color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {/* Payee / Supplier */}
+                        <td style={{ padding: '14px 18px', color: 'var(--text-primary)', fontWeight: 600 }}>
                           {item.payee || '--'}
                         </td>
 
                         {/* Payment Mode */}
-                        <td style={{ padding: '14px 18px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '14px 18px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
                           {item.paymentMethod || 'Cash'}
                         </td>
 
@@ -772,7 +951,9 @@ export default function Expenses() {
                             background: item.status === 'paid' ? 'rgba(34, 197, 94, 0.12)' : 'rgba(245, 158, 11, 0.12)',
                             color: item.status === 'paid' ? '#16a34a' : '#d97706',
                           }}>
-                            {item.status === 'paid' ? 'PAID' : 'PENDING'}
+                            {item.isPurchaseOrder
+                              ? (item.rawPoStatus ? item.rawPoStatus.toUpperCase() : item.status.toUpperCase())
+                              : (item.status === 'paid' ? 'PAID' : 'PENDING')}
                           </span>
                         </td>
 
@@ -783,26 +964,37 @@ export default function Expenses() {
 
                         {/* Actions */}
                         <td style={{ padding: '14px 18px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                            <button
-                              type="button"
+                          {item.isPurchaseOrder ? (
+                            <Link
+                              to="/inventory"
                               className="btn btn-secondary btn-sm"
-                              style={{ padding: '6px 8px' }}
-                              onClick={() => handleOpenModal(item)}
-                              title="Edit Expense"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 8px', fontSize: '0.72rem', color: '#059669' }}
+                              title="Manage in Inventory > Purchase Orders"
                             >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              style={{ padding: '6px 8px', color: 'var(--danger, #ef4444)' }}
-                              onClick={() => setDeleteConfirmId(item.id)}
-                              title="Delete Expense"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
+                              <ExternalLink size={12} /> Inventory
+                            </Link>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '6px 8px' }}
+                                onClick={() => handleOpenModal(item)}
+                                title="Edit Expense"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '6px 8px', color: 'var(--danger, #ef4444)' }}
+                                onClick={() => setDeleteConfirmId(item.id)}
+                                title="Delete Expense"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -814,42 +1006,66 @@ export default function Expenses() {
         </div>
       )}
 
-      {/* TAB 2: CATEGORY BREAKDOWN & P&L */}
+      {/* TAB 2: CATEGORY BREAKDOWN & COMPLETE P&L */}
       {activeTab === 'breakdown' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '20px' }}>
-          {/* P&L Snapshot */}
+          {/* Complete 4-Tier P&L Snapshot */}
           <div className="card" style={{ padding: '24px', borderRadius: '16px' }}>
             <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>
-              Profit & Loss Snapshot ({period.toUpperCase()})
+              Profit & Loss Statement ({period.toUpperCase()})
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-              High-level overview of revenue against operating overheads and estimated labor cost.
+              True restaurant margin calculation accounting for Sales Revenue, Raw Materials (COGS), Overheads, and Labor.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* 1. Gross Revenue */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
                 <div>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Gross Sales Revenue</div>
+                  <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>1. Gross Sales Revenue</div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{pnlMetrics.ordersCount} POS invoices completed</div>
                 </div>
-                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#16a34a' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#16a34a' }}>
                   + ₹{pnlMetrics.grossSales.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                 </div>
               </div>
 
+              {/* 2. COGS (Purchase Orders) */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
                 <div>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Operating Overheads</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Rent, utilities, packaging, maintenance, marketing</div>
+                  <div style={{ fontWeight: 700, color: '#059669' }}>2. Cost of Goods Sold (COGS)</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{pnlMetrics.poCount} supplier purchase orders in period</div>
+                </div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ef4444' }}>
+                  - ₹{pnlMetrics.cogsPurchases.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+
+              {/* Gross Margin Subtotal */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', background: 'rgba(5, 150, 105, 0.05)', borderRadius: '8px' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#059669' }}>
+                  Gross Profit (Sales - COGS)
+                </div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#059669' }}>
+                  ₹{pnlMetrics.grossProfit.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({pnlMetrics.grossMarginPercent.toFixed(1)}%)
+                </div>
+              </div>
+
+              {/* 3. Operating Overheads */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>3. Operating Overheads</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Rent, electricity, packaging, marketing, repairs</div>
                 </div>
                 <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ef4444' }}>
                   - ₹{pnlMetrics.overheadExpenses.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                 </div>
               </div>
 
+              {/* 4. Staff Labor */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
                 <div>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Staff Labor Payroll</div>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>4. Staff Labor Payroll</div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{staff.length} staff members (period salary share)</div>
                 </div>
                 <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ef4444' }}>
@@ -857,6 +1073,7 @@ export default function Expenses() {
                 </div>
               </div>
 
+              {/* Net Profit */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '2px dashed var(--border-subtle)' }}>
                 <div>
                   <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>Net Operating Profit</div>
@@ -864,7 +1081,7 @@ export default function Expenses() {
                     Net Margin: {pnlMetrics.profitMargin.toFixed(1)}%
                   </div>
                 </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 900, color: pnlMetrics.netProfit >= 0 ? '#16a34a' : '#ef4444' }}>
+                <div style={{ fontSize: '1.55rem', fontWeight: 900, color: pnlMetrics.netProfit >= 0 ? '#16a34a' : '#ef4444' }}>
                   ₹{pnlMetrics.netProfit.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                 </div>
               </div>
@@ -877,7 +1094,7 @@ export default function Expenses() {
               Category Distribution
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-              Proportion of expenses spent across each operational pillar.
+              Spending breakdown across inventory COGS and overhead pillars.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

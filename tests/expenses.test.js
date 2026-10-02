@@ -14,12 +14,13 @@ describe('Expenses & Overhead Manager', () => {
       expect(DEFAULT_MODULES.expenses).toBe(true);
     });
 
-    it('contains all 8 restaurant expense categories with subcategories', () => {
-      expect(EXPENSE_CATEGORIES).toHaveLength(8);
+    it('contains all 9 restaurant expense categories with subcategories', () => {
+      expect(EXPENSE_CATEGORIES).toHaveLength(9);
       const catIds = EXPENSE_CATEGORIES.map(c => c.id);
       expect(catIds).toContain('rent_occupancy');
       expect(catIds).toContain('utilities');
       expect(catIds).toContain('staff_labor');
+      expect(catIds).toContain('inventory_cogs');
       expect(catIds).toContain('supplies_packaging');
       expect(catIds).toContain('repairs_maintenance');
       expect(catIds).toContain('marketing_advertising');
@@ -34,6 +35,10 @@ describe('Expenses & Overhead Manager', () => {
       const utilCat = EXPENSE_CATEGORIES.find(c => c.id === 'utilities');
       expect(utilCat.subcategories).toContain('Electricity Bill');
       expect(utilCat.subcategories).toContain('Commercial LPG Gas / Piped Gas');
+
+      const cogsCat = EXPENSE_CATEGORIES.find(c => c.id === 'inventory_cogs');
+      expect(cogsCat.subcategories).toContain('Supplier Purchase Orders');
+      expect(cogsCat.subcategories).toContain('Fresh Produce & Vegetables');
     });
   });
 
@@ -119,17 +124,114 @@ describe('Expenses & Overhead Manager', () => {
       expect(utilitiesPercent.toFixed(1)).toBe('29.9');
     });
 
-    it('calculates Net Operating Profit and Net Margin correctly', () => {
-      const grossSales = 200000; // ₹2,00,000 sales
-      const overheadExpenses = 60000; // Rent, utilities, packaging
-      const laborCost = 50000; // Staff salaries
+    it('calculates 4-tier restaurant P&L with Gross Margin, Overheads, and Net Margin', () => {
+      const grossSales = 300000; // ₹3,00,000 sales
+      const cogsPurchases = 90000; // ₹90,000 inventory POs / ingredients
+      const grossMargin = grossSales - cogsPurchases; // ₹2,10,000
+      const grossMarginPercent = (grossMargin / grossSales) * 100;
 
-      const totalCosts = overheadExpenses + laborCost;
-      const netProfit = grossSales - totalCosts;
-      const netMargin = (netProfit / grossSales) * 100;
+      const overheadExpenses = 50000; // Rent, utilities, maintenance, packaging
+      const laborCost = 60000; // Staff salaries & contractor
+      const totalOutflows = cogsPurchases + overheadExpenses + laborCost; // ₹2,00,000
+      const netProfit = grossSales - totalOutflows; // ₹1,00,000
+      const netMarginPercent = (netProfit / grossSales) * 100;
 
-      expect(netProfit).toBe(90000);
-      expect(netMargin).toBe(45);
+      expect(grossMargin).toBe(210000);
+      expect(grossMarginPercent).toBe(70);
+      expect(totalOutflows).toBe(200000);
+      expect(netProfit).toBe(100000);
+      expect(Number(netMarginPercent.toFixed(2))).toBe(33.33);
+    });
+  });
+
+  describe('Purchase Order (COGS) Integration & Outflow Scoping', () => {
+    const mockPurchaseOrders = [
+      {
+        id: 'po-001',
+        poNumber: 'PO-2026-001',
+        supplier: 'Metro Cash & Carry',
+        total: 18500,
+        status: 'received',
+        date: '2026-10-01',
+        items: [
+          { name: 'Basmati Rice', qty: 25, unit: 'kg' },
+          { name: 'Refined Oil', qty: 15, unit: 'L' },
+          { name: 'Paneer', qty: 10, unit: 'kg' },
+          { name: 'Garam Masala', qty: 2, unit: 'kg' },
+        ],
+      },
+      {
+        id: 'po-002',
+        poNumber: 'PO-2026-002',
+        supplier: 'FarmFresh Organic',
+        total: 7200,
+        status: 'sent',
+        date: '2026-10-02',
+        items: [
+          { name: 'Tomatoes', qty: 20, unit: 'kg' },
+          { name: 'Onions', qty: 30, unit: 'kg' },
+        ],
+      },
+    ];
+
+    it('normalizes purchase orders into the unified outflow stream', () => {
+      const normalized = mockPurchaseOrders.map(po => {
+        const itemCount = Array.isArray(po.items) ? po.items.length : 0;
+        const itemsPreview = Array.isArray(po.items)
+          ? po.items.slice(0, 3).map(i => `${i.name || 'Item'} (${i.qty || 1}${i.unit || ''})`).join(', ') + (itemCount > 3 ? ` +${itemCount - 3} more` : '')
+          : '';
+        const isReceived = po.status === 'received';
+        const isCancelled = po.status === 'cancelled';
+
+        return {
+          id: `po_${po.id}`,
+          originalPoId: po.id,
+          poNumber: po.poNumber,
+          isPurchaseOrder: true,
+          title: `Purchase Order #${po.poNumber}`,
+          subtitle: itemsPreview,
+          amount: Number(po.total || 0),
+          date: po.date,
+          category: 'inventory_cogs',
+          subcategory: 'Supplier Purchase Orders',
+          payee: po.supplier,
+          status: isReceived ? 'paid' : (isCancelled ? 'cancelled' : 'pending'),
+          rawPoStatus: po.status,
+          itemCount,
+        };
+      });
+
+      expect(normalized).toHaveLength(2);
+      expect(normalized[0].isPurchaseOrder).toBe(true);
+      expect(normalized[0].category).toBe('inventory_cogs');
+      expect(normalized[0].status).toBe('paid'); // received -> paid
+      expect(normalized[0].subtitle).toContain('Basmati Rice (25kg)');
+      expect(normalized[0].subtitle).toContain('+1 more');
+
+      expect(normalized[1].isPurchaseOrder).toBe(true);
+      expect(normalized[1].status).toBe('pending'); // sent -> pending
+      expect(normalized[1].subtitle).toBe('Tomatoes (20kg), Onions (30kg)');
+    });
+
+    it('filters outflows by scope (all, overheads, purchases)', () => {
+      const mockOverheads = [
+        { id: 'exp-1', title: 'Office Rent', amount: 35000, category: 'rent_occupancy', isPurchaseOrder: false },
+        { id: 'exp-2', title: 'High-speed Internet', amount: 2000, category: 'utilities', isPurchaseOrder: false },
+      ];
+      const mockPurchases = [
+        { id: 'po-1', title: 'PO #101', amount: 15000, category: 'inventory_cogs', isPurchaseOrder: true },
+      ];
+
+      const getScopedOutflows = (scope) => {
+        if (scope === 'overheads') return mockOverheads;
+        if (scope === 'purchases') return mockPurchases;
+        return [...mockOverheads, ...mockPurchases];
+      };
+
+      expect(getScopedOutflows('all')).toHaveLength(3);
+      expect(getScopedOutflows('overheads')).toHaveLength(2);
+      expect(getScopedOutflows('purchases')).toHaveLength(1);
+      expect(getScopedOutflows('purchases')[0].title).toBe('PO #101');
     });
   });
 
