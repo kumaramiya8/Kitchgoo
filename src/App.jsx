@@ -24,6 +24,7 @@ const MultiLocation = lazy(() => import('./pages/MultiLocation'));
 const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
 const QRMenu = lazy(() => import('./pages/QRMenu'));
 const Attendance = lazy(() => import('./pages/Attendance'));
+const Expenses = lazy(() => import('./pages/Expenses'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -116,6 +117,7 @@ function App() {
 
       {/* Protected — Management */}
       <Route path="/staff" element={<Protected><PermissionGuard perm="staff"><Layout title="Staff & Workforce"><Staff /></Layout></PermissionGuard></Protected>} />
+      <Route path="/expenses" element={<Protected><ModuleGuard module="expenses"><PermissionGuard perm="expenses"><Layout title="Expenses & Overheads"><Expenses /></Layout></PermissionGuard></ModuleGuard></Protected>} />
       <Route path="/guests" element={<Protected><PermissionGuard perm="guests"><Layout title="Guests & CRM"><Guests /></Layout></PermissionGuard></Protected>} />
       <Route path="/reservations" element={<Protected><ModuleGuard module="reservations"><PermissionGuard perm="reservations"><Layout title="Reservations & Waitlist"><Reservations /></Layout></PermissionGuard></ModuleGuard></Protected>} />
       <Route path="/reports" element={<Protected><PermissionGuard perm="reports"><Layout title="Reports & Analytics"><Reports /></Layout></PermissionGuard></Protected>} />

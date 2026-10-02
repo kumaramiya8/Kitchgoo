@@ -11,6 +11,7 @@ export const FLEX_COLLECTIONS = [
   'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
   'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
   'pos_tables', 'pos_saved_orders', 'register_closures', 'audit_log',
+  'expenses',
 ];
 
 // Relational tables with real columns
@@ -25,9 +26,69 @@ export const DEFAULT_MODULES = {
   qrAiOrdering: true,
   loyalty: true,
   campaigns: true,
+  expenses: true,
   multiLocation: false,
   platformAdmin: false,
 };
+
+export const EXPENSE_CATEGORIES = [
+  {
+    id: 'rent_occupancy',
+    name: 'Rent & Occupancy',
+    icon: 'Building2',
+    color: '#3b82f6',
+    subcategories: ['Property Rent / Lease', 'CAM & Society Charges', 'Property Tax', 'Security Deposit'],
+  },
+  {
+    id: 'utilities',
+    name: 'Utilities',
+    icon: 'Zap',
+    color: '#f59e0b',
+    subcategories: ['Electricity Bill', 'Commercial LPG Gas / Piped Gas', 'Water Supply', 'Wi-Fi & Broadband', 'Telephone'],
+  },
+  {
+    id: 'staff_labor',
+    name: 'Staff & Labor Overheads',
+    icon: 'Users',
+    color: '#8b5cf6',
+    subcategories: ['Staff Bonuses & Incentives', 'Staff Overtime', 'Staff Meals & Groceries', 'Uniforms & Aprons', 'Security / Valet Contractor', 'Staff Welfare & First Aid'],
+  },
+  {
+    id: 'supplies_packaging',
+    name: 'Supplies & Packaging',
+    icon: 'Package',
+    color: '#10b981',
+    subcategories: ['Delivery Packaging Boxes & Bags', 'Disposable Cutlery & Straws', 'Cleaning Chemicals & Detergents', 'Kitchen Smallwares & Utensils', 'Glassware & Crockery Breakage', 'Thermal Paper Rolls'],
+  },
+  {
+    id: 'repairs_maintenance',
+    name: 'Repairs & Maintenance (AMC)',
+    icon: 'Wrench',
+    color: '#ec4899',
+    subcategories: ['Exhaust / Chimney Duct Cleaning', 'Refrigeration & Deep Freezer AMC', 'Gas Burner & Oven Servicing', 'Plumbing & Drainage', 'Electrical Repairs', 'HVAC / AC Servicing'],
+  },
+  {
+    id: 'marketing_advertising',
+    name: 'Marketing & Technology',
+    icon: 'Megaphone',
+    color: '#6366f1',
+    subcategories: ['Meta & Instagram Ads', 'Google Ads & Local SEO', 'Zomato & Swiggy Platform Ads', 'Food Photography & Menu Design', 'Influencer & PR', 'Software SaaS & Music Licenses', 'Print Flyers & Signboards'],
+  },
+  {
+    id: 'compliance_legal',
+    name: 'Legal, Taxes & Admin',
+    icon: 'FileText',
+    color: '#14b8a6',
+    subcategories: ['FSSAI Food License Renewal', 'Trade License & Fire NOC', 'CA / Audit / Accounting Fees', 'Bank & Payment Gateway Charges', 'Music & Entertainment Licenses (PPL/IPRS)', 'Insurance Premiums'],
+  },
+  {
+    id: 'petty_cash',
+    name: 'Petty Cash & Daily Misc',
+    icon: 'Wallet',
+    color: '#64748b',
+    subcategories: ['Emergency Dairy / Milk / Ice', 'Daily Delivery Fuel / Auto Fare', 'Emergency Hardware & Fasteners', 'Courier & Postal', 'Miscellaneous Sundry'],
+  },
+];
 
 export function isModuleEnabled(modulesOrSettings, key) {
   if (!key) return true;
@@ -249,4 +310,5 @@ export const SEEDS = {
   register_closures: [],
   pos_tables: [],
   pos_saved_orders: {},
+  expenses: [],
 };

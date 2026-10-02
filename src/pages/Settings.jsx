@@ -1514,6 +1514,7 @@ const DataBackupSection = ({ isMobile }) => {
     auditLog = [],
     wasteLog = [],
     purchaseOrders = [],
+    expenses = [],
   } = useApp();
 
   const [selectedDate, setSelectedDate] = useState(() => todayLocalStr());
@@ -1580,13 +1581,14 @@ const DataBackupSection = ({ isMobile }) => {
         auditLog,
         wasteLog,
         purchaseOrders,
+        expenses,
         settings,
       });
 
       downloadExcelWorkbook(filename, xml);
       setNotice({
         type: 'success',
-        text: `Excel Report downloaded: "${filename}" (${dayOrders.length} orders, 8 sheets included).`,
+        text: `Excel Report downloaded: "${filename}" (${dayOrders.length} orders, 9 sheets included).`,
       });
       setTimeout(() => setNotice(null), 5000);
     } catch (err) {

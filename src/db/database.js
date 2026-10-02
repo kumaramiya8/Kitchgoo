@@ -290,7 +290,8 @@ export async function initDB() {
       'attendance', 'users', 'guests', 'kds_tickets', 'reservations', 'waitlist',
       'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
       'locations', 'audit_log', 'floor_plans', 'modifiers', 'schedules',
-      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer', 'register_closures'
+      'tip_pools', 'loyalty', 'campaigns', 'cash_drawer', 'register_closures',
+      'expenses'
     ];
     for (const col of collections) {
       const key = `Kitchgoo_${col}`;
@@ -340,7 +341,7 @@ export async function initTenantDB(tenantName) {
       'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
       'locations', 'floor_plans', 'modifiers', 'schedules',
       'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
-      'pos_tables', 'pos_saved_orders', 'register_closures'
+      'pos_tables', 'pos_saved_orders', 'register_closures', 'expenses'
     ];
     for (const col of collections) {
       const key = `${tenantName}_${col}`;

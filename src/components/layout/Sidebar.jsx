@@ -16,6 +16,7 @@ import {
   Monitor,
   Shield,
   Clock,
+  Receipt,
   X,
 } from 'lucide-react';
 
@@ -45,6 +46,7 @@ const Sidebar = ({ isOpen, onClose }) => {
   const managementNav = [
     { name: 'Staff & Workforce', path: '/staff',        icon: Users,        perm: 'staff' },
     { name: 'Attendance',        path: '/attendance',   icon: Clock,        perm: null },
+    { name: 'Expenses',          path: '/expenses',     icon: Receipt,      perm: 'expenses', module: 'expenses' },
     { name: 'Guests & CRM',      path: '/guests',       icon: UserCheck,    perm: 'guests' },
     { name: 'Reservations',      path: '/reservations', icon: CalendarDays, perm: 'reservations', module: 'reservations' },
     { name: 'Reports',           path: '/reports',      icon: BarChart3,    perm: 'reports' },

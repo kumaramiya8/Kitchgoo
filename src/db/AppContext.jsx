@@ -111,6 +111,7 @@ export function AppProvider({ children }) {
   const [cashDrawer, setCashDrawer] = useState({});
   const [registerClosures, setRegisterClosures] = useState([]);
   const [attendance, setAttendance] = useState([]);
+  const [expenses, setExpenses] = useState([]);
 
   const { user, loading: authLoading } = useAuth();
 
@@ -243,6 +244,7 @@ export function AppProvider({ children }) {
     setCashDrawer(getAll('cash_drawer') || {});
     setRegisterClosures(getAll('register_closures') || []);
     setAttendance(getAll('attendance'));
+    setExpenses(getAll('expenses') || []);
 
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
     if (!supabase || isDemoMode) {
@@ -824,6 +826,33 @@ export function AppProvider({ children }) {
     setWasteLog(getAll('waste_log'));
   }, []);
 
+  // ── Expenses ───────────────────────────────────────────
+  const addExpense = useCallback(async (data) => {
+    const payload = {
+      ...data,
+      amount: parseFloat(data.amount) || 0,
+      status: data.status || 'paid',
+      createdAt: data.createdAt || new Date().toISOString(),
+    };
+    await insert('expenses', payload);
+    setExpenses(getAll('expenses') || []);
+  }, []);
+
+  const editExpense = useCallback(async (id, data) => {
+    const payload = {
+      ...data,
+      ...(data.amount !== undefined ? { amount: parseFloat(data.amount) || 0 } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    await update('expenses', id, payload);
+    setExpenses(getAll('expenses') || []);
+  }, []);
+
+  const deleteExpense = useCallback(async (id) => {
+    await remove('expenses', id);
+    setExpenses(getAll('expenses') || []);
+  }, []);
+
   // ── Locations ──────────────────────────────────────────
   const addLocation = useCallback(async (data) => {
     await insert('locations', data);
@@ -1049,7 +1078,7 @@ export function AppProvider({ children }) {
     staff, inventory, menu, orders, deliveryOrders, settings, todayStats,
     kdsTickets, reservations, waitlist, onlineOrders, suppliers, purchaseOrders,
     recipes, wasteLog, locations, auditLog, floorPlans, modifiers, schedules,
-    tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures, attendance,
+    tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures, attendance, expenses,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     // Staff
     addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,
@@ -1070,6 +1099,8 @@ export function AppProvider({ children }) {
     addSupplier, editSupplier, deleteSupplier,
     // Purchase Orders
     addPurchaseOrder, editPurchaseOrder,
+    // Expenses
+    addExpense, editExpense, deleteExpense,
     // Recipes
     addRecipe, editRecipe, deleteRecipe,
     // Waste

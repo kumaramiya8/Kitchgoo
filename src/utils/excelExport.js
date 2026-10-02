@@ -103,6 +103,7 @@ export function generateDailyOperationsWorkbook({
   auditLog = [],
   wasteLog = [],
   purchaseOrders = [],
+  expenses = [],
   settings = {},
 }) {
   const restaurant = settings?.restaurant || {};
@@ -117,6 +118,7 @@ export function generateDailyOperationsWorkbook({
   const dayAudit = filterByDate(auditLog, 'timestamp', targetDay);
   const dayWaste = filterByDate(wasteLog, 'date', targetDay);
   const dayPurchases = filterByDate(purchaseOrders, 'date', targetDay);
+  const dayExpenses = filterByDate(expenses, 'date', targetDay);
 
   // ─── 1. AGGREGATE FINANCIALS ──────────────────────────────
   let grossSales = 0;
@@ -209,10 +211,11 @@ export function generateDailyOperationsWorkbook({
   const expectedDrawerBalance = drawerOpening + drawerCashIn - drawerCashOut - drawerDropsTotal;
   const currentDrawerBalance = num(cashDrawer?.currentBalance ?? expectedDrawerBalance);
 
-  // Waste & purchase totals
+  // Waste, purchase & overhead totals
   const totalWasteCost = dayWaste.reduce((acc, w) => acc + num(w.cost), 0);
   const totalPurchaseCost = dayPurchases.reduce((acc, p) => acc + num(p.totalAmount || p.total || 0), 0);
-  const totalDailyExpenses = drawerCashOut + totalWasteCost + totalPurchaseCost;
+  const totalOverheadCost = dayExpenses.reduce((acc, e) => acc + num(e.amount || 0), 0);
+  const totalDailyExpenses = drawerCashOut + totalWasteCost + totalPurchaseCost + totalOverheadCost;
 
   // ─── XML STYLES ──────────────────────────────────────────
   const xmlHeader = `<?xml version="1.0"?>
@@ -391,7 +394,8 @@ export function generateDailyOperationsWorkbook({
     row([cell('String', 'Kitchen (KDS) Tickets Fired', 'BoldLabel'), cell('String', 'Kitchen tickets sent to cook stations', 'Muted'), cell('Integer', dayTickets.length, 'IntegerCenter'), emptyCell()]),
     row([cell('String', 'Staff Clock-In / Shift Events', 'BoldLabel'), cell('String', 'Attendance punches recorded', 'Muted'), cell('Integer', dayAttendance.length, 'IntegerCenter'), emptyCell()]),
     row([cell('String', 'Security & Audit Events', 'BoldLabel'), cell('String', 'Manager voids, comps, and manual drawer kicks', 'Muted'), cell('Integer', dayAudit.length, 'IntegerCenter'), emptyCell()]),
-    row([cell('String', 'Total Operational Expenses', 'BoldLabel'), cell('String', 'Paid-outs + Waste cost + Supplier Purchases', 'Muted'), cell('Number', totalDailyExpenses, 'CurrencyBold'), emptyCell()]),
+    row([cell('String', 'General Operating Overheads', 'BoldLabel'), cell('String', 'Rent, utilities, packaging, marketing, maintenance', 'Muted'), cell('Number', totalOverheadCost, 'Currency'), emptyCell()]),
+    row([cell('String', 'Total Operational Expenses', 'BoldLabel'), cell('String', 'Paid-outs + Waste + Purchases + Overheads', 'Muted'), cell('Number', totalDailyExpenses, 'CurrencyBold'), emptyCell()]),
   ];
 
   const sheet1Xml = ` <Worksheet ss:Name="Daily Summary">
@@ -860,6 +864,71 @@ export function generateDailyOperationsWorkbook({
   </Table>
  </Worksheet>`;
 
+  // ─── 9. EXPENSES & OVERHEADS WORKSHEET ─────────────────────
+  const expenseRows = [
+    row([cell('String', `${restaurant.name || 'Kitchgoo'} — Expenses & Overheads Log (${targetDay})`, 'HeaderTitle'), emptyCell('HeaderTitle'), emptyCell('HeaderTitle'), emptyCell('HeaderTitle'), emptyCell('HeaderTitle'), emptyCell('HeaderTitle'), emptyCell('HeaderTitle'), emptyCell('HeaderTitle')]),
+    row([cell('String', `Generated: ${new Date().toISOString()} • Total Overhead Expenses: INR ${totalOverheadCost.toFixed(2)}`, 'Muted'), emptyCell('Muted'), emptyCell('Muted'), emptyCell('Muted'), emptyCell('Muted'), emptyCell('Muted'), emptyCell('Muted'), emptyCell('Muted')]),
+    row([]),
+    row([
+      cell('String', 'Date', 'ColHeaderLeft'),
+      cell('String', 'Description / Title', 'ColHeaderLeft'),
+      cell('String', 'Category', 'ColHeaderLeft'),
+      cell('String', 'Payee / Vendor', 'ColHeaderLeft'),
+      cell('String', 'Payment Mode', 'ColHeaderLeft'),
+      cell('String', 'Status', 'ColHeader'),
+      cell('String', 'Invoice / Ref No', 'ColHeaderLeft'),
+      cell('String', 'Amount (INR)', 'ColHeader'),
+    ]),
+  ];
+
+  if (dayExpenses.length === 0) {
+    expenseRows.push(
+      row([cell('String', 'No general overhead expenses logged for this date.', 'Muted'), emptyCell(), emptyCell(), emptyCell(), emptyCell(), emptyCell(), emptyCell(), emptyCell()])
+    );
+  } else {
+    dayExpenses.forEach(exp => {
+      expenseRows.push(
+        row([
+          cell('String', exp.date || targetDay, 'DataLeft'),
+          cell('String', exp.title || '', 'DataLeft'),
+          cell('String', exp.category || '', 'DataLeft'),
+          cell('String', exp.payee || '', 'DataLeft'),
+          cell('String', exp.paymentMethod || 'Cash', 'DataLeft'),
+          cell('String', (exp.status || 'paid').toUpperCase(), exp.status === 'paid' ? 'BadgeGreen' : 'BadgeYellow'),
+          cell('String', exp.invoiceNumber || '', 'DataLeft'),
+          cell('Number', num(exp.amount), 'Currency'),
+        ])
+      );
+    });
+
+    expenseRows.push(
+      row([
+        cell('String', 'TOTAL OVERHEAD EXPENSES', 'TotalLabel'),
+        emptyCell('TotalLabel'),
+        emptyCell('TotalLabel'),
+        emptyCell('TotalLabel'),
+        emptyCell('TotalLabel'),
+        emptyCell('TotalLabel'),
+        emptyCell('TotalLabel'),
+        cell('Number', totalOverheadCost, 'TotalCurrency'),
+      ])
+    );
+  }
+
+  const sheet9Xml = ` <Worksheet ss:Name="Expenses &amp; Overheads">
+  <Table ss:DefaultColumnWidth="120" ss:DefaultRowHeight="20">
+   <Column ss:Width="90"/>
+   <Column ss:Width="220"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="130"/>
+   ${expenseRows.join('\n   ')}
+  </Table>
+ </Worksheet>`;
+
   // Combine into complete Workbook
   return `${xmlHeader}
 ${sheet1Xml}
@@ -870,6 +939,7 @@ ${sheet5Xml}
 ${sheet6Xml}
 ${sheet7Xml}
 ${sheet8Xml}
+${sheet9Xml}
 </Workbook>`;
 }
 
