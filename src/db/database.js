@@ -746,7 +746,13 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
   const discount = extra.discount || 0;
   const comp = extra.comp || 0;
   const tip = extra.tip || 0;
-  const total = subtotal + tax + serviceCharge + autoGratuity - discount - comp + tip;
+  const rawTotal = subtotal + tax + serviceCharge + autoGratuity - discount - comp + tip;
+  const roundingMode = settings?.billing?.roundingMode || 'none';
+  const total = roundingMode === 'nearest'
+    ? Math.round(rawTotal)
+    : roundingMode === 'up'
+    ? Math.ceil(rawTotal)
+    : parseFloat(rawTotal.toFixed(2));
 
   const order = {
     id: genId(),
@@ -826,9 +832,12 @@ export function getTodayStats() {
 
 // ─── Inventory Helpers ───────────────────────────────────────
 export function computeStockStatus(stock, min) {
+  const threshold = (min !== undefined && min !== null && min > 0)
+    ? min
+    : (getSettings()?.operations?.lowStockThreshold ?? 5);
   if (stock <= 0) return 'critical';
-  if (stock < min * 0.5) return 'critical';
-  if (stock < min) return 'low';
+  if (stock < threshold * 0.5) return 'critical';
+  if (stock < threshold) return 'low';
   return 'good';
 }
 

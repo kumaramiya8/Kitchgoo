@@ -8,12 +8,13 @@ import {
   RotateCcw, Flame, Pause, Play, Hash, Users, CircleDot,
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
-  GripVertical, Coffee, ReceiptText, UserX
+  GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import { getAll, insert, update, getById } from '../db/database';
-import { printReceipt, printTableTransferNotice } from '../utils/printReceipt';
+import { printReceipt, printTableTransferNotice, printKOT } from '../utils/printReceipt';
+import { getNoun } from '../utils/naming';
 import { isModuleEnabled } from '../../shared/seeds';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -1754,25 +1755,50 @@ const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) 
 // ─── Payment Modal ──────────────────────────────────────────────────────────
 const PaymentModal = ({
   cart, cartTotal, tax, gstRate, pricesIncludeGst = true, grandTotal, serviceCharge, autoGratuity,
-  discount, activeTable, currentGuest, onConfirm, onClose
+  discount, activeTable, currentGuest, onConfirm, onClose, settings, packagingCharge = 0
 }) => {
   const [isSplit, setIsSplit] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [tipAmount, setTipAmount] = useState('');
   const [cashTendered, setCashTendered] = useState('');
 
+  const paymentsConfig = settings?.payments || {};
+  const payMethods = useMemo(() => {
+    const list = [];
+    if (paymentsConfig.cash !== false) list.push({ key: 'Cash', icon: Banknote, color: '#22c55e' });
+    if (paymentsConfig.upi !== false) list.push({ key: 'UPI', icon: Phone, color: '#1e5e4a' });
+    if (paymentsConfig.card !== false) list.push({ key: 'Card', icon: CreditCard, color: '#3b82f6' });
+    if (paymentsConfig.wallet) list.push({ key: 'Wallet', icon: Wallet, color: '#f59e0b' });
+    if (paymentsConfig.applePay) list.push({ key: 'Apple Pay', icon: Smartphone, color: '#000000' });
+    if (paymentsConfig.googlePay) list.push({ key: 'Google Pay', icon: Globe, color: '#4285F4' });
+    if (paymentsConfig.onlineGateway) list.push({ key: 'Online', icon: CreditCard, color: '#8b5cf6' });
+    if (list.length === 0) list.push({ key: 'Cash', icon: Banknote, color: '#22c55e' });
+    return list;
+  }, [paymentsConfig]);
+
+  const [paymentMethod, setPaymentMethod] = useState(() => payMethods[0]?.key || 'Cash');
+
   const tipValue = parseFloat(tipAmount) || 0;
-  // grandTotal already includes serviceCharge + autoGratuity and is net of discount.
+  const roundingMode = settings?.billing?.roundingMode || 'none';
+  const applyRounding = useCallback((val) => {
+    if (roundingMode === 'nearest') return Math.round(val);
+    if (roundingMode === 'up') return Math.ceil(val);
+    return Math.round(val * 100) / 100;
+  }, [roundingMode]);
+
+  // grandTotal already includes serviceCharge + autoGratuity + packagingCharge and is net of discount.
   // Only the tip is added on top here — re-applying discount/gratuity double-counted them.
-  const finalTotal = grandTotal + tipValue;
+  const finalTotal = applyRounding(grandTotal + tipValue);
   const cashChange = paymentMethod === 'Cash' ? Math.max(0, (parseFloat(cashTendered) || 0) - finalTotal) : 0;
 
-  const payMethods = [
-    { key: 'Cash', icon: Banknote, color: '#22c55e' },
-    { key: 'UPI', icon: Phone, color: '#1e5e4a' },
-    { key: 'Card', icon: CreditCard, color: '#3b82f6' },
-    { key: 'Wallet', icon: Wallet, color: '#f59e0b' },
-  ];
+  const shouldAutoPrint = (
+    settings?.printer?.autoPrintBill !== false &&
+    settings?.operations?.autoPrintReceipt !== false &&
+    settings?.workflow?.autoPrintOnPayment !== false
+  );
+
+  const tipSuggestions = (settings?.receipt?.tipSuggestions && settings.receipt.tipSuggestions.length > 0)
+    ? settings.receipt.tipSuggestions
+    : [10, 15, 20];
 
   // Split payments state
   const [splitRows, setSplitRows] = useState([
@@ -2204,7 +2230,7 @@ const PaymentModal = ({
             <div className="input-group">
               <label className="input-label">Add Tip</label>
               <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                {[10, 15, 20].map(pct => (
+                {tipSuggestions.map(pct => (
                   <button key={pct} className="btn btn-secondary btn-sm" style={{ flex: 1, padding: '4px' }}
                     onClick={() => setTipAmount(((cartTotal * pct) / 100).toFixed(0))}
                   >
@@ -2226,11 +2252,11 @@ const PaymentModal = ({
           onClick={handleSettle}
           style={{ minWidth: 200 }}
         >
-          <Printer size={15} />
+          {shouldAutoPrint ? <Printer size={15} /> : <Check size={15} />}
           {!isSplit
-            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`
+            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}${shouldAutoPrint ? ' & Print' : ''}`
             : isSplitValid
-            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)`
+            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)${shouldAutoPrint ? ' & Print' : ''}`
             : remainingToPay > 0
             ? `Allocate Remaining ₹${remainingToPay.toFixed(2)}`
             : `Over-allocated by ₹${(-remainingToPay).toFixed(2)}`
@@ -2706,9 +2732,21 @@ const POS = () => {
     ? (autoGratuityPreTax ? subtotalNet : (pricesIncludeGst ? cartTotal : cartTotal + tax)) * (autoGratuityRate / 100)
     : 0;
 
-  const grandTotal = pricesIncludeGst
-    ? cartTotal + serviceCharge + autoGratuity - discountAmount
-    : cartTotal + tax + serviceCharge + autoGratuity - discountAmount;
+  const packagingCharge = (orderType === 'takeout' || orderType === 'delivery')
+    ? (parseFloat(settings?.delivery?.packagingCharge) || 0)
+    : 0;
+
+  const roundingMode = settings?.billing?.roundingMode || 'none';
+  const applyRounding = useCallback((val) => {
+    if (roundingMode === 'nearest') return Math.round(val);
+    if (roundingMode === 'up') return Math.ceil(val);
+    return Math.round(val * 100) / 100;
+  }, [roundingMode]);
+
+  const rawGrandTotal = pricesIncludeGst
+    ? cartTotal + serviceCharge + autoGratuity + packagingCharge - discountAmount
+    : cartTotal + tax + serviceCharge + autoGratuity + packagingCharge - discountAmount;
+  const grandTotal = applyRounding(rawGrandTotal);
 
   // ── Helpers ───────────────────────────────────────────────
   const showSuccess = (msg) => {
@@ -2827,6 +2865,20 @@ const POS = () => {
       const orderId = activeTable ? `T${activeTable.id}-${Date.now().toString().slice(-4)}` : `TK-${Date.now().toString().slice(-4)}`;
       await fireToKDS(orderId, itemsToFire, activeTable?.id || null, orderType);
       broadcastOrderCreated(activeTable?.id || null, orderId);
+
+      // Auto-print KOT if enabled in settings
+      const shouldAutoPrintKOT = settings?.printer?.autoPrintKOT || settings?.operations?.autoKOT;
+      if (shouldAutoPrintKOT) {
+        printKOT({
+          orderId,
+          items: itemsToFire,
+          tableId: activeTable?.id,
+          tableName: activeTable ? `Table ${activeTable.number || activeTable.id}` : (orderType === 'takeout' ? 'Takeout' : 'Delivery'),
+          serverName: activeTable?.serverName || user?.name || 'Staff',
+          orderType,
+          settings,
+        });
+      }
     }
 
     showSuccess('KOT saved! Kitchen notified.');
@@ -2841,6 +2893,19 @@ const POS = () => {
       try {
         await fireToKDS(orderId, courseItems, activeTable?.id, orderType);
         broadcastOrderCreated(activeTable?.id || null, orderId);
+
+        if (settings?.printer?.autoPrintKOT || settings?.operations?.autoKOT) {
+          printKOT({
+            orderId,
+            items: courseItems,
+            tableId: activeTable?.id,
+            tableName: activeTable ? `Table ${activeTable.number || activeTable.id}` : 'Takeout',
+            serverName: activeTable?.serverName || user?.name || 'Staff',
+            orderType,
+            notes: `Course ${nextCourse}`,
+            settings,
+          });
+        }
         showSuccess(`Course ${nextCourse} fired to kitchen!`);
       } catch (err) {
         console.error('[POS] Failed to fire course to KDS:', err);
@@ -3086,6 +3151,17 @@ const POS = () => {
 
   // ── Comp / Void / Discount ────────────────────────────────
   const handleManagerAction = (action) => {
+    if (action === 'void' && cart.length > 0) {
+      const lastItem = cart[cart.length - 1];
+      const voidAmount = lastItem.price * lastItem.qty;
+      const voidThreshold = settings?.operations?.voidApprovalThreshold || settings?.workflow?.voidApprovalAmount || 0;
+      if (voidThreshold > 0 && voidAmount <= voidThreshold) {
+        setCart(prev => prev.slice(0, -1));
+        addAuditEntry('VOID', user?.role || 'staff', user?.name || 'Staff', `Void (under threshold ₹${voidThreshold}): ${lastItem.name}`);
+        showSuccess(`Voided: ${lastItem.name}`);
+        return;
+      }
+    }
     setManagerPinModal(action);
   };
 
@@ -3260,23 +3336,43 @@ const POS = () => {
 
     // Update cash drawer for cash payments (either full cash or partial cash split)
     let cashPortion = 0;
+    let hasCardPayment = false;
     if (Array.isArray(paymentSplits) && paymentSplits.length > 0) {
       cashPortion = paymentSplits
         .filter(p => (p.method || '').toLowerCase() === 'cash')
         .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+      hasCardPayment = paymentSplits.some(p => (p.method || '').toLowerCase() === 'card');
     } else if (paymentMethod === 'Cash') {
       cashPortion = finalTotal;
-    }
-    if (cashPortion > 0) {
-      updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + cashPortion });
+    } else if (paymentMethod === 'Card') {
+      hasCardPayment = true;
     }
 
-    // Print receipt
-    printReceipt({
-      order: { ...order, items: cart, paymentSplits },
-      settings, tableId,
-      guestName: activeTable?.guestName || customerName,
-    });
+    if (cashPortion > 0) {
+      updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + cashPortion });
+      if (settings?.operations?.autoOpenCashDrawer !== false) {
+        addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', `Cash drawer auto-opened for cash payment of ₹${cashPortion.toFixed(2)}`);
+      }
+    } else if (hasCardPayment && settings?.workflow?.cashDrawerOnCreditSplit) {
+      addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', 'Cash drawer popped on card split payment');
+    }
+
+    // Auto-print receipt according to settings
+    const shouldAutoPrint = (
+      settings?.printer?.autoPrintBill !== false &&
+      settings?.operations?.autoPrintReceipt !== false &&
+      settings?.workflow?.autoPrintOnPayment !== false
+    );
+
+    if (shouldAutoPrint) {
+      printReceipt({
+        order: { ...order, items: cart, paymentSplits },
+        settings, tableId,
+        guestName: activeTable?.guestName || customerName,
+      });
+    } else {
+      showSuccess(`Payment of ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} settled!`);
+    }
 
     // Bill settled — table needs bussing before it can be reused. Tapping the
     // table on the floor map marks it cleaned and available again.
@@ -3927,7 +4023,7 @@ const POS = () => {
                   setDiscountAmount(0);
                 }}
               >
-                <ChevronLeft size={15} /> Tables
+                <ChevronLeft size={15} /> {getNoun(settings, 'tables', 'Tables')}
               </button>
             ) : (
               <button className="btn btn-secondary btn-sm" onClick={() => { setCart([]); setDiscountAmount(0); }}>
@@ -3936,7 +4032,7 @@ const POS = () => {
             )}
             <div>
               <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {activeTable ? `Table ${activeTable.number || activeTable.id}` : orderType === 'takeout' ? 'Takeout' : 'Delivery'}
+                {activeTable ? `${getNoun(settings, 'tables', 'Table')} ${activeTable.number || activeTable.id}` : orderType === 'takeout' ? 'Takeout' : 'Delivery'}
                 {currentGuest && <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.82rem' }}> -- {currentGuest}</span>}
                 {hasCardOnFile && (
                   <span style={{
@@ -4125,7 +4221,7 @@ const POS = () => {
         <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.5)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>
-              {activeTable ? `Order - T${activeTable.number || activeTable.id}` : `${orderType === 'takeout' ? 'Takeout' : 'Delivery'} Order`}
+              {activeTable ? `${getNoun(settings, 'checks', 'Order')} - T${activeTable.number || activeTable.id}` : `${orderType === 'takeout' ? 'Takeout' : 'Delivery'} ${getNoun(settings, 'checks', 'Order')}`}
             </div>
             {autoGratuity > 0 && (
               <span style={{
@@ -4339,6 +4435,12 @@ const POS = () => {
               <span style={{ fontWeight: 600, color: 'var(--success)' }}>-{discountAmount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
             </div>
           )}
+          {packagingCharge > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: '0.8rem' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Packaging Charge</span>
+              <span style={{ fontWeight: 600 }}>{packagingCharge.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
+            </div>
+          )}
           <div style={{
             display: 'flex', justifyContent: 'space-between', marginTop: 6, paddingTop: 8,
             borderTop: '1.5px dashed var(--border-subtle)',
@@ -4400,6 +4502,8 @@ const POS = () => {
           cart={cart} cartTotal={cartTotal} tax={tax} gstRate={gstRate} pricesIncludeGst={pricesIncludeGst}
           grandTotal={grandTotal} serviceCharge={serviceCharge}
           autoGratuity={autoGratuity} discount={discountAmount}
+          packagingCharge={packagingCharge}
+          settings={settings}
           activeTable={activeTable} currentGuest={currentGuest}
           onConfirm={handleConfirmPayment}
           onClose={() => {

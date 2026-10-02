@@ -150,7 +150,11 @@ const Delivery = () => {
   const [trackingSent, setTrackingSent] = useState({});
 
   const visibleTabs = useMemo(() => {
-    return TABS.filter(t => !t.module || isModuleEnabled(settings, t.module));
+    return TABS.filter(t => {
+      if (t.module && !isModuleEnabled(settings, t.module)) return false;
+      if (t.key === 'dispatch' && settings?.delivery?.inHouseDelivery === false) return false;
+      return true;
+    });
   }, [settings]);
 
   useEffect(() => {
@@ -159,10 +163,26 @@ const Delivery = () => {
     }
   }, [visibleTabs, tab]);
 
-  /* ── Local state for features not backed by context ──── */
-  const [platformConnections, setPlatformConnections] = useState({
-    Zomato: true, Swiggy: true, UberEats: false, DoorDash: false, Grubhub: false,
-  });
+  /* ── State backed by settings & local fallbacks ──── */
+  const [platformConnections, setPlatformConnections] = useState(() => ({
+    Zomato: settings?.delivery?.zomatoEnabled ?? true,
+    Swiggy: settings?.delivery?.swiggyEnabled ?? true,
+    UberEats: settings?.delivery?.uberEatsEnabled ?? false,
+    DoorDash: settings?.delivery?.doorDashEnabled ?? false,
+    Grubhub: settings?.delivery?.grubhubEnabled ?? false,
+  }));
+
+  useEffect(() => {
+    if (settings?.delivery) {
+      setPlatformConnections({
+        Zomato: settings.delivery.zomatoEnabled ?? true,
+        Swiggy: settings.delivery.swiggyEnabled ?? true,
+        UberEats: settings.delivery.uberEatsEnabled ?? false,
+        DoorDash: settings.delivery.doorDashEnabled ?? false,
+        Grubhub: settings.delivery.grubhubEnabled ?? false,
+      });
+    }
+  }, [settings?.delivery]);
   const [driverStatuses, setDriverStatuses] = useState({});
   const [deliveryZones, setDeliveryZones] = useState([
     { id: 'dz1', name: 'Zone A - Downtown', description: 'Within 3 km radius', fee: 30, minOrder: 200, estTime: '20-30 min', active: true },

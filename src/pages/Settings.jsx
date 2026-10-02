@@ -600,12 +600,26 @@ const WorkflowSection = ({ data, onChange, isMobile }) => (
 
 // ─── Receipt Builder ─────────────────────────────────────
 const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
+  const fileInputRef = useRef(null);
   const tipPcts = data.tipSuggestions || [15, 18, 20];
 
   const updateTip = (idx, val) => {
     const next = [...tipPcts];
     next[idx] = parseFloat(val) || 0;
     onChange('tipSuggestions', next);
+  };
+
+  const handleReceiptLogoChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        onChange('logo', reader.result);
+        const url = await uploadImage(reader.result, 'receipt_logo', getCurrentTenant());
+        if (url) onChange('logo', url);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   return (
@@ -616,13 +630,40 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
           Customize your printed and digital receipts. Changes are reflected in the live preview.
         </div>
 
-        <div style={{
-          padding: '20px', borderRadius: '14px', border: '2px dashed var(--border-subtle)',
-          background: 'rgba(30, 94, 74,0.02)', textAlign: 'center', marginBottom: '16px', cursor: 'pointer',
-        }}>
-          <Upload size={28} style={{ color: 'var(--text-muted)', marginBottom: '6px' }} />
-          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Upload Logo</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>PNG, JPG up to 500KB. Recommended 200x80px.</div>
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            padding: '16px', borderRadius: '14px', border: '2px dashed var(--border-subtle)',
+            background: 'rgba(30, 94, 74,0.02)', textAlign: 'center', marginBottom: '16px', cursor: 'pointer',
+            position: 'relative',
+          }}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleReceiptLogoChange}
+          />
+          {data.logo ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <img src={data.logo} alt="Receipt Logo" style={{ maxHeight: 50, maxWidth: 160, objectFit: 'contain' }} />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ color: 'var(--danger)', fontSize: '0.72rem', padding: '2px 8px' }}
+                onClick={(e) => { e.stopPropagation(); onChange('logo', ''); }}
+              >
+                Remove Logo
+              </button>
+            </div>
+          ) : (
+            <>
+              <Upload size={24} style={{ color: 'var(--text-muted)', marginBottom: '4px' }} />
+              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Upload Logo</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>Click to select PNG or JPG (recommended 200x80px)</div>
+            </>
+          )}
         </div>
 
         <Field label="Header Text">
@@ -659,13 +700,17 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
           color: '#333', boxShadow: '0 4px 16px rgba(0,0,0,0.06)', lineHeight: 1.6,
           maxWidth: isMobile ? '100%' : '280px', margin: '0 auto'
         }}>
-          {/* Logo placeholder */}
+          {/* Logo placeholder or real logo */}
           <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-            <div style={{
-              width: 60, height: 24, borderRadius: '4px', margin: '0 auto',
-              background: 'rgba(30, 94, 74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, fontFamily: 'inherit',
-            }}>LOGO</div>
+            {data.logo ? (
+              <img src={data.logo} alt="Receipt Logo" style={{ maxHeight: 36, maxWidth: 120, objectFit: 'contain' }} />
+            ) : (
+              <div style={{
+                width: 60, height: 24, borderRadius: '4px', margin: '0 auto',
+                background: 'rgba(30, 94, 74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '0.55rem', color: 'var(--primary)', fontWeight: 700, fontFamily: 'inherit',
+              }}>LOGO</div>
+            )}
           </div>
           {/* Header */}
           <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.75rem', marginBottom: '4px' }}>
@@ -1506,10 +1551,36 @@ const Settings = () => {
   const handleChange = (section, field, value) => {
     setLocalSettings(prev => {
       const base = prev || settings || getSettings();
-      return {
+      const updated = {
         ...base,
         [section]: field ? { ...base[section], [field]: value } : value,
       };
+
+      // Keep duplicate toggles synchronized
+      if (section === 'printer' && field === 'autoPrintBill') {
+        updated.operations = { ...updated.operations, autoPrintReceipt: value };
+        updated.workflow = { ...updated.workflow, autoPrintOnPayment: value };
+      } else if (section === 'operations' && field === 'autoPrintReceipt') {
+        updated.printer = { ...updated.printer, autoPrintBill: value };
+        updated.workflow = { ...updated.workflow, autoPrintOnPayment: value };
+      } else if (section === 'workflow' && field === 'autoPrintOnPayment') {
+        updated.printer = { ...updated.printer, autoPrintBill: value };
+        updated.operations = { ...updated.operations, autoPrintReceipt: value };
+      }
+
+      if (section === 'printer' && field === 'autoPrintKOT') {
+        updated.operations = { ...updated.operations, autoKOT: value };
+      } else if (section === 'operations' && field === 'autoKOT') {
+        updated.printer = { ...updated.printer, autoPrintKOT: value };
+      }
+
+      if (section === 'appearance' && field === 'language') {
+        if (typeof document !== 'undefined') {
+          document.documentElement.lang = value || 'en';
+        }
+      }
+
+      return updated;
     });
   };
 

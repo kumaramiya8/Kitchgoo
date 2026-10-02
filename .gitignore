@@ -27,5 +27,7 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
 .vercel
+semgrep*.json
+venv-semgrep/
+.agents/
