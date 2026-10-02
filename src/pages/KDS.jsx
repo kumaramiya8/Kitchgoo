@@ -143,9 +143,9 @@ const s = {
     borderBottom: '1px solid var(--border-subtle)', fontSize: '0.95rem',
   },
   checkbox: (checked) => ({
-    width: 22, height: 22, borderRadius: 4, border: `2px solid ${checked ? 'var(--success)' : 'var(--border)'}`,
+    width: 22, height: 22, borderRadius: 5, border: `2px solid ${checked ? 'var(--success)' : 'var(--border)'}`,
     background: checked ? 'var(--success)' : 'transparent', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .1s',
   }),
   bumpBtn: {
     width: '100%', padding: '12px', border: 'none', borderRadius: '0 0 var(--r-xl) var(--r-xl)',
@@ -649,13 +649,23 @@ export default function KDS() {
                     return (
                       <div key={iIdx} style={{ ...s.itemRow, opacity: bumped ? 0.45 : 1 }}>
                         <div
-                          style={s.checkbox(bumped)}
+                          style={{
+                            padding: '6px',
+                            margin: '-6px 0 -6px -6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (!bumped) handleBumpItem(ticket.id, iIdx, ticket.items.length);
                           }}
                         >
-                          {bumped && <CheckCircle size={14} color="#fff" />}
+                          <div style={s.checkbox(bumped)}>
+                            {bumped && <CheckCircle size={14} color="#fff" />}
+                          </div>
                         </div>
                         <span
                           style={{

@@ -659,20 +659,69 @@ export function AppProvider({ children }) {
   }, []);
 
   const bumpKDSItemAction = useCallback(async (ticketId, itemIndex) => {
-    await bumpKDSItem(ticketId, itemIndex);
-    setKdsTickets(getAll('kds_tickets'));
-    maybeMarkTableEating(ticketId);
+    // 1. Optimistic update: Update React state immediately (0ms delay)
+    let shouldCheckEating = false;
+    setKdsTickets(prev => prev.map(t => {
+      if (t.id !== ticketId) return t;
+      const items = [...(t.items || [])];
+      if (items[itemIndex]) {
+        items[itemIndex] = { ...items[itemIndex], status: 'bumped', bumpedAt: new Date().toISOString() };
+      }
+      const allBumped = items.length > 0 && items.every(i => i.status === 'bumped');
+      if (allBumped) shouldCheckEating = true;
+      return { ...t, items, status: allBumped ? 'completed' : 'active' };
+    }));
+
+    if (shouldCheckEating) {
+      maybeMarkTableEating(ticketId);
+    }
+
+    // 2. Persist in background
+    try {
+      await bumpKDSItem(ticketId, itemIndex);
+      if (shouldCheckEating) {
+        maybeMarkTableEating(ticketId);
+      }
+    } catch (err) {
+      console.error('[KDS] Failed to persist bump item:', err);
+      setKdsTickets(getAll('kds_tickets'));
+    }
   }, [maybeMarkTableEating]);
 
   const bumpKDSTicketAction = useCallback(async (ticketId) => {
-    await bumpKDSTicket(ticketId);
-    setKdsTickets(getAll('kds_tickets'));
+    // 1. Optimistic update: mark ticket and items completed immediately
+    setKdsTickets(prev => prev.map(t => {
+      if (t.id !== ticketId) return t;
+      const items = (t.items || []).map(i => ({ ...i, status: 'bumped', bumpedAt: new Date().toISOString() }));
+      return { ...t, items, status: 'completed' };
+    }));
     maybeMarkTableEating(ticketId);
+
+    // 2. Persist in background
+    try {
+      await bumpKDSTicket(ticketId);
+      maybeMarkTableEating(ticketId);
+    } catch (err) {
+      console.error('[KDS] Failed to persist bump ticket:', err);
+      setKdsTickets(getAll('kds_tickets'));
+    }
   }, [maybeMarkTableEating]);
 
   const recallKDSTicketAction = useCallback(async (ticketId) => {
-    await recallKDSTicket(ticketId);
-    setKdsTickets(getAll('kds_tickets'));
+    // 1. Optimistic update
+    setKdsTickets(prev => prev.map(t => {
+      if (t.id !== ticketId) return t;
+      const items = (t.items || []).map(i => ({ ...i, status: 'pending', bumpedAt: null }));
+      return { ...t, items, status: 'active' };
+    }));
+
+    // 2. Persist in background
+    try {
+      await recallKDSTicket(ticketId);
+    } catch (err) {
+      console.error('[KDS] Failed to persist recall ticket:', err);
+      setKdsTickets(getAll('kds_tickets'));
+    }
   }, []);
 
   const transferKDSTicketsAction = useCallback(async (fromTableId, toTableId, fromTableNum, toTableNum) => {
