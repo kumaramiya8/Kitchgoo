@@ -15,8 +15,13 @@ import {
   Receipt, Sparkles, Monitor, QrCode, Upload, Image,
   Apple, Smartphone, Globe, Package, Bike, Settings2,
   LayoutGrid, CalendarCheck, ChefHat, ShoppingBag,
-  Heart, Megaphone, Building2, ShieldCheck, Lock
+  Heart, Megaphone, Building2, ShieldCheck, Lock,
+  Database, Download, FileSpreadsheet, Calendar
 } from 'lucide-react';
+import { todayLocalStr, localDayStr } from '../../shared/dates';
+import { generateDailyOperationsWorkbook, downloadExcelWorkbook } from '../utils/excelExport';
+import { exportFullAppData, downloadJSONBackup } from '../utils/backupExport';
+import { downloadCSV, arrayToCSV } from '../utils/csv';
 
 // ─── Section IDs ─────────────────────────────────────────
 const SECTIONS = [
@@ -36,6 +41,7 @@ const SECTIONS = [
   { id: 'team', label: 'Team Members', icon: Users },
   { id: 'attendance', label: 'Attendance & Geofencing', icon: CalendarCheck },
   { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'dataBackup', label: 'Data & Backup', icon: Database },
 ];
 
 const Toggle = ({ value, onChange, label, description }) => (
@@ -1496,6 +1502,464 @@ const AttendanceSection = ({ data, onChange, isMobile }) => {
   );
 };
 
+// ─── Data & Backup Section ────────────────────────────────
+const DataBackupSection = ({ isMobile }) => {
+  const {
+    settings,
+    orders = [],
+    cashDrawer = {},
+    registerClosures = [],
+    kdsTickets = [],
+    attendance = [],
+    auditLog = [],
+    wasteLog = [],
+    purchaseOrders = [],
+  } = useApp();
+
+  const [selectedDate, setSelectedDate] = useState(() => todayLocalStr());
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isExportingJson, setIsExportingJson] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  const todayStr = todayLocalStr();
+  const yesterdayStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return localDayStr(d);
+  }, []);
+
+  // Filter day's orders
+  const dayOrders = useMemo(() => {
+    return (orders || []).filter(o => {
+      const raw = o.createdAt || o.date;
+      return localDayStr(raw) === selectedDate;
+    });
+  }, [orders, selectedDate]);
+
+  // Aggregate day's metrics for live preview
+  const daySales = useMemo(() => {
+    return dayOrders.reduce((sum, o) => sum + (Number(o.total || o.grandTotal) || 0), 0);
+  }, [dayOrders]);
+
+  const dayPaidOuts = Number(cashDrawer?.cashOut || 0);
+
+  const dayTickets = useMemo(() => {
+    return (kdsTickets || []).filter(t => {
+      const raw = t.createdAt || t.sentAt;
+      return localDayStr(raw) === selectedDate;
+    });
+  }, [kdsTickets, selectedDate]);
+
+  const dayAttendancePunches = useMemo(() => {
+    return (attendance || []).filter(a => localDayStr(a.timestamp) === selectedDate);
+  }, [attendance, selectedDate]);
+
+  // Full backup records count calculation
+  const backupStats = useMemo(() => {
+    try {
+      const payload = exportFullAppData();
+      return payload.metadata;
+    } catch {
+      return { totalCollections: 28, totalRecords: 0 };
+    }
+  }, [orders, kdsTickets, attendance, auditLog]);
+
+  const handleDownloadExcel = () => {
+    try {
+      setIsExportingExcel(true);
+      const cleanTenant = (getCurrentTenant() || 'kitchgoo').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `${cleanTenant}_daily_operations_${selectedDate}.xls`;
+
+      const xml = generateDailyOperationsWorkbook({
+        dateStr: selectedDate,
+        orders,
+        cashDrawer,
+        registerClosures,
+        kdsTickets,
+        attendance,
+        auditLog,
+        wasteLog,
+        purchaseOrders,
+        settings,
+      });
+
+      downloadExcelWorkbook(filename, xml);
+      setNotice({
+        type: 'success',
+        text: `Excel Report downloaded: "${filename}" (${dayOrders.length} orders, 8 sheets included).`,
+      });
+      setTimeout(() => setNotice(null), 5000);
+    } catch (err) {
+      console.error('[Export] Excel generation failed:', err);
+      setNotice({
+        type: 'error',
+        text: 'Failed to generate Excel report. Please check system console.',
+      });
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  const handleDownloadCSV = () => {
+    try {
+      const cleanTenant = (getCurrentTenant() || 'kitchgoo').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `${cleanTenant}_invoices_${selectedDate}.csv`;
+      const headers = ['Invoice', 'Time', 'Type', 'Table', 'Guest', 'Server', 'Payment', 'Subtotal', 'Tax', 'Tip', 'Total'];
+      const rows = dayOrders.map(o => ({
+        Invoice: o.invoiceNumber || o.billNumber || o.id?.slice(-6) || 'INV',
+        Time: o.createdAt ? new Date(o.createdAt).toLocaleTimeString('en-IN') : '',
+        Type: o.orderType || 'Dine-In',
+        Table: o.tableName || o.tableId || 'Walk-in',
+        Guest: o.guestName || 'Guest',
+        Server: o.serverName || 'Staff',
+        Payment: o.paymentMethod || 'Cash',
+        Subtotal: o.subtotal || 0,
+        Tax: o.tax || 0,
+        Tip: o.tip || 0,
+        Total: o.total || o.grandTotal || 0,
+      }));
+      downloadCSV(filename, arrayToCSV(headers, rows));
+      setNotice({
+        type: 'success',
+        text: `Orders CSV downloaded: "${filename}" (${dayOrders.length} orders).`,
+      });
+      setTimeout(() => setNotice(null), 5000);
+    } catch (err) {
+      console.error('[Export] CSV generation failed:', err);
+    }
+  };
+
+  const handleExportJson = () => {
+    try {
+      setIsExportingJson(true);
+      const cleanTenant = (getCurrentTenant() || 'kitchgoo').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const timeStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+      const filename = `kitchgoo_backup_${cleanTenant}_${timeStr}.json`;
+
+      const payload = exportFullAppData();
+      downloadJSONBackup(filename, payload);
+      setNotice({
+        type: 'success',
+        text: `Full App Backup downloaded: "${filename}" (${payload.metadata.totalRecords} records across ${payload.metadata.totalCollections} collections).`,
+      });
+      setTimeout(() => setNotice(null), 5000);
+    } catch (err) {
+      console.error('[Export] JSON backup failed:', err);
+      setNotice({
+        type: 'error',
+        text: 'Failed to generate JSON backup.',
+      });
+    } finally {
+      setIsExportingJson(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      {notice && (
+        <div style={{
+          padding: '12px 16px',
+          borderRadius: '12px',
+          background: notice.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+          border: `1px solid ${notice.type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
+          color: notice.type === 'error' ? 'var(--danger, #dc2626)' : 'var(--success, #16a34a)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          fontSize: '0.85rem',
+          fontWeight: 600,
+        }}>
+          {notice.type === 'error' ? <AlertTriangle size={18} /> : <Check size={18} />}
+          <span>{notice.text}</span>
+        </div>
+      )}
+
+      {/* Card 1: 1-Click Daily Operational Report (Excel) */}
+      <div style={{
+        background: 'var(--card-bg, #ffffff)',
+        border: '1px solid var(--border-subtle, #e5e7eb)',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: 38,
+              height: 38,
+              borderRadius: '10px',
+              background: 'rgba(30, 94, 74, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--primary, #1e5e4a)',
+            }}>
+              <FileSpreadsheet size={20} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                Daily Operational Report (Excel)
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                One-click download of all sales, taxes, cash drawer, paid-outs, KDS, attendance & audit records
+              </p>
+            </div>
+          </div>
+          <span style={{
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            padding: '4px 10px',
+            borderRadius: '20px',
+            background: 'rgba(30, 94, 74, 0.08)',
+            color: 'var(--primary, #1e5e4a)',
+          }}>
+            Offline Ready (.xls)
+          </span>
+        </div>
+
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '18px' }}>
+          Generate a comprehensive, multi-tab Excel workbook formatted for offline auditing and reconciliation. Keep daily business records accessible even if the app, terminal, or internet connection is offline.
+        </p>
+
+        {/* Date Selector Row */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap',
+          marginBottom: '20px',
+          padding: '12px 14px',
+          background: 'rgba(0,0,0,0.02)',
+          borderRadius: '12px',
+          border: '1px solid var(--border-subtle)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Calendar size={16} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>Select Date:</span>
+            <input
+              type="date"
+              className="input-field"
+              style={{ padding: '6px 10px', fontSize: '0.82rem', width: 'auto' }}
+              value={selectedDate}
+              onChange={e => setSelectedDate(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px', marginLeft: isMobile ? 0 : 'auto' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{
+                fontSize: '0.78rem',
+                padding: '4px 12px',
+                borderColor: selectedDate === todayStr ? 'var(--primary)' : undefined,
+                background: selectedDate === todayStr ? 'rgba(30, 94, 74, 0.08)' : undefined,
+                color: selectedDate === todayStr ? 'var(--primary)' : undefined,
+                fontWeight: selectedDate === todayStr ? 700 : 500,
+              }}
+              onClick={() => setSelectedDate(todayStr)}
+            >
+              Today
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{
+                fontSize: '0.78rem',
+                padding: '4px 12px',
+                borderColor: selectedDate === yesterdayStr ? 'var(--primary)' : undefined,
+                background: selectedDate === yesterdayStr ? 'rgba(30, 94, 74, 0.08)' : undefined,
+                color: selectedDate === yesterdayStr ? 'var(--primary)' : undefined,
+                fontWeight: selectedDate === yesterdayStr ? 700 : 500,
+              }}
+              onClick={() => setSelectedDate(yesterdayStr)}
+            >
+              Yesterday
+            </button>
+          </div>
+        </div>
+
+        {/* Live Metrics Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
+          gap: '10px',
+          marginBottom: '20px',
+        }}>
+          <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(30, 94, 74, 0.04)', border: '1px solid rgba(30, 94, 74, 0.12)' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Invoiced Sales</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>
+              ₹{daySales.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>{dayOrders.length} orders completed</div>
+          </div>
+
+          <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(239, 68, 68, 0.04)', border: '1px solid rgba(239, 68, 68, 0.12)' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Paid-Outs / Expenses</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#dc2626', marginTop: '4px' }}>
+              ₹{dayPaidOuts.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>Cash drawer outflows</div>
+          </div>
+
+          <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Kitchen Throughput</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+              {dayTickets.length} Tickets
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>Cook station orders</div>
+          </div>
+
+          <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Staff Shifts</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+              {dayAttendancePunches.length} Punches
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>Clock-in/out records</div>
+          </div>
+        </div>
+
+        {/* Buttons Row */}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleDownloadExcel}
+            disabled={isExportingExcel}
+            style={{
+              padding: '10px 18px',
+              fontSize: '0.88rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: isExportingExcel ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <FileSpreadsheet size={16} />
+            {isExportingExcel ? 'Generating Workbook…' : 'Download Daily Operational Report (Excel)'}
+          </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={handleDownloadCSV}
+            style={{
+              padding: '10px 16px',
+              fontSize: '0.85rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Download size={15} />
+            Download Invoices (CSV)
+          </button>
+        </div>
+
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '12px' }}>
+          Workbook contains 8 structured sheets: <strong>Daily Summary</strong>, <strong>Sales & Invoices</strong>, <strong>Item Sales Breakdown</strong>, <strong>Cash Drawer & Expenses</strong>, <strong>Waste & Purchases</strong>, <strong>Kitchen Operations</strong>, <strong>Staff Attendance</strong>, and <strong>Audit Log & Voids</strong>.
+        </div>
+      </div>
+
+      {/* Card 2: Full App Data & Settings Backup (JSON) */}
+      <div style={{
+        background: 'var(--card-bg, #ffffff)',
+        border: '1px solid var(--border-subtle, #e5e7eb)',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: 38,
+              height: 38,
+              borderRadius: '10px',
+              background: 'rgba(59, 130, 246, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#2563eb',
+            }}>
+              <Database size={20} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                Full App Data & Settings Backup (JSON)
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                Complete database snapshot for disaster recovery, migrations, or local archival
+              </p>
+            </div>
+          </div>
+          <span style={{
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            padding: '4px 10px',
+            borderRadius: '20px',
+            background: 'rgba(59, 130, 246, 0.08)',
+            color: '#2563eb',
+          }}>
+            Full System Snapshot
+          </span>
+        </div>
+
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '18px' }}>
+          Export the entire database for restaurant <strong>{getCurrentTenant()}</strong>. This includes complete configuration settings, menu catalog, inventory ingredient levels, recipe linkages, all historical order receipts, staff credentials, customer profiles, table layouts, and manager audit histories.
+        </p>
+
+        {/* Database Inventory Snapshot Pills */}
+        <div style={{
+          display: 'flex',
+          gap: '12px',
+          flexWrap: 'wrap',
+          marginBottom: '20px',
+          padding: '12px 14px',
+          background: 'rgba(0,0,0,0.02)',
+          borderRadius: '12px',
+          border: '1px solid var(--border-subtle)',
+        }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Active Tenant: <strong style={{ color: 'var(--text-primary)' }}>{getCurrentTenant()}</strong>
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Collections Tracked: <strong style={{ color: 'var(--text-primary)' }}>{backupStats.totalCollections || 28}</strong>
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Total Records: <strong style={{ color: 'var(--text-primary)' }}>{backupStats.totalRecords || 0}</strong>
+          </div>
+        </div>
+
+        {/* Export Button */}
+        <div>
+          <button
+            className="btn btn-primary"
+            onClick={handleExportJson}
+            disabled={isExportingJson}
+            style={{
+              padding: '10px 18px',
+              fontSize: '0.88rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: isExportingJson ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <Download size={16} />
+            {isExportingJson ? 'Exporting Snapshot…' : 'Export Full App Data & Settings (JSON)'}
+          </button>
+        </div>
+
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '12px' }}>
+          Saved in pure JSON format, readable by any text editor, cloud backup tool, or database restoration script.
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ═══ MAIN SETTINGS PAGE ═══════════════════════════════════
 const Settings = () => {
   const { settings, updateSettingsSection } = useApp();
@@ -1647,6 +2111,7 @@ const Settings = () => {
       case 'team': return <TeamSection isMobile={isMobile} />;
       case 'attendance': return <AttendanceSection data={localSettings.attendance || {}} onChange={(field, value) => handleChange('attendance', field, value)} isMobile={isMobile} />;
       case 'appearance': return <AppearanceSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'dataBackup': return <DataBackupSection isMobile={isMobile} />;
       default: return null;
     }
   };
@@ -1664,7 +2129,7 @@ const Settings = () => {
           const Icon = s.icon;
           const active = currentSection === s.id;
           // Group separators
-          const showSep = s.id === 'modules' || s.id === 'roles';
+          const showSep = s.id === 'modules' || s.id === 'roles' || s.id === 'dataBackup';
           return (
             <React.Fragment key={s.id}>
               {showSep && (
