@@ -328,7 +328,7 @@ const RecallPanel = ({ tickets, onRecall, onClose }) => {
 
 /* ── Main KDS Component ────────────────────────────────── */
 export default function KDS() {
-  const { kdsTickets, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, posTables, reload } = useApp();
+  const { kdsTickets, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, posTables, posSavedOrders, reload } = useApp();
 
   const [station, setStation] = useState('All');
   const [viewMode, setViewMode] = useState('tickets');
@@ -374,6 +374,11 @@ export default function KDS() {
   }, [kdsTickets]);
 
   const isPaymentPending = (ticket) => {
+    if (ticket.isPaid) return false;
+    if (ticket.tableId && String(ticket.tableId).startsWith('tab_')) {
+      // Unassigned floating tab: pending if tab is still open in posSavedOrders
+      return Boolean(posSavedOrders && posSavedOrders[ticket.tableId]);
+    }
     if (ticket.tableId && (!ticket.orderType || ticket.orderType === 'dine-in')) {
       const table = (posTables || []).find(t => String(t.id) === String(ticket.tableId) || String(t.number) === String(ticket.tableId));
       if (table && table.status !== 'available') {

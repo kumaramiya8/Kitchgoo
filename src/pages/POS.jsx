@@ -3563,6 +3563,7 @@ const POS = () => {
       const updated = {
         ...(typeof existing === 'object' && !Array.isArray(existing) ? existing : unassignedTab),
         items: cart,
+        firedItems: (typeof existing === 'object' && !Array.isArray(existing) ? existing.firedItems : unassignedTab.firedItems) || [],
       };
       return {
         ...prev,
@@ -3586,6 +3587,7 @@ const POS = () => {
       createdAt: new Date().toISOString(),
       orderType: 'dine-in',
       items: [],
+      firedItems: [],
     };
 
     setUnassignedTab(newTab);
@@ -3610,10 +3612,14 @@ const POS = () => {
     const tabItems = (tabRaw && Array.isArray(tabRaw))
       ? tabRaw
       : (tabRaw?.items || tab.items || []);
+    const firedItems = (tabRaw && !Array.isArray(tabRaw) && tabRaw.firedItems)
+      ? tabRaw.firedItems
+      : (tab.firedItems || []);
 
     setUnassignedTab({
       ...tab,
       items: tabItems,
+      firedItems,
     });
     setActiveTable(null);
     setCart(tabItems);
@@ -3629,6 +3635,9 @@ const POS = () => {
     const tabItems = (tabRaw && Array.isArray(tabRaw))
       ? tabRaw
       : (tabRaw?.items || tab.items || []);
+    const firedItems = (tabRaw && !Array.isArray(tabRaw) && tabRaw.firedItems)
+      ? tabRaw.firedItems
+      : (tab.firedItems || []);
 
     if (!tabItems || tabItems.length === 0) {
       alert(`Token #${tab.tokenNumber} has no items in the order yet. Open cart and add items first.`);
@@ -3638,6 +3647,7 @@ const POS = () => {
     setUnassignedTab({
       ...tab,
       items: tabItems,
+      firedItems,
     });
     setActiveTable(null);
     setCart(tabItems);
@@ -3648,8 +3658,15 @@ const POS = () => {
     setPaymentModal(true);
   };
 
-  const handleDiscardFloatingTab = (tab) => {
+  const handleDiscardFloatingTab = async (tab) => {
     if (window.confirm(`Are you sure you want to discard Token #${tab.tokenNumber}${tab.guestName ? ` (${tab.guestName})` : ''}?`)) {
+      if (cancelKDSTickets) {
+        try {
+          await cancelKDSTickets(`tab_${tab.id}`, `Token #${tab.tokenNumber}`);
+        } catch (e) {
+          console.error('Failed to cancel KDS tickets for discarded tab:', e);
+        }
+      }
       setSavedOrders(prev => {
         const next = { ...prev };
         delete next[`tab_${tab.id}`];
@@ -3782,7 +3799,12 @@ const POS = () => {
 
     const tableId = unassignedTab ? `tab_${unassignedTab.id}` : (activeTable?.id || (orderType === 'delivery' ? 'delivery' : 'takeout'));
     const previousRaw = savedOrders[tableId];
-    const previousItems = Array.isArray(previousRaw) ? previousRaw : (previousRaw?.items || []);
+
+    // For unassigned tabs, diff against firedItems (items actually sent to KDS/kitchen).
+    // For regular tables, diff against previous savedOrders[tableId].
+    const previousItems = unassignedTab
+      ? ((typeof previousRaw === 'object' && !Array.isArray(previousRaw) ? previousRaw?.firedItems : unassignedTab.firedItems) || [])
+      : (Array.isArray(previousRaw) ? previousRaw : (previousRaw?.items || []));
 
     // Diff current cart with already fired items to fire only new items/quantities
     const itemsToFire = [];
@@ -3802,6 +3824,7 @@ const POS = () => {
       const updatedTab = {
         ...unassignedTab,
         items: cart,
+        firedItems: cart.map(i => ({ ...i })),
         lastFiredAt: new Date().toISOString(),
       };
       setUnassignedTab(updatedTab);
@@ -3852,9 +3875,10 @@ const POS = () => {
           settings,
         });
       }
+      showSuccess(unassignedTab ? `Token #${unassignedTab.tokenNumber} sent to kitchen!` : 'KOT saved! Kitchen notified.');
+    } else {
+      showSuccess(unassignedTab ? `Token #${unassignedTab.tokenNumber} saved (no new items to send to kitchen).` : 'Order saved (no new items to send to kitchen).');
     }
-
-    showSuccess(unassignedTab ? `Token #${unassignedTab.tokenNumber} saved! Kitchen notified.` : 'KOT saved! Kitchen notified.');
   };
 
   const handleFireNextCourse = async () => {
@@ -4376,7 +4400,17 @@ const POS = () => {
     }
 
     // Fire to KDS if dine-in order wasn't saved, or if it is takeout/delivery
-    const wasFired = (activeTable && savedOrders[activeTable.id]?.length > 0) || (unassignedTab && savedOrders[`tab_${unassignedTab.id}`]?.length > 0);
+    const tabData = unassignedTab ? savedOrders[`tab_${unassignedTab.id}`] : null;
+    const tabFired = unassignedTab && (
+      (Array.isArray(tabData) ? tabData.length > 0 : (tabData?.firedItems?.length > 0 || unassignedTab.firedItems?.length > 0)) ||
+      (kdsTickets || []).some(t =>
+        (t.tableId === `tab_${unassignedTab.id}` || t.tableId === unassignedTab.id || (unassignedTab.tokenNumber && String(t.tokenNumber) === String(unassignedTab.tokenNumber))) &&
+        t.status !== 'cancelled'
+      )
+    );
+    const tableFired = activeTable && (savedOrders[activeTable.id]?.length > 0);
+    const wasFired = tableFired || tabFired;
+
     if (!wasFired && isKdsEnabled) {
       const kdsOrderId = order.id || Date.now().toString();
       try {
@@ -5289,22 +5323,34 @@ const POS = () => {
                   }
                   if (unassignedTab) {
                     if (cart.length > 0) {
+                      const updatedTab = {
+                        ...unassignedTab,
+                        items: cart,
+                        firedItems: unassignedTab.firedItems || [],
+                      };
                       setSavedOrders(prev => ({
                         ...prev,
-                        [`tab_${unassignedTab.id}`]: cart,
+                        [`tab_${unassignedTab.id}`]: updatedTab,
                         __tabs_meta__: {
                           ...(prev.__tabs_meta__ || {}),
-                          [unassignedTab.id]: unassignedTab,
+                          [unassignedTab.id]: updatedTab,
                         },
                       }));
-                    } else if (!savedOrders[`tab_${unassignedTab.id}`]?.length) {
-                      setSavedOrders(prev => {
-                        const next = { ...prev };
-                        const nextMeta = { ...(next.__tabs_meta__ || {}) };
-                        delete nextMeta[unassignedTab.id];
-                        next.__tabs_meta__ = nextMeta;
-                        return next;
-                      });
+                    } else {
+                      const existing = savedOrders[`tab_${unassignedTab.id}`];
+                      const existingItems = Array.isArray(existing) ? existing : (existing?.items || []);
+                      if (existingItems.length === 0) {
+                        setSavedOrders(prev => {
+                          const next = { ...prev };
+                          delete next[`tab_${unassignedTab.id}`];
+                          if (next.__tabs_meta__) {
+                            const nextMeta = { ...next.__tabs_meta__ };
+                            delete nextMeta[unassignedTab.id];
+                            next.__tabs_meta__ = nextMeta;
+                          }
+                          return next;
+                        });
+                      }
                     }
                     setUnassignedTab(null);
                   }

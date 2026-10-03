@@ -1004,9 +1004,17 @@ export async function transferKDSTickets(fromTableId, toTableId, fromTableNum, t
 
 export async function cancelKDSTickets(tableId, tableNum) {
   const tickets = getAll('kds_tickets') || [];
-  const matches = [String(tableId), String(tableNum)].filter(Boolean);
+  const matches = [
+    String(tableId),
+    String(tableNum),
+    tableId ? String(tableId).replace(/^tab_/, '') : null,
+    tableNum ? `Token #${tableNum}` : null,
+  ].filter(Boolean);
   const activeTickets = tickets.filter(t =>
-    t.status === 'active' && matches.includes(String(t.tableId))
+    t.status === 'active' && (
+      matches.includes(String(t.tableId)) ||
+      (t.tokenNumber && matches.includes(String(t.tokenNumber)))
+    )
   );
   for (const ticket of activeTickets) {
     await update('kds_tickets', ticket.id, {

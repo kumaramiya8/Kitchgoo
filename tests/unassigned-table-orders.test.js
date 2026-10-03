@@ -296,5 +296,128 @@ describe('Unassigned Dine-In Orders & Floating Tabs (Order First, Choose Table L
 
       expect(isFoodReady).toBe(true);
     });
+
+    it('fires unassigned order to KDS on KOT button click even when cart is auto-synced into savedOrders', async () => {
+      const tabId = 'tab_guest_101';
+      let unassignedTab = {
+        id: 'guest_101',
+        tokenNumber: '5',
+        guestName: 'Karan',
+        items: [],
+        firedItems: [],
+      };
+
+      const cart = [
+        { _cartKey: 'c1', id: 'burger', name: 'Veggie Burger', price: 250, qty: 2 },
+        { _cartKey: 'c2', id: 'fries', name: 'Peri Peri Fries', price: 150, qty: 1 },
+      ];
+
+      // Auto-sync hook runs while adding items to cart
+      const savedOrders = {
+        [tabId]: {
+          ...unassignedTab,
+          items: cart,
+          firedItems: unassignedTab.firedItems || [],
+        },
+      };
+
+      // Staff clicks "KOT" button
+      const previousRaw = savedOrders[tabId];
+      const previousItems = (typeof previousRaw === 'object' && !Array.isArray(previousRaw) ? previousRaw?.firedItems : unassignedTab.firedItems) || [];
+
+      const itemsToFire = [];
+      cart.forEach(item => {
+        const prev = previousItems.find(p => (p._cartKey || p.id) === (item._cartKey || item.id));
+        const prevQty = prev ? prev.qty : 0;
+        const diffQty = item.qty - prevQty;
+        if (diffQty > 0) {
+          itemsToFire.push({ ...item, qty: diffQty });
+        }
+      });
+
+      expect(itemsToFire).toHaveLength(2);
+      expect(itemsToFire[0].name).toBe('Veggie Burger');
+      expect(itemsToFire[0].qty).toBe(2);
+      expect(itemsToFire[1].name).toBe('Peri Peri Fries');
+      expect(itemsToFire[1].qty).toBe(1);
+
+      // Fire to KDS
+      const orderId = `TOK-${unassignedTab.tokenNumber}-1111`;
+      const createdTicket = await createKDSTicket(orderId, itemsToFire, tabId, 'dine-in', {
+        tokenNumber: unassignedTab.tokenNumber,
+        guestName: unassignedTab.guestName,
+      });
+
+      expect(createdTicket.id).toBeDefined();
+      expect(createdTicket.orderId).toBe(orderId);
+      expect(createdTicket.tableId).toBe(tabId);
+      expect(createdTicket.tokenNumber).toBe('5');
+      expect(createdTicket.status).toBe('active');
+
+      const kdsTickets = getAll('kds_tickets');
+      const foundInKDS = kdsTickets.find(t => t.id === createdTicket.id);
+      expect(foundInKDS).toBeDefined();
+      expect(foundInKDS.items).toHaveLength(2);
+
+      // Tab updates firedItems
+      unassignedTab = {
+        ...unassignedTab,
+        items: cart,
+        firedItems: cart.map(i => ({ ...i })),
+      };
+      expect(unassignedTab.firedItems).toHaveLength(2);
+
+      // If user adds 1 more item and clicks KOT again
+      const updatedCart = [
+        ...cart,
+        { _cartKey: 'c3', id: 'shake', name: 'Chocolate Shake', price: 180, qty: 1 },
+      ];
+
+      const secondItemsToFire = [];
+      updatedCart.forEach(item => {
+        const prev = unassignedTab.firedItems.find(p => (p._cartKey || p.id) === (item._cartKey || item.id));
+        const prevQty = prev ? prev.qty : 0;
+        const diffQty = item.qty - prevQty;
+        if (diffQty > 0) {
+          secondItemsToFire.push({ ...item, qty: diffQty });
+        }
+      });
+
+      // Only the new Chocolate Shake is fired
+      expect(secondItemsToFire).toHaveLength(1);
+      expect(secondItemsToFire[0].name).toBe('Chocolate Shake');
+    });
+
+    it('accurately evaluates KDS payment status for floating tabs', () => {
+      const ticket = {
+        id: 't-1',
+        tableId: 'tab_guest_101',
+        tokenNumber: '5',
+        orderType: 'dine-in',
+      };
+
+      const isPaymentPending = (t, savedOrders, posTables = []) => {
+        if (t.isPaid) return false;
+        if (t.tableId && String(t.tableId).startsWith('tab_')) {
+          return Boolean(savedOrders && savedOrders[t.tableId]);
+        }
+        if (t.tableId && (!t.orderType || t.orderType === 'dine-in')) {
+          const table = posTables.find(tbl => String(tbl.id) === String(t.tableId));
+          return Boolean(table && table.status !== 'available');
+        }
+        return false;
+      };
+
+      // When tab is open in savedOrders -> payment is pending
+      const activeSavedOrders = {
+        tab_guest_101: { id: 'guest_101', tokenNumber: '5', items: [{ id: '1' }] },
+      };
+      expect(isPaymentPending(ticket, activeSavedOrders)).toBe(true);
+
+      // When tab is settled and removed from savedOrders -> payment is marked paid
+      const settledSavedOrders = {};
+      expect(isPaymentPending(ticket, settledSavedOrders)).toBe(false);
+    });
   });
 });
+
