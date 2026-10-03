@@ -643,8 +643,8 @@ export function AppProvider({ children }) {
   }, []);
 
   // ── KDS ─────────────────────────────────────────────────
-  const fireToKDS = useCallback(async (orderId, items, tableId, orderType) => {
-    await createKDSTicket(orderId, items, tableId, orderType);
+  const fireToKDS = useCallback(async (orderId, items, tableId, orderType, extra = {}) => {
+    await createKDSTicket(orderId, items, tableId, orderType, extra);
     setKdsTickets(getAll('kds_tickets'));
   }, []);
 

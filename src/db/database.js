@@ -772,6 +772,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     total,
     paymentMethod,
     orderType: extra.orderType || 'dine-in',
+    tokenNumber: extra.tokenNumber || null,
     guestId: extra.guestId || null,
     guestName: extra.guestName || '',
     serverId: extra.serverId || null,
@@ -933,7 +934,7 @@ export async function updateDeliveryStatus(id, status) {
 }
 
 // ─── KDS Tickets ─────────────────────────────────────────────
-export async function createKDSTicket(orderId, items, tableId, orderType) {
+export async function createKDSTicket(orderId, items, tableId, orderType, extra = {}) {
   // Derive the ticket's station from its items so station-filtered KDS screens
   // actually receive it. If every item shares one station, route the whole ticket
   // there; mixed or unconfigured items fall back to 'all' (a wildcard shown everywhere).
@@ -943,6 +944,8 @@ export async function createKDSTicket(orderId, items, tableId, orderType) {
     orderId,
     items: stripItems(items.map(i => ({ ...i, status: 'pending', bumpedAt: null }))),
     tableId,
+    tokenNumber: extra?.tokenNumber || (typeof tableId === 'string' && tableId.startsWith('token_') ? tableId.replace('token_', '') : null),
+    guestName: extra?.guestName || null,
     orderType: orderType || 'dine-in',
     status: 'active',
     station: ticketStation,
@@ -976,9 +979,17 @@ export async function recallKDSTicket(ticketId) {
 
 export async function transferKDSTickets(fromTableId, toTableId, fromTableNum, toTableNum) {
   const tickets = getAll('kds_tickets') || [];
-  const fromMatches = [String(fromTableId), String(fromTableNum)].filter(Boolean);
+  const fromMatches = [
+    String(fromTableId),
+    String(fromTableNum),
+    fromTableId ? String(fromTableId).replace(/^tab_/, '') : null,
+    fromTableNum ? `Token #${fromTableNum}` : null,
+  ].filter(Boolean);
   const activeTickets = tickets.filter(t =>
-    t.status === 'active' && fromMatches.includes(String(t.tableId))
+    t.status === 'active' && (
+      fromMatches.includes(String(t.tableId)) ||
+      (t.tokenNumber && fromMatches.includes(String(t.tokenNumber)))
+    )
   );
   for (const ticket of activeTickets) {
     await update('kds_tickets', ticket.id, {

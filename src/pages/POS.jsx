@@ -8,7 +8,8 @@ import {
   RotateCcw, Flame, Pause, Play, Hash, Users, CircleDot,
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
-  GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check, Eye
+  GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check, Eye,
+  Sparkles, Trash2, AlertCircle
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -181,7 +182,7 @@ const TurnTimer = ({ seatedAt }) => {
 
 
 // ─── Guest Check-in Modal ───────────────────────────────────────────────────
-const GuestModal = ({ tableId, onConfirm, onClose }) => {
+const GuestModal = ({ tableId, onConfirm, onClose, floatingTabs = [], onSeatToken, savedOrders = {} }) => {
   const [tab, setTab] = useState('search');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
@@ -233,6 +234,56 @@ const GuestModal = ({ tableId, onConfirm, onClose }) => {
       </div>
 
       <div className="modal-body">
+        {floatingTabs && floatingTabs.length > 0 && onSeatToken && (
+          <div style={{
+            marginBottom: '16px',
+            padding: '12px 14px',
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1.5px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '12px',
+          }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#b45309', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Clock size={14} /> Open Tokens Waiting for Table ({floatingTabs.length}):
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {floatingTabs.map(t => {
+                const count = (savedOrders[`tab_${t.id}`] || []).length;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{
+                      background: '#fff',
+                      borderColor: 'rgba(245, 158, 11, 0.4)',
+                      color: 'var(--text-primary)',
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                    }}
+                    onClick={() => {
+                      onSeatToken(t);
+                      onClose();
+                    }}
+                  >
+                    <span style={{ background: '#f59e0b', color: '#fff', borderRadius: '4px', padding: '1px 5px', fontSize: '0.7rem' }}>
+                      Token #{t.tokenNumber}
+                    </span>
+                    {t.guestName && <span>{t.guestName}</span>}
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
+                      ({count} item{count === 1 ? '' : 's'})
+                    </span>
+                    <span style={{ color: '#059669', fontWeight: 800, marginLeft: 2 }}>➔ Seat Here</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {tab === 'search' ? (
           <div style={{ display: selected ? 'grid' : 'block', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div>
@@ -1065,6 +1116,291 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
             : `Confirm Shift to Table ${selectedTarget?.number || selectedTarget?.id || ''}`}
         </button>
       </div>
+    </Modal>
+  );
+};
+
+
+// ─── Assign Table Modal (For Unassigned Tabs / Tokens) ────────────
+const AssignTableModal = ({ tab, tables, savedOrders, currentCart, onAssign, onClose }) => {
+  const [selectedTableId, setSelectedTableId] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const currentItems = (currentCart && currentCart.length > 0)
+    ? currentCart
+    : (tab ? (savedOrders[`tab_${tab.id}`] || []) : []);
+
+  const totalAmount = currentItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
+
+  const filteredTables = tables.filter(t => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    const tNum = String(t.number || t.id).toLowerCase();
+    const sec = String(t.section || '').toLowerCase();
+    return tNum.includes(term) || sec.includes(term);
+  });
+
+  const selectedTarget = tables.find(t => String(t.id) === String(selectedTableId));
+  const isTargetOccupied = selectedTarget && selectedTarget.status !== 'available';
+
+  return (
+    <Modal title={`Assign Token #${tab?.tokenNumber} to Table`} onClose={onClose} wide>
+      <div className="modal-body" style={{ maxHeight: '68vh', overflowY: 'auto' }}>
+        {/* Token Summary Banner */}
+        <div style={{
+          padding: '12px 16px', borderRadius: 'var(--r-md)',
+          background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.3)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
+        }}>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: '#b45309', textTransform: 'uppercase', fontWeight: 800 }}>
+              Unassigned Dine-In Tab
+            </div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+              Token #{tab?.tokenNumber}
+              {tab?.guestName && <span style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-secondary)' }}> — {tab.guestName}</span>}
+              {tab?.partySize > 1 && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 6 }}>({tab.partySize} guests)</span>}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '1.05rem' }}>
+              {totalAmount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {currentItems.length} item{currentItems.length === 1 ? '' : 's'}
+            </div>
+          </div>
+        </div>
+
+        {/* Search destination */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+            Select Dining Table for this Guest:
+          </div>
+          <input
+            type="text"
+            className="input-field"
+            placeholder="Search by table number or section..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{ margin: 0, padding: '8px 12px', fontSize: '0.82rem' }}
+          />
+        </div>
+
+        {/* Tables Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+          gap: 10,
+          marginBottom: 16,
+        }}>
+          {filteredTables.map(t => {
+            const isSelected = String(selectedTableId) === String(t.id);
+            const isAvail = t.status === 'available';
+            const statusColor = TABLE_STATUS_COLORS[t.status] || '#94a3b8';
+
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setSelectedTableId(t.id)}
+                style={{
+                  padding: '12px 10px',
+                  borderRadius: 'var(--r-md)',
+                  border: isSelected
+                    ? '2px solid var(--primary)'
+                    : `1.5px solid ${isAvail ? 'rgba(34, 197, 94, 0.4)' : 'var(--border-subtle)'}`,
+                  background: isSelected
+                    ? 'rgba(30, 94, 74, 0.08)'
+                    : (isAvail ? 'rgba(34, 197, 94, 0.05)' : 'rgba(255,255,255,0.6)'),
+                  textAlign: 'left',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  transition: 'all 0.15s ease',
+                  cursor: 'pointer',
+                  boxShadow: isSelected ? '0 0 0 2px rgba(30, 94, 74, 0.2)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-primary)' }}>
+                    T{t.number || t.id}
+                  </span>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: statusColor,
+                  }} />
+                </div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  {t.section || 'Main Area'} · {t.seats || 4} seats
+                </div>
+                <div style={{
+                  fontSize: '0.7rem', fontWeight: 700,
+                  color: isAvail ? '#16a34a' : statusColor,
+                  textTransform: 'capitalize',
+                }}>
+                  {t.status === 'available' ? 'Available' : t.status}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {isTargetOccupied && (
+          <div style={{
+            padding: '10px 14px', borderRadius: 'var(--r-md)',
+            background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)',
+            fontSize: '0.78rem', color: '#854d0e', display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <AlertCircle size={15} />
+            <span>
+              <strong>Note:</strong> Table {selectedTarget.number || selectedTarget.id} currently has status &quot;{selectedTarget.status}&quot;. Assigning will merge this tab into that table.
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <button className="btn btn-secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            if (selectedTableId) {
+              onAssign(selectedTableId, tab);
+              onClose();
+            }
+          }}
+          disabled={!selectedTableId}
+        >
+          <UtensilsCrossed size={15} />
+          {isTargetOccupied
+            ? `Merge into Table ${selectedTarget?.number || selectedTarget?.id}`
+            : `Assign to Table ${selectedTarget?.number || selectedTarget?.id || ''}`}
+        </button>
+      </div>
+    </Modal>
+  );
+};
+
+
+// ─── Quick Start No-Table Dine-In Modal ────────────────────────────
+const NoTableOrderModal = ({ nextToken, onStart, onClose }) => {
+  const [tokenNumber, setTokenNumber] = useState(String(nextToken || 1));
+  const [guestName, setGuestName] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [partySize, setPartySize] = useState(2);
+  const [notes, setNotes] = useState('');
+
+  const handleSubmit = (e) => {
+    e?.preventDefault();
+    onStart({
+      tokenNumber: tokenNumber.trim() || String(nextToken || 1),
+      guestName: guestName.trim(),
+      guestPhone: guestPhone.trim(),
+      partySize: parseInt(partySize, 10) || 1,
+      notes: notes.trim(),
+    });
+  };
+
+  return (
+    <Modal title="Take Dine-In Order (No Table Yet)" onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+            Start taking the order immediately. The kitchen can prepare food with the Token/Buzzer number, and staff can assign a table whenever the customer is seated.
+          </p>
+
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
+            padding: '12px 14px', background: 'rgba(245, 158, 11, 0.06)',
+            borderRadius: '10px', border: '1px solid rgba(245, 158, 11, 0.25)',
+          }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#b45309', marginBottom: 4 }}>
+                Token / Buzzer # *
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                value={tokenNumber}
+                onChange={e => setTokenNumber(e.target.value)}
+                placeholder="e.g. 1, 2, B-12..."
+                required
+                autoFocus
+                style={{ margin: 0, fontWeight: 700 }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
+                Party Size (Guests)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="30"
+                className="input-field"
+                value={partySize}
+                onChange={e => setPartySize(e.target.value)}
+                style={{ margin: 0 }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+              Customer Name (Optional)
+            </label>
+            <input
+              type="text"
+              className="input-field"
+              value={guestName}
+              onChange={e => setGuestName(e.target.value)}
+              placeholder="e.g. Rahul, Table Waiting..."
+              style={{ margin: 0 }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+              Phone Number (Optional - for CRM/Loyalty)
+            </label>
+            <input
+              type="tel"
+              className="input-field"
+              value={guestPhone}
+              onChange={e => setGuestPhone(e.target.value)}
+              placeholder="10-digit mobile number"
+              style={{ margin: 0 }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+              Special Notes / Seating Preference
+            </label>
+            <input
+              type="text"
+              className="input-field"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="e.g. Prefers window table, high chair needed"
+              style={{ margin: 0 }}
+            />
+          </div>
+        </div>
+
+        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" style={{ fontWeight: 700 }}>
+            Start Order ➔
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 };
@@ -2637,6 +2973,7 @@ const POS = () => {
   const tables = posTables || [];
   const setTables = setPosTables;
   const [activeTable, setActiveTable] = useState(null);
+  const [unassignedTab, setUnassignedTab] = useState(null);
   const [cart, setCart] = useState([]);
   const savedOrders = posSavedOrders || {};
   const setSavedOrders = setPosSavedOrders;
@@ -2773,6 +3110,8 @@ const POS = () => {
 
   // Modals
   const [guestModal, setGuestModal] = useState(null);
+  const [noTableModal, setNoTableModal] = useState(false);
+  const [assignTableModal, setAssignTableModal] = useState(null);
   const [modifierModal, setModifierModal] = useState(null);
   const [splitModal, setSplitModal] = useState(false);
   const [paymentModal, setPaymentModal] = useState(false);
@@ -3128,6 +3467,175 @@ const POS = () => {
     setPaymentModal(true);
   };
 
+  // ─── Unassigned Dine-In Tabs & Floating Orders ─────────────────
+  const floatingTabs = useMemo(() => {
+    const meta = (savedOrders && savedOrders.__tabs_meta__) || {};
+    return Object.values(meta).filter(tab => {
+      if (!tab || !tab.id) return false;
+      const items = savedOrders[`tab_${tab.id}`] || [];
+      return items.length > 0 || (unassignedTab && unassignedTab.id === tab.id);
+    }).sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+  }, [savedOrders, unassignedTab]);
+
+  const getNextTokenNumber = useCallback(() => {
+    const meta = (savedOrders && savedOrders.__tabs_meta__) || {};
+    const activeTokens = Object.values(meta)
+      .map(t => parseInt(t.tokenNumber, 10))
+      .filter(n => !isNaN(n));
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayOrders = (orders || []).filter(o => o.createdAt?.startsWith(todayStr));
+    const completedTokens = todayOrders
+      .map(o => parseInt(o.tokenNumber, 10))
+      .filter(n => !isNaN(n));
+
+    const allTokens = [...activeTokens, ...completedTokens];
+    if (allTokens.length === 0) return 1;
+    return Math.max(...allTokens) + 1;
+  }, [savedOrders, orders]);
+
+  const handleStartNoTableOrder = () => {
+    setNoTableModal(true);
+  };
+
+  const handleConfirmNoTableOrder = ({ tokenNumber, guestName, guestPhone, partySize, notes }) => {
+    const newTab = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      tokenNumber: tokenNumber || String(getNextTokenNumber()),
+      guestName: guestName || '',
+      guestPhone: guestPhone || '',
+      partySize: partySize || 2,
+      notes: notes || '',
+      createdAt: new Date().toISOString(),
+      orderType: 'dine-in',
+    };
+
+    setUnassignedTab(newTab);
+    setActiveTable(null);
+    setCart([]);
+    setOrderType('dine-in');
+    setCustomerName(newTab.guestName);
+    setCustomerPhone(newTab.guestPhone);
+    setPartySize(newTab.partySize);
+
+    setSavedOrders(prev => ({
+      ...prev,
+      [`tab_${newTab.id}`]: [],
+      __tabs_meta__: {
+        ...(prev.__tabs_meta__ || {}),
+        [newTab.id]: newTab,
+      },
+    }));
+
+    setView('order');
+    setNoTableModal(false);
+  };
+
+  const handleOpenFloatingTab = (tab) => {
+    setUnassignedTab(tab);
+    setActiveTable(null);
+    setCart(savedOrders[`tab_${tab.id}`] || []);
+    setOrderType('dine-in');
+    setCustomerName(tab.guestName || '');
+    setCustomerPhone(tab.guestPhone || '');
+    setPartySize(tab.partySize || 1);
+    setView('order');
+  };
+
+  const handleDiscardFloatingTab = (tab) => {
+    if (window.confirm(`Are you sure you want to discard Token #${tab.tokenNumber}${tab.guestName ? ` (${tab.guestName})` : ''}?`)) {
+      setSavedOrders(prev => {
+        const next = { ...prev };
+        delete next[`tab_${tab.id}`];
+        const nextMeta = { ...(next.__tabs_meta__ || {}) };
+        delete nextMeta[tab.id];
+        next.__tabs_meta__ = nextMeta;
+        return next;
+      });
+      if (unassignedTab?.id === tab.id) {
+        setUnassignedTab(null);
+        setCart([]);
+      }
+      showSuccess(`Token #${tab.tokenNumber} discarded`);
+    }
+  };
+
+  const handleAssignTableToTab = async (targetTableId, tabToAssign) => {
+    const tab = tabToAssign || unassignedTab;
+    if (!tab || !targetTableId) return;
+    const targetTable = tables.find(t => String(t.id) === String(targetTableId));
+    if (!targetTable) return;
+
+    // Items from current cart if currently editing this tab, else from savedOrders
+    const tabItems = (unassignedTab && unassignedTab.id === tab.id && cart && cart.length > 0)
+      ? cart
+      : (savedOrders[`tab_${tab.id}`] || []);
+
+    const existingTargetItems = savedOrders[targetTable.id] || [];
+    const mergedItems = [...existingTargetItems];
+    tabItems.forEach(item => {
+      const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (item._cartKey || item.id));
+      if (idx >= 0) {
+        mergedItems[idx].qty += item.qty;
+      } else {
+        mergedItems.push({ ...item });
+      }
+    });
+
+    // Update savedOrders: move items to target table, delete tab
+    setSavedOrders(prev => {
+      const next = { ...prev };
+      next[targetTable.id] = mergedItems;
+      delete next[`tab_${tab.id}`];
+      const nextMeta = { ...(next.__tabs_meta__ || {}) };
+      delete nextMeta[tab.id];
+      next.__tabs_meta__ = nextMeta;
+      return next;
+    });
+
+    // Update target table
+    setTables(prev => prev.map(t => String(t.id) === String(targetTable.id)
+      ? {
+          ...t,
+          status: mergedItems.length > 0 ? 'ordered' : 'seated',
+          guestName: tab.guestName || t.guestName || `Token #${tab.tokenNumber}`,
+          partySize: tab.partySize || t.partySize || 1,
+          seatedAt: t.seatedAt || tab.createdAt || new Date().toISOString(),
+        }
+      : t
+    ));
+
+    // Transfer active KDS tickets
+    if (transferKDSTickets) {
+      try {
+        await transferKDSTickets(
+          `tab_${tab.id}`,
+          targetTable.id,
+          `Token #${tab.tokenNumber}`,
+          targetTable.number || targetTable.id
+        );
+      } catch (err) {
+        console.error('Error transferring KDS tickets for unassigned tab:', err);
+      }
+    }
+
+    broadcastOrderCreated(targetTable.id, `ASSIGN-${tab.tokenNumber}-T${targetTable.number || targetTable.id}`);
+
+    // If currently inside order view with this tab, switch activeTable to target
+    if (unassignedTab && unassignedTab.id === tab.id) {
+      setActiveTable({
+        ...targetTable,
+        status: mergedItems.length > 0 ? 'ordered' : 'seated',
+        guestName: tab.guestName || `Token #${tab.tokenNumber}`,
+        partySize: tab.partySize || 1,
+      });
+      setUnassignedTab(null);
+    }
+
+    setAssignTableModal(null);
+    showSuccess(`Token #${tab.tokenNumber} assigned to Table ${targetTable.number || targetTable.id}!`);
+  };
+
   const handleTableClick = (table) => {
     if (table.status === 'needs-bussing') {
       // Table was settled; staff confirms it's been cleaned before reuse
@@ -3162,7 +3670,7 @@ const POS = () => {
   const handleSaveKOT = async () => {
     if (cart.length === 0) return;
 
-    const tableId = activeTable?.id || 'takeout';
+    const tableId = unassignedTab ? `tab_${unassignedTab.id}` : (activeTable?.id || (orderType === 'delivery' ? 'delivery' : 'takeout'));
     const previousItems = savedOrders[tableId] || [];
 
     // Diff current cart with already fired items to fire only new items/quantities
@@ -3179,15 +3687,31 @@ const POS = () => {
       }
     });
 
-    setSavedOrders(prev => ({ ...prev, [tableId]: cart }));
+    setSavedOrders(prev => ({
+      ...prev,
+      [tableId]: cart,
+      ...(unassignedTab ? {
+        __tabs_meta__: {
+          ...(prev.__tabs_meta__ || {}),
+          [unassignedTab.id]: unassignedTab,
+        }
+      } : {})
+    }));
     if (activeTable) {
       setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) ? { ...t, status: 'ordered' } : t));
     }
 
     if (itemsToFire.length > 0) {
-      const orderId = activeTable ? `T${activeTable.id}-${Date.now().toString().slice(-4)}` : `TK-${Date.now().toString().slice(-4)}`;
-      await fireToKDS(orderId, itemsToFire, activeTable?.id || null, orderType);
-      broadcastOrderCreated(activeTable?.id || null, orderId);
+      const orderId = unassignedTab
+        ? `TOK-${unassignedTab.tokenNumber}-${Date.now().toString().slice(-4)}`
+        : (activeTable ? `T${activeTable.id}-${Date.now().toString().slice(-4)}` : `TK-${Date.now().toString().slice(-4)}`);
+
+      const kdsTableId = unassignedTab ? `tab_${unassignedTab.id}` : (activeTable?.id || null);
+      await fireToKDS(orderId, itemsToFire, kdsTableId, orderType, {
+        tokenNumber: unassignedTab?.tokenNumber || null,
+        guestName: unassignedTab?.guestName || null,
+      });
+      broadcastOrderCreated(kdsTableId, orderId);
 
       // Auto-print KOT if enabled in settings
       const shouldAutoPrintKOT = settings?.printer?.autoPrintKOT || settings?.operations?.autoKOT;
@@ -3195,8 +3719,10 @@ const POS = () => {
         printKOT({
           orderId,
           items: itemsToFire,
-          tableId: activeTable?.id,
-          tableName: activeTable ? `Table ${activeTable.number || activeTable.id}` : (orderType === 'takeout' ? 'Takeout' : 'Delivery'),
+          tableId: kdsTableId,
+          tableName: unassignedTab
+            ? `Token #${unassignedTab.tokenNumber} (Unassigned Table)`
+            : (activeTable ? `Table ${activeTable.number || activeTable.id}` : (orderType === 'takeout' ? 'Takeout' : 'Delivery')),
           serverName: activeTable?.serverName || user?.name || 'Staff',
           orderType,
           settings,
@@ -3204,7 +3730,7 @@ const POS = () => {
       }
     }
 
-    showSuccess('KOT saved! Kitchen notified.');
+    showSuccess(unassignedTab ? `Token #${unassignedTab.tokenNumber} saved! Kitchen notified.` : 'KOT saved! Kitchen notified.');
   };
 
   const handleFireNextCourse = async () => {
@@ -3631,8 +4157,9 @@ const POS = () => {
 
     const extra = {
       orderType,
-      customerName: orderType !== 'dine-in' ? customerName : activeTable?.guestName,
-      customerPhone,
+      customerName: activeTable?.guestName || unassignedTab?.guestName || customerName,
+      customerPhone: customerPhone || unassignedTab?.guestPhone || '',
+      tokenNumber: unassignedTab?.tokenNumber || null,
       pickupTime: orderType === 'takeout' ? pickupTime : undefined,
       deliveryAddress: orderType === 'delivery' ? deliveryAddress : undefined,
       driverInstructions: orderType === 'delivery' ? driverInstructions : undefined,
@@ -3692,9 +4219,9 @@ const POS = () => {
 
     if (shouldAutoPrint) {
       printReceipt({
-        order: { ...order, items: cart, paymentSplits },
+        order: { ...order, items: cart, paymentSplits, tokenNumber: unassignedTab?.tokenNumber || order.tokenNumber },
         settings, tableId,
-        guestName: activeTable?.guestName || customerName,
+        guestName: activeTable?.guestName || unassignedTab?.guestName || customerName,
       });
     } else {
       showSuccess(`Payment of ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} settled!`);
@@ -3711,12 +4238,26 @@ const POS = () => {
       ));
     }
 
+    if (unassignedTab) {
+      setSavedOrders(prev => {
+        const next = { ...prev };
+        delete next[`tab_${unassignedTab.id}`];
+        const nextMeta = { ...(next.__tabs_meta__ || {}) };
+        delete nextMeta[unassignedTab.id];
+        next.__tabs_meta__ = nextMeta;
+        return next;
+      });
+    }
+
     // Fire to KDS if dine-in order wasn't saved, or if it is takeout/delivery
-    const wasFired = activeTable && savedOrders[activeTable.id]?.length > 0;
+    const wasFired = (activeTable && savedOrders[activeTable.id]?.length > 0) || (unassignedTab && savedOrders[`tab_${unassignedTab.id}`]?.length > 0);
     if (!wasFired && isKdsEnabled) {
       const kdsOrderId = order.id || Date.now().toString();
       try {
-        await fireToKDS(kdsOrderId, cart, tableId, orderType);
+        await fireToKDS(kdsOrderId, cart, tableId, orderType, {
+          tokenNumber: unassignedTab?.tokenNumber || null,
+          guestName: unassignedTab?.guestName || customerName || null,
+        });
         broadcastOrderCreated(tableId, kdsOrderId);
       } catch (err) {
         console.error('[POS] Failed to fire order to KDS:', err);
@@ -3726,6 +4267,7 @@ const POS = () => {
 
     // Reset
     setCart([]);
+    setUnassignedTab(null);
     setPaymentModal(false);
     setDiscountAmount(0);
     setFiredCourses(new Set([1]));
@@ -3748,6 +4290,7 @@ const POS = () => {
   // Takeout/Delivery: go straight to order view
   const handleStartTakeoutDelivery = () => {
     setActiveTable(null);
+    setUnassignedTab(null);
     setCart([]);
     setView('order');
   };
@@ -3822,6 +4365,14 @@ const POS = () => {
                 </button>
               </div>
             )}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, padding: '6px 12px', borderRadius: '8px' }}
+              onClick={handleStartNoTableOrder}
+            >
+              <Sparkles size={14} /> Take Order (No Table)
+            </button>
             <button className="btn btn-secondary btn-sm" onClick={() => setCashDrawerModal(true)}>
               <Banknote size={14} /> {settings?.operations?.enhancedRegisterEnabled ? "Manage Register" : "Cash Drawer"}
             </button>
@@ -3852,6 +4403,141 @@ const POS = () => {
             );
           })}
         </div>
+
+        {/* Floating Tabs / Orders Waiting for Table */}
+        {orderType === 'dine-in' && floatingTabs.length > 0 && (
+          <div style={{
+            marginBottom: 16,
+            padding: '14px 18px',
+            background: 'linear-gradient(135deg, rgba(254, 243, 199, 0.75), rgba(253, 230, 138, 0.45))',
+            border: '1.5px solid rgba(245, 158, 11, 0.4)',
+            borderRadius: '16px',
+            boxShadow: '0 4px 16px rgba(245, 158, 11, 0.08)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  background: '#f59e0b', color: '#fff',
+                  width: 24, height: 24, borderRadius: '50%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 900, fontSize: '0.75rem',
+                }}>
+                  {floatingTabs.length}
+                </span>
+                <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#92400e' }}>
+                  Orders Waiting for Table
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                  (Customers who ordered first and are choosing a table)
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '3px 8px', fontSize: '0.72rem', background: 'rgba(255,255,255,0.7)', borderColor: 'rgba(245, 158, 11, 0.3)' }}
+                onClick={handleStartNoTableOrder}
+              >
+                + New No-Table Order
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+              {floatingTabs.map(tab => {
+                const tabItems = savedOrders[`tab_${tab.id}`] || [];
+                const itemCount = tabItems.reduce((s, i) => s + (i.qty || 1), 0);
+                const totalAmt = tabItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
+                const elapsedMin = Math.max(0, Math.floor((Date.now() - new Date(tab.createdAt).getTime()) / 60000));
+
+                return (
+                  <div
+                    key={tab.id}
+                    style={{
+                      background: '#fff',
+                      border: '1.5px solid rgba(245, 158, 11, 0.35)',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            background: '#f59e0b', color: '#fff',
+                            padding: '2px 7px', borderRadius: '6px',
+                            fontWeight: 900, fontSize: '0.78rem',
+                          }}>
+                            Token #{tab.tokenNumber}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {elapsedMin}m ago
+                          </span>
+                        </div>
+                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)', marginTop: 4 }}>
+                          {tab.guestName || 'Walk-in Guest'}
+                          {tab.partySize > 1 && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}> · {tab.partySize}p</span>}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--primary)' }}>
+                          ₹{totalAmt.toLocaleString('en-IN')}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          {itemCount} item{itemCount === 1 ? '' : 's'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {tabItems.length > 0 && (
+                      <div style={{
+                        fontSize: '0.72rem', color: 'var(--text-secondary)',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        background: 'rgba(0,0,0,0.02)', padding: '4px 8px', borderRadius: '6px',
+                      }}>
+                        {tabItems.map(i => `${i.qty}x ${i.name}`).join(', ')}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ flex: 1, padding: '5px 8px', fontSize: '0.75rem', fontWeight: 600 }}
+                        onClick={() => handleOpenFloatingTab(tab)}
+                      >
+                        Open Cart
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{
+                          flex: 1.2, padding: '5px 8px', fontSize: '0.75rem', fontWeight: 700,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                        }}
+                        onClick={() => setAssignTableModal(tab)}
+                      >
+                        <UtensilsCrossed size={12} /> Assign Table
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '5px 8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.2)' }}
+                        onClick={() => handleDiscardFloatingTab(tab)}
+                        title="Discard tab"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Dine-in: Floor Plan */}
         {orderType === 'dine-in' && (
@@ -4236,7 +4922,35 @@ const POS = () => {
 
         {/* Guest Check-in Modal */}
         {guestModal && (
-          <GuestModal tableId={guestModal} onConfirm={handleGuestConfirmed} onClose={() => setGuestModal(null)} />
+          <GuestModal
+            tableId={guestModal}
+            onConfirm={handleGuestConfirmed}
+            onClose={() => setGuestModal(null)}
+            floatingTabs={floatingTabs}
+            onSeatToken={(tab) => handleAssignTableToTab(guestModal, tab)}
+            savedOrders={savedOrders}
+          />
+        )}
+
+        {/* No-Table / Quick Dine-In Modal */}
+        {noTableModal && (
+          <NoTableOrderModal
+            nextToken={getNextTokenNumber()}
+            onStart={handleConfirmNoTableOrder}
+            onClose={() => setNoTableModal(false)}
+          />
+        )}
+
+        {/* Assign Table Modal */}
+        {assignTableModal && (
+          <AssignTableModal
+            tab={assignTableModal}
+            tables={tables}
+            savedOrders={savedOrders}
+            currentCart={cart}
+            onAssign={handleAssignTableToTab}
+            onClose={() => setAssignTableModal(null)}
+          />
         )}
 
         {/* Cash Drawer Modal */}
@@ -4403,6 +5117,27 @@ const POS = () => {
                       return;
                     }
                   }
+                  if (unassignedTab) {
+                    if (cart.length > 0) {
+                      setSavedOrders(prev => ({
+                        ...prev,
+                        [`tab_${unassignedTab.id}`]: cart,
+                        __tabs_meta__: {
+                          ...(prev.__tabs_meta__ || {}),
+                          [unassignedTab.id]: unassignedTab,
+                        },
+                      }));
+                    } else if (!savedOrders[`tab_${unassignedTab.id}`]?.length) {
+                      setSavedOrders(prev => {
+                        const next = { ...prev };
+                        const nextMeta = { ...(next.__tabs_meta__ || {}) };
+                        delete nextMeta[unassignedTab.id];
+                        next.__tabs_meta__ = nextMeta;
+                        return next;
+                      });
+                    }
+                    setUnassignedTab(null);
+                  }
                   setView('floor');
                   setCart([]);
                   setDiscountAmount(0);
@@ -4417,8 +5152,32 @@ const POS = () => {
             )}
             <div>
               <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {activeTable ? `${getNoun(settings, 'tables', 'Table')} ${activeTable.number || activeTable.id}` : orderType === 'takeout' ? 'Takeout' : 'Delivery'}
+                {activeTable
+                  ? `${getNoun(settings, 'tables', 'Table')} ${activeTable.number || activeTable.id}`
+                  : (unassignedTab
+                      ? `Dine-In • Token #${unassignedTab.tokenNumber}`
+                      : (orderType === 'takeout' ? 'Takeout' : 'Delivery'))}
                 {currentGuest && <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.82rem' }}> -- {currentGuest}</span>}
+                {unassignedTab && !activeTable && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{
+                      padding: '3px 10px',
+                      fontSize: '0.72rem',
+                      borderRadius: 'var(--r-sm)',
+                      marginLeft: 6,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontWeight: 700,
+                    }}
+                    onClick={() => setAssignTableModal(unassignedTab)}
+                    title="Assign order to a table"
+                  >
+                    <UtensilsCrossed size={12} /> Assign Table
+                  </button>
+                )}
                 {hasCardOnFile && (
                   <span style={{
                     background: 'rgba(59,130,246,0.1)', color: 'var(--accent-blue)',
@@ -4900,6 +5659,17 @@ const POS = () => {
               setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) && t.status === 'paying' ? { ...t, status: restore } : t));
             }
           }}
+        />
+      )}
+
+      {assignTableModal && (
+        <AssignTableModal
+          tab={assignTableModal}
+          tables={tables}
+          savedOrders={savedOrders}
+          currentCart={cart}
+          onAssign={handleAssignTableToTab}
+          onClose={() => setAssignTableModal(null)}
         />
       )}
 

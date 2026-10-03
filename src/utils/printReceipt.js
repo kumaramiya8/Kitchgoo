@@ -107,7 +107,7 @@ export function printReceipt({ order, settings, tableId, guestName }) {
       <span class="sm">${formatDate(order.createdAt)}</span>
     </div>
     <div class="row">
-      <span class="sm">Table: ${tableId ? `Table ${tableId}` : 'Takeaway'}</span>
+      <span class="sm">Table: ${tableId ? `Table ${tableId}` : (order.tokenNumber ? `Token #${order.tokenNumber} (Dine-In)` : (order.orderType === 'dine-in' ? 'Dine-In (Table Pending)' : 'Takeaway'))}</span>
       <span class="sm">${formatTime(order.createdAt)}</span>
     </div>
     ${guestName ? `<div class="row"><span class="sm">Guest: <span class="bold">${guestName}</span></span></div>` : ''}
@@ -263,12 +263,15 @@ export function printReceipt({ order, settings, tableId, guestName }) {
 </body>
 </html>`;
 
-  const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes');
-  if (win) {
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+  if (typeof window !== 'undefined' && window.open) {
+    const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes');
+    if (win) {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    }
   }
+  return html;
 }
 
 export function printTableTransferNotice({ fromTable, toTable, guestName, serverName, items = [], settings }) {
@@ -355,12 +358,15 @@ export function printTableTransferNotice({ fromTable, toTable, guestName, server
 </body>
 </html>`;
 
-  const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes');
-  if (win) {
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+  if (typeof window !== 'undefined' && window.open) {
+    const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes');
+    if (win) {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    }
   }
+  return html;
 }
 
 export function printKOT({ orderId, items = [], tableId, tableName, serverName, orderType = 'Dine-in', notes = '', settings }) {
@@ -370,7 +376,7 @@ export function printKOT({ orderId, items = [], tableId, tableName, serverName, 
   const d = new Date();
   const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-  const tableLabel = tableName || (tableId ? `Table ${tableId}` : 'Takeout');
+  const tableLabel = tableName || (tableId ? (String(tableId).startsWith('tab_') ? 'Dine-In (Table Pending)' : `Table ${tableId}`) : (orderType?.toLowerCase() === 'dine-in' ? 'Dine-In (Table Pending)' : 'Takeout'));
 
   const pageSizeCss = paperSize === '58mm'
     ? '@page { size: 58mm auto; margin: 3mm; } body { width: 52mm; max-width: 52mm; font-size: 10px; }'
@@ -462,11 +468,14 @@ export function printKOT({ orderId, items = [], tableId, tableName, serverName, 
 </body>
 </html>`;
 
-  const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes');
-  if (win) {
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+  if (typeof window !== 'undefined' && window.open) {
+    const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes');
+    if (win) {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    }
   }
+  return html;
 }
 

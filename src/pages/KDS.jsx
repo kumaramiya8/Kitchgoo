@@ -607,10 +607,21 @@ export default function KDS() {
                       <Hash size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />
                       {ticket.orderId}
                     </span>
-                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>T{ticket.tableId}</span>
+                    <span style={{
+                      fontSize: '0.82rem',
+                      fontWeight: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 800 : 600,
+                      color: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '#d97706' : 'var(--text-muted)',
+                      background: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 'rgba(245, 158, 11, 0.12)' : 'transparent',
+                      padding: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '2px 6px' : '0',
+                      borderRadius: '4px',
+                    }}>
+                      {(!ticket.tableId || String(ticket.tableId).startsWith('tab_'))
+                        ? (ticket.tokenNumber ? `Token #${ticket.tokenNumber}` : 'Waiting Table')
+                        : `T${ticket.tableId}`}
+                    </span>
                     {ticket.tableShiftedFrom && (
                       <span
-                        title={`Moved from Table ${ticket.tableShiftedFrom} at ${ticket.shiftedAt ? new Date(ticket.shiftedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}`}
+                        title={`Moved from ${ticket.tableShiftedFrom} at ${ticket.shiftedAt ? new Date(ticket.shiftedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}`}
                         style={{
                           background: 'rgba(239, 68, 68, 0.15)',
                           color: '#dc2626',
@@ -624,7 +635,7 @@ export default function KDS() {
                           gap: 3,
                         }}
                       >
-                        <ArrowRightLeft size={10} /> T{ticket.tableShiftedFrom} ➔ T{ticket.tableId}
+                        <ArrowRightLeft size={10} /> {String(ticket.tableShiftedFrom).startsWith('Token') ? ticket.tableShiftedFrom : `T${ticket.tableShiftedFrom}`} ➔ {String(ticket.tableShiftedTo || ticket.tableId).startsWith('Token') ? (ticket.tableShiftedTo || ticket.tableId) : `T${ticket.tableShiftedTo || ticket.tableId}`}
                       </span>
                     )}
                     <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
@@ -746,10 +757,17 @@ export default function KDS() {
                       #{ticket.orderId}
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      Table {ticket.tableId}
+                      <span style={{
+                        fontWeight: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 800 : 600,
+                        color: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '#d97706' : 'var(--text-muted)',
+                      }}>
+                        {(!ticket.tableId || String(ticket.tableId).startsWith('tab_'))
+                          ? (ticket.tokenNumber ? `Token #${ticket.tokenNumber} (Waiting Table)` : 'Waiting Table')
+                          : `Table ${ticket.tableId}`}
+                      </span>
                       {ticket.tableShiftedFrom && (
                         <span
-                          title={`Moved from Table ${ticket.tableShiftedFrom}`}
+                          title={`Moved from ${ticket.tableShiftedFrom}`}
                           style={{
                             background: 'rgba(239, 68, 68, 0.15)',
                             color: '#dc2626',
@@ -763,7 +781,7 @@ export default function KDS() {
                             gap: 3,
                           }}
                         >
-                          <ArrowRightLeft size={10} /> Moved: T{ticket.tableShiftedFrom} ➔ T{ticket.tableId}
+                          <ArrowRightLeft size={10} /> Moved: {String(ticket.tableShiftedFrom).startsWith('Token') ? ticket.tableShiftedFrom : `T${ticket.tableShiftedFrom}`} ➔ {String(ticket.tableShiftedTo || ticket.tableId).startsWith('Token') ? (ticket.tableShiftedTo || ticket.tableId) : `T${ticket.tableShiftedTo || ticket.tableId}`}
                         </span>
                       )}
                       <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
