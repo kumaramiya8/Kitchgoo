@@ -9,7 +9,7 @@ import {
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
   GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check, Eye,
-  Sparkles, Trash2, AlertCircle
+  Sparkles, Trash2, AlertCircle, Edit3
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -18,6 +18,8 @@ import { printReceipt, printTableTransferNotice, printKOT } from '../utils/print
 import { getNoun } from '../utils/naming';
 import { isModuleEnabled } from '../../shared/seeds';
 import { calculateTableBill } from '../utils/tableOrders';
+import { localDayStr } from '../../shared/dates';
+import { stripItems } from '../../shared/items';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const ORDER_TYPES = [
@@ -2617,6 +2619,7 @@ const TableOrderHoverCard = ({
   onSettle,
   onOpenOrder,
   onReleaseTable,
+  onViewHistory,
   onMouseEnter,
   onMouseLeave,
 }) => {
@@ -2822,6 +2825,24 @@ const TableOrderHoverCard = ({
             >
               <Eye size={13} /> View
             </button>
+            {onViewHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{
+                  padding: '8px 10px',
+                  fontSize: '0.75rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                }}
+                onClick={() => onViewHistory(table)}
+                title="View past orders & receipts for this table"
+              >
+                <History size={13} /> History
+              </button>
+            )}
           </div>
         </>
       ) : (
@@ -2839,6 +2860,17 @@ const TableOrderHoverCard = ({
             >
               {table.status === 'seated' ? 'Start Order' : 'Seat Table'}
             </button>
+            {onViewHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '6px 10px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                onClick={() => onViewHistory(table)}
+                title="View past orders & receipts for this table"
+              >
+                <History size={12} /> Past Orders
+              </button>
+            )}
             {table.status === 'seated' && onReleaseTable && (
               <button
                 type="button"
@@ -2857,6 +2889,988 @@ const TableOrderHoverCard = ({
 };
 
 
+// ─── Table Past Orders Helpers & Modals ───────────────────────
+export function getTableOrders(orders, table) {
+  if (!orders || !Array.isArray(orders)) return [];
+  if (!table || table.id === 'all' || table.number === 'All' || table.number === 'All Tables') {
+    return (orders || []).filter(o => o.orderType === 'dine-in' || o.tableId || o.tableName || o.tokenNumber).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }
+  const tableIdStr = String(table.id);
+  const tableNumStr = String(table.number || table.id);
+
+  return (orders || []).filter(o => {
+    if (!o.tableId && !o.tableName && !o.tokenNumber) return false;
+    const oTableId = String(o.tableId || '');
+    const oTableName = String(o.tableName || '');
+
+    return (
+      oTableId === tableIdStr ||
+      oTableId === tableNumStr ||
+      oTableName === `Table ${tableNumStr}` ||
+      oTableName === `Table ${tableIdStr}` ||
+      (table.tokenNumber && String(o.tokenNumber) === String(table.tokenNumber)) ||
+      (tableIdStr.startsWith('tab_') && oTableId === tableIdStr)
+    );
+  }).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+const ChangePaymentModal = ({ order, onClose, onConfirm }) => {
+  const [method, setMethod] = useState(order?.paymentMethod || 'Cash');
+  const [isSplit, setIsSplit] = useState(order?.paymentMethod === 'Split');
+  const [splits, setSplits] = useState(order?.paymentSplits || [
+    { method: 'Cash', amount: Math.round((order?.total || 0) / 2) },
+    { method: 'UPI', amount: (order?.total || 0) - Math.round((order?.total || 0) / 2) },
+  ]);
+
+  if (!order) return null;
+
+  const total = Number(order.total) || 0;
+  const splitTotal = splits.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const isSplitValid = Math.abs(splitTotal - total) < 0.01;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (isSplit && !isSplitValid) {
+      alert(`Split total (₹${splitTotal}) must equal order total (₹${total}).`);
+      return;
+    }
+    onConfirm(isSplit ? 'Split' : method, isSplit ? splits : null);
+  };
+
+  const METHODS = ['Cash', 'Card', 'UPI', 'Split'];
+
+  return (
+    <Modal title={`Change Payment Method • ${order.billNo || 'Order'}`} onClose={onClose} wide>
+      <form onSubmit={handleSubmit}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-muted, #f8fafc)', padding: '10px 14px', borderRadius: '10px' }}>
+            <div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Bill Amount</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                ₹{total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Current Tender</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--primary)' }}>
+                {order.paymentMethod || 'Unspecified'}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 8 }}>
+              Select New Payment Method:
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {METHODS.map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  className={((isSplit && m === 'Split') || (!isSplit && method === m)) ? 'btn btn-primary' : 'btn btn-secondary'}
+                  style={{ padding: '10px 6px', fontSize: '0.85rem', fontWeight: 700 }}
+                  onClick={() => {
+                    if (m === 'Split') {
+                      setIsSplit(true);
+                      setMethod('Split');
+                    } else {
+                      setIsSplit(false);
+                      setMethod(m);
+                    }
+                  }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {isSplit && (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                Specify Split Portions:
+              </div>
+              {splits.map((s, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select
+                    className="input-field"
+                    value={s.method}
+                    style={{ width: 120, height: 36 }}
+                    onChange={e => {
+                      const next = [...splits];
+                      next[idx].method = e.target.value;
+                      setSplits(next);
+                    }}
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card</option>
+                    <option value="UPI">UPI</option>
+                  </select>
+                  <input
+                    type="number"
+                    className="input-field"
+                    style={{ flex: 1, height: 36 }}
+                    value={s.amount}
+                    min="0"
+                    step="any"
+                    onChange={e => {
+                      const next = [...splits];
+                      next[idx].amount = parseFloat(e.target.value) || 0;
+                      setSplits(next);
+                    }}
+                  />
+                  {splits.length > 2 && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setSplits(splits.filter((_, i) => i !== idx))}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, fontSize: '0.8rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setSplits([...splits, { method: 'UPI', amount: 0 }])}
+                >
+                  + Add Split Line
+                </button>
+                <div style={{ fontWeight: 700, color: isSplitValid ? 'var(--success)' : 'var(--danger)' }}>
+                  Total: ₹{splitTotal.toFixed(2)} / ₹{total.toFixed(2)} {isSplitValid ? '✓' : `(Diff: ₹${(total - splitTotal).toFixed(2)})`}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={isSplit && !isSplitValid}>
+            Save Payment Method
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+const VoidOrderModal = ({ order, onClose, onConfirm }) => {
+  const [reason, setReason] = useState('Billing Error');
+  const [customReason, setCustomReason] = useState('');
+
+  if (!order) return null;
+
+  const REASONS = [
+    'Billing Error',
+    'Customer Complaint',
+    'Kitchen Error / Wrong Item',
+    'Customer Walkout / Left',
+    'Wrong Table Charged',
+    'Duplicate Bill Created',
+    'Other',
+  ];
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const finalReason = reason === 'Other' ? (customReason.trim() || 'Other') : reason;
+    onConfirm(finalReason);
+  };
+
+  return (
+    <Modal title={`Void Order • ${order.billNo || 'Order'}`} onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            borderRadius: '10px',
+            padding: '12px 14px',
+            color: '#dc2626',
+            fontSize: '0.82rem',
+            lineHeight: 1.4,
+          }}>
+            <strong>Warning:</strong> Voiding this bill will mark it as cancelled, reverse cash drawer contributions if paid in cash, and record an audit log entry.
+          </div>
+
+          <div style={{ background: 'var(--surface-muted, #f8fafc)', padding: '10px 14px', borderRadius: '10px', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Bill No:</span>
+              <strong>{order.billNo}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Amount:</span>
+              <strong>₹{(order.total || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Payment Tender:</span>
+              <strong>{order.paymentMethod}</strong>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+              Select Reason for Voiding:
+            </label>
+            <select
+              className="input-field"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              style={{ width: '100%', height: 38 }}
+            >
+              {REASONS.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+
+          {reason === 'Other' && (
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                Specify Reason:
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Enter details..."
+                value={customReason}
+                onChange={e => setCustomReason(e.target.value)}
+                style={{ width: '100%', height: 38 }}
+                required
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-danger" style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
+            Confirm & Void Bill
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+const EditPastOrderModal = ({ order, menu = [], settings = {}, onClose, onConfirm }) => {
+  const [items, setItems] = useState((order?.items || []).map(i => ({ ...i, qty: i.qty || i.quantity || 1 })));
+  const [discount, setDiscount] = useState(order?.discount || 0);
+  const [discountReason, setDiscountReason] = useState(order?.discountReason || '');
+  const [guestName, setGuestName] = useState(order?.guestName || '');
+  const [customerPhone, setCustomerPhone] = useState(order?.customerPhone || '');
+  const [selectedMenuItemId, setSelectedMenuItemId] = useState('');
+  const [paymentMethodForDelta, setPaymentMethodForDelta] = useState(order?.paymentMethod === 'Cash' ? 'Cash' : 'UPI');
+  const [refundMethodForDelta, setRefundMethodForDelta] = useState(order?.paymentMethod === 'Cash' ? 'Cash' : 'UPI');
+
+  if (!order) return null;
+
+  const pricesIncludeGst = order.pricesIncludeGst !== undefined
+    ? order.pricesIncludeGst
+    : (settings?.billing?.pricesIncludeGst !== false);
+  const gstRate = order.taxRate ?? settings?.billing?.gstRate ?? 5;
+
+  const itemsTotal = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
+  let subtotal = 0;
+  let tax = 0;
+  if (pricesIncludeGst) {
+    tax = gstRate > 0 ? itemsTotal - (itemsTotal / (1 + gstRate / 100)) : 0;
+    subtotal = itemsTotal - tax;
+  } else {
+    subtotal = itemsTotal;
+    tax = subtotal * (gstRate / 100);
+  }
+
+  const serviceCharge = order.serviceCharge || 0;
+  const autoGratuity = order.autoGratuity || 0;
+  const tip = order.tip || 0;
+  const discountVal = Math.max(0, Number(discount) || 0);
+  const rawTotal = subtotal + tax + serviceCharge + autoGratuity - discountVal + tip;
+  const revisedTotal = Math.max(0, parseFloat(rawTotal.toFixed(2)));
+
+  const originalTotal = Number(order.total) || 0;
+  const delta = parseFloat((revisedTotal - originalTotal).toFixed(2));
+
+  const handleQtyChange = (idx, newQty) => {
+    if (newQty <= 0) {
+      setItems(items.filter((_, i) => i !== idx));
+    } else {
+      const next = [...items];
+      next[idx] = { ...next[idx], qty: newQty };
+      setItems(next);
+    }
+  };
+
+  const handleAddItem = () => {
+    if (!selectedMenuItemId) return;
+    const menuItem = menu.find(m => String(m.id) === String(selectedMenuItemId));
+    if (!menuItem) return;
+
+    const existingIdx = items.findIndex(i => String(i.id) === String(menuItem.id));
+    if (existingIdx >= 0) {
+      const next = [...items];
+      next[existingIdx].qty += 1;
+      setItems(next);
+    } else {
+      setItems([...items, {
+        id: menuItem.id,
+        name: menuItem.name,
+        price: menuItem.price || 0,
+        qty: 1,
+        category: menuItem.category || '',
+      }]);
+    }
+    setSelectedMenuItemId('');
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (items.length === 0) {
+      alert('Order must contain at least one item. If you want to cancel the entire order, use Void instead.');
+      return;
+    }
+    onConfirm({
+      items,
+      subtotal,
+      tax,
+      total: revisedTotal,
+      discount: discountVal,
+      discountReason,
+      guestName,
+      customerPhone,
+      delta,
+      deltaAction: delta > 0.01 ? 'charge' : delta < -0.01 ? 'refund' : 'none',
+      deltaPaymentMethod: delta > 0.01 ? paymentMethodForDelta : delta < -0.01 ? refundMethodForDelta : 'None',
+    });
+  };
+
+  return (
+    <Modal title={`Edit Past Order • ${order.billNo || 'Order'}`} onClose={onClose} extraWide>
+      <form onSubmit={handleSubmit}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Guest and Phone */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
+                Guest Name:
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                value={guestName}
+                onChange={e => setGuestName(e.target.value)}
+                placeholder="Guest Name"
+                style={{ width: '100%', height: 34 }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
+                Phone Number:
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                value={customerPhone}
+                onChange={e => setCustomerPhone(e.target.value)}
+                placeholder="Phone (optional)"
+                style={{ width: '100%', height: 34 }}
+              />
+            </div>
+          </div>
+
+          {/* Items Editor */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Order Items ({items.length}):</span>
+            </div>
+            <div style={{
+              maxHeight: 180,
+              overflowY: 'auto',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: 8,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}>
+              {items.map((item, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px', background: 'var(--card-bg)', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{item.name}</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>₹{item.price} each</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: 26, height: 26, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      onClick={() => handleQtyChange(idx, item.qty - 1)}
+                    >
+                      <Minus size={12} />
+                    </button>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', width: 20, textAlign: 'center' }}>
+                      {item.qty}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: 26, height: 26, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      onClick={() => handleQtyChange(idx, item.qty + 1)}
+                    >
+                      <Plus size={12} />
+                    </button>
+                    <div style={{ fontWeight: 700, fontSize: '0.85rem', width: 60, textAlign: 'right' }}>
+                      ₹{(item.price * item.qty).toFixed(0)}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '3px 6px', color: 'var(--danger)' }}
+                      onClick={() => handleQtyChange(idx, 0)}
+                      title="Remove item"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Add item dropdown */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select
+              className="input-field"
+              value={selectedMenuItemId}
+              onChange={e => setSelectedMenuItemId(e.target.value)}
+              style={{ flex: 1, height: 34 }}
+            >
+              <option value="">+ Add item from menu...</option>
+              {menu.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} (₹{m.price})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={!selectedMenuItemId}
+              onClick={handleAddItem}
+              style={{ height: 34, padding: '0 12px' }}
+            >
+              Add Item
+            </button>
+          </div>
+
+          {/* Discount & Adjustments */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
+                Discount Amount (₹):
+              </label>
+              <input
+                type="number"
+                className="input-field"
+                value={discount}
+                min="0"
+                step="any"
+                onChange={e => setDiscount(e.target.value)}
+                style={{ width: '100%', height: 34 }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
+                Discount Reason:
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                value={discountReason}
+                onChange={e => setDiscountReason(e.target.value)}
+                placeholder="Manager Comp / Loyalty / Special"
+                style={{ width: '100%', height: 34 }}
+              />
+            </div>
+          </div>
+
+          {/* Financial Recalculation Summary */}
+          <div style={{
+            background: 'var(--surface-muted, #f8fafc)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            fontSize: '0.82rem',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Items Subtotal:</span>
+              <span>₹{itemsTotal.toFixed(2)}</span>
+            </div>
+            {tax > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                <span>GST ({gstRate}%):</span>
+                <span>₹{tax.toFixed(2)}</span>
+              </div>
+            )}
+            {discountVal > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--success)' }}>
+                <span>Discount:</span>
+                <span>-₹{discountVal.toFixed(2)}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, paddingTop: 4, borderTop: '1px solid var(--border-subtle)', marginTop: 4 }}>
+              <span>Revised Total:</span>
+              <span style={{ fontSize: '0.95rem', color: 'var(--primary)' }}>₹{revisedTotal.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+              <span>Original Total:</span>
+              <span>₹{originalTotal.toFixed(2)}</span>
+            </div>
+
+            {/* Delta Box */}
+            <div style={{
+              marginTop: 6,
+              padding: '8px 10px',
+              borderRadius: 6,
+              background: delta > 0 ? 'rgba(245, 158, 11, 0.12)' : delta < 0 ? 'rgba(34, 197, 94, 0.12)' : 'rgba(0,0,0,0.04)',
+              color: delta > 0 ? '#b45309' : delta < 0 ? '#15803d' : 'var(--text-muted)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontWeight: 700,
+            }}>
+              <span>
+                {delta > 0 ? `Customer Pays Additional: ₹${delta.toFixed(2)}` : delta < 0 ? `Refund Due to Customer: ₹${(-delta).toFixed(2)}` : 'No Change in Total'}
+              </span>
+              {delta > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 500 }}>via:</span>
+                  <select
+                    className="input-field"
+                    value={paymentMethodForDelta}
+                    onChange={e => setPaymentMethodForDelta(e.target.value)}
+                    style={{ height: 26, fontSize: '0.72rem', padding: '0 4px' }}
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI</option>
+                    <option value="Card">Card</option>
+                  </select>
+                </div>
+              )}
+              {delta < 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 500 }}>via:</span>
+                  <select
+                    className="input-field"
+                    value={refundMethodForDelta}
+                    onChange={e => setRefundMethodForDelta(e.target.value)}
+                    style={{ height: 26, fontSize: '0.72rem', padding: '0 4px' }}
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI</option>
+                    <option value="Card">Card</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-primary">
+            Save & Update Order
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+const TableHistoryModal = ({
+  table,
+  tables = [],
+  orders = [],
+  menu = [],
+  settings = {},
+  onClose,
+  onReprint,
+  onReopen,
+  onChangePayment,
+  onEditOrder,
+  onVoidOrder,
+}) => {
+  const [selectedTableId, setSelectedTableId] = useState(table ? (table.id || 'all') : 'all');
+  const [period, setPeriod] = useState('today'); // 'today' | '7days' | 'all'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'paid' | 'voided' | 'reopened'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
+
+  const activeTableObj = useMemo(() => {
+    if (selectedTableId === 'all') return { id: 'all', number: 'All Tables' };
+    return tables.find(t => String(t.id) === String(selectedTableId)) || { id: selectedTableId, number: selectedTableId };
+  }, [selectedTableId, tables]);
+
+  // Filter orders for table
+  const tableOrders = useMemo(() => {
+    return getTableOrders(orders, activeTableObj);
+  }, [orders, activeTableObj]);
+
+  // Filter by period, status, search query
+  const filteredOrders = useMemo(() => {
+    const now = new Date();
+    const todayStr = localDayStr(now);
+
+    return tableOrders.filter(o => {
+      // Period filter
+      if (period === 'today') {
+        if (!o.createdAt || localDayStr(new Date(o.createdAt)) !== todayStr) return false;
+      } else if (period === '7days') {
+        const orderDate = new Date(o.createdAt || 0);
+        const diffDays = (now - orderDate) / (1000 * 60 * 60 * 24);
+        if (diffDays > 7) return false;
+      }
+
+      // Status filter
+      if (statusFilter === 'paid' && o.status !== 'paid') return false;
+      if (statusFilter === 'voided' && o.status !== 'voided' && o.status !== 'cancelled') return false;
+      if (statusFilter === 'reopened' && o.status !== 'reopened') return false;
+
+      // Search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchesBill = (o.billNo || '').toLowerCase().includes(q);
+        const matchesGuest = (o.guestName || '').toLowerCase().includes(q);
+        const matchesItem = (o.items || []).some(i => (i.name || '').toLowerCase().includes(q));
+        if (!matchesBill && !matchesGuest && !matchesItem) return false;
+      }
+
+      return true;
+    });
+  }, [tableOrders, period, statusFilter, searchQuery]);
+
+  // Aggregate stats
+  const totalRevenue = useMemo(() => {
+    return filteredOrders
+      .filter(o => o.status === 'paid')
+      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  }, [filteredOrders]);
+
+  const paidCount = filteredOrders.filter(o => o.status === 'paid').length;
+  const avgOrder = paidCount > 0 ? (totalRevenue / paidCount) : 0;
+
+  return (
+    <Modal title={`Table History • ${activeTableObj.number === 'All Tables' ? 'All Tables' : `Table ${activeTableObj.number || activeTableObj.id}`}`} onClose={onClose} extraWide>
+      <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Controls row */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)' }}>Table:</span>
+            <select
+              className="input-field"
+              value={selectedTableId}
+              onChange={e => setSelectedTableId(e.target.value)}
+              style={{ height: 32, fontSize: '0.82rem', padding: '0 8px', minWidth: 130 }}
+            >
+              <option value="all">All Tables</option>
+              {tables.map(t => (
+                <option key={t.id} value={t.id}>
+                  Table {t.number || t.id} {t.section ? `(${t.section})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Period tabs */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface-muted, #f1f5f9)', padding: 3, borderRadius: 8 }}>
+            {[
+              { id: 'today', label: 'Today' },
+              { id: '7days', label: 'Last 7 Days' },
+              { id: 'all', label: 'All Time' },
+            ].map(p => (
+              <button
+                key={p.id}
+                type="button"
+                className="btn btn-sm"
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: period === p.id ? 700 : 500,
+                  background: period === p.id ? 'var(--card-bg, #fff)' : 'transparent',
+                  color: period === p.id ? 'var(--primary)' : 'var(--text-muted)',
+                  border: 'none',
+                  borderRadius: 6,
+                  boxShadow: period === p.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                }}
+                onClick={() => setPeriod(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Status filter tabs */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface-muted, #f1f5f9)', padding: 3, borderRadius: 8 }}>
+            {[
+              { id: 'all', label: 'All Status' },
+              { id: 'paid', label: 'Paid' },
+              { id: 'voided', label: 'Voided' },
+              { id: 'reopened', label: 'Reopened' },
+            ].map(s => (
+              <button
+                key={s.id}
+                type="button"
+                className="btn btn-sm"
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.72rem',
+                  fontWeight: statusFilter === s.id ? 700 : 500,
+                  background: statusFilter === s.id ? 'var(--card-bg, #fff)' : 'transparent',
+                  color: statusFilter === s.id ? 'var(--primary)' : 'var(--text-muted)',
+                  border: 'none',
+                  borderRadius: 6,
+                  boxShadow: statusFilter === s.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                }}
+                onClick={() => setStatusFilter(s.id)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Search bar */}
+        <div style={{ position: 'relative' }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            className="input-field"
+            placeholder="Search past bills by Bill No, guest name, or ordered dish..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ width: '100%', height: 34, paddingLeft: 32, fontSize: '0.8rem' }}
+          />
+        </div>
+
+        {/* Stats banner */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, background: 'var(--surface-muted, #f8fafc)', padding: '10px 14px', borderRadius: 10 }}>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Orders Count</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{filteredOrders.length}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Revenue (Paid)</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--primary)' }}>
+              ₹{totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Avg Ticket</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
+              ₹{avgOrder.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+        </div>
+
+        {/* Order Cards List */}
+        {filteredOrders.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+            <Clock size={32} style={{ opacity: 0.35, marginBottom: 8 }} />
+            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>No orders found</div>
+            <div style={{ fontSize: '0.75rem' }}>No orders matching the selected filters.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '420px', overflowY: 'auto', paddingRight: 4 }}>
+            {filteredOrders.map(order => {
+              const isExpanded = expandedOrderId === order.id;
+              const isVoided = order.status === 'voided' || order.status === 'cancelled';
+              const isReopened = order.status === 'reopened';
+              const itemCount = (order.items || []).reduce((s, i) => s + (i.qty || i.quantity || 1), 0);
+              const orderTimeStr = order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+              const orderDateStr = order.createdAt ? new Date(order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '';
+
+              return (
+                <div
+                  key={order.id}
+                  style={{
+                    background: 'var(--card-bg, #fff)',
+                    border: `1px solid ${isVoided ? 'rgba(239, 68, 68, 0.3)' : isReopened ? 'rgba(139, 92, 246, 0.3)' : 'var(--border)'}`,
+                    borderRadius: 12,
+                    padding: 12,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                    opacity: isVoided ? 0.75 : 1,
+                  }}
+                >
+                  {/* Top Bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                          {order.billNo || `#${order.id.slice(-6)}`}
+                        </span>
+                        <span style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          background: 'rgba(30, 94, 74, 0.1)',
+                          color: 'var(--primary)',
+                        }}>
+                          {order.tableId ? `Table ${order.tableId}` : (order.tokenNumber ? `Token #${order.tokenNumber}` : 'Dine-In')}
+                        </span>
+                        {/* Status Badge */}
+                        <span style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 800,
+                          textTransform: 'uppercase',
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          background: isVoided ? 'rgba(239, 68, 68, 0.15)' : isReopened ? 'rgba(139, 92, 246, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                          color: isVoided ? '#dc2626' : isReopened ? '#7c3aed' : '#16a34a',
+                        }}>
+                          {order.status || 'paid'}
+                        </span>
+                        {/* Payment Method Badge */}
+                        <span style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          background: 'rgba(59, 130, 246, 0.12)',
+                          color: '#2563eb',
+                        }}>
+                          {order.paymentMethod || 'Cash'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span>{orderDateStr} • {orderTimeStr}</span>
+                        {order.guestName && <span>• Guest: <strong>{order.guestName}</strong></span>}
+                        {order.serverName && <span>• Staff: {order.serverName}</span>}
+                        {order.isRevised && <span style={{ color: '#d97706', fontWeight: 700 }}>• (Revised)</span>}
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 800, fontSize: '1.05rem', color: isVoided ? '#991b1b' : 'var(--text-primary)' }}>
+                        ₹{(order.total || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Void reason if applicable */}
+                  {isVoided && order.voidReason && (
+                    <div style={{ fontSize: '0.72rem', color: '#dc2626', background: 'rgba(239, 68, 68, 0.08)', padding: '3px 8px', borderRadius: 4, marginBottom: 8 }}>
+                      Void Reason: <strong>{order.voidReason}</strong>
+                    </div>
+                  )}
+
+                  {/* Collapsible Items Details */}
+                  {isExpanded && (
+                    <div style={{ background: 'var(--surface-muted, #f8fafc)', borderRadius: 8, padding: 8, marginTop: 8, marginBottom: 8, fontSize: '0.75rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 }}>
+                        {(order.items || []).map((item, idx) => (
+                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed var(--border-subtle)', paddingBottom: 2 }}>
+                            <span><strong>{item.qty || item.quantity || 1}x</strong> {item.name}</span>
+                            <span>₹{((item.price || 0) * (item.qty || item.quantity || 1)).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.7rem', borderTop: '1px solid var(--border)', paddingTop: 4 }}>
+                        <span>Subtotal: ₹{(order.subtotal || 0).toFixed(2)}</span>
+                        {order.tax > 0 && <span>GST: ₹{(order.tax || 0).toFixed(2)}</span>}
+                        {order.discount > 0 && <span style={{ color: 'var(--success)' }}>Discount: -₹{(order.discount || 0).toFixed(2)}</span>}
+                        <strong>Total: ₹{(order.total || 0).toFixed(2)}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions Row */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                    >
+                      <Eye size={12} /> {isExpanded ? 'Hide Items' : 'View Items'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      onClick={() => onReprint?.(order)}
+                      title="Reprint Bill Receipt"
+                    >
+                      <Printer size={12} /> Reprint
+                    </button>
+
+                    {!isVoided && !isReopened && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                          onClick={() => onChangePayment?.(order)}
+                          title="Change Payment Tender (Cash, UPI, Card, Split)"
+                        >
+                          <CreditCard size={12} /> Change Payment
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                          onClick={() => onEditOrder?.(order)}
+                          title="Edit items, change quantities, apply discount"
+                        >
+                          <Edit3 size={12} /> Edit Order
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--primary)', fontWeight: 700 }}
+                          onClick={() => onReopen?.(order)}
+                          title="Re-open order to table active cart"
+                        >
+                          <RotateCcw size={12} /> Re-Open to Table
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--danger)' }}
+                          onClick={() => onVoidOrder?.(order)}
+                          title="Void / Cancel this bill"
+                        >
+                          <Ban size={12} /> Void
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="modal-footer">
+        <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
+  );
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ─── Main POS Component ─────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2868,7 +3882,7 @@ const POS = () => {
     placeOrder, fireToKDS, transferKDSTickets, cancelKDSTickets, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
-    reservations, orders, kdsTickets,
+    reservations, orders, kdsTickets, updatePOSOrder,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
@@ -3124,6 +4138,12 @@ const POS = () => {
   const [startingFloat, setStartingFloat] = useState('5000');
   const [compModal, setCompModal] = useState(null);    // 'comp' | 'void' | 'discount'
   const [managerPinModal, setManagerPinModal] = useState(null);
+
+  // Past Table History & Order Management Modals
+  const [tableHistoryModal, setTableHistoryModal] = useState(null); // table object or 'all'
+  const [changePaymentModal, setChangePaymentModal] = useState(null); // order object
+  const [editPastOrderModal, setEditPastOrderModal] = useState(null); // order object
+  const [voidOrderModal, setVoidOrderModal] = useState(null); // order object
 
   // Course firing & hold
   const [courseFiring, setCourseFiring] = useState({}); // { itemId: courseNumber }
@@ -4467,6 +5487,330 @@ const POS = () => {
     return items;
   }, [menuItems, activeCategory, searchQuery]);
 
+  // ── Past Order Management Handlers ────────────────────────
+  const handleReprint = (order) => {
+    if (!order) return;
+    try {
+      printReceipt({
+        order,
+        settings,
+        tableId: order.tableId,
+        guestName: order.customerName || order.guestName,
+      });
+      showSuccess(`Receipt sent to printer for Order #${order.orderNumber || order.id || ''}`);
+    } catch (err) {
+      console.error('[POS] Failed to reprint receipt:', err);
+      alert('Failed to print receipt.');
+    }
+  };
+
+  const handleChangePaymentMethod = async (order, newMethod, splits = null) => {
+    if (!order) return;
+    try {
+      const getOrderCash = (targetSplits, method, tot) => {
+        if (Array.isArray(targetSplits) && targetSplits.length > 0) {
+          return targetSplits
+            .filter(p => (p.method || '').toLowerCase() === 'cash')
+            .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+        }
+        if ((method || '').toLowerCase() === 'cash') return parseFloat(tot) || 0;
+        return 0;
+      };
+
+      const oldCash = getOrderCash(order.paymentSplits, order.paymentMethod, order.total);
+      const newCash = getOrderCash(splits, newMethod, order.total);
+      const deltaCash = newCash - oldCash;
+
+      if (deltaCash !== 0) {
+        updateCashDrawer({
+          ...cashDrawer,
+          cashIn: Math.max(0, (cashDrawer?.cashIn || 0) + deltaCash),
+        });
+      }
+
+      await updatePOSOrder(order.id, {
+        paymentMethod: newMethod,
+        paymentSplits: splits || [],
+        paymentMethodChangedAt: new Date().toISOString(),
+        paymentMethodChangedBy: user?.name || 'Staff',
+      });
+
+      addAuditEntry(
+        'PAYMENT_METHOD_CHANGE',
+        user?.role || 'staff',
+        user?.name || 'Staff',
+        `Changed payment method for order #${order.orderNumber || order.id} from ${order.paymentMethod || 'Unknown'} to ${newMethod}${deltaCash !== 0 ? ` (Cash drawer delta: ₹${deltaCash.toFixed(2)})` : ''}`
+      );
+
+      showSuccess(`Payment method updated to ${newMethod} for order #${order.orderNumber || order.id}!`);
+      setChangePaymentModal(null);
+    } catch (err) {
+      console.error('[POS] Error updating payment method:', err);
+      alert('Failed to update payment method.');
+    }
+  };
+
+  const handleVoidPastOrder = async (order, reason) => {
+    if (!order) return;
+    try {
+      const cashToReverse = Array.isArray(order.paymentSplits) && order.paymentSplits.length > 0
+        ? order.paymentSplits.filter(p => (p.method || '').toLowerCase() === 'cash').reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+        : ((order.paymentMethod || '').toLowerCase() === 'cash' ? (parseFloat(order.total) || 0) : 0);
+
+      if (cashToReverse > 0) {
+        updateCashDrawer({
+          ...cashDrawer,
+          cashIn: Math.max(0, (cashDrawer?.cashIn || 0) - cashToReverse),
+        });
+      }
+
+      await updatePOSOrder(order.id, {
+        status: 'voided',
+        voidReason: reason,
+        voidedAt: new Date().toISOString(),
+        voidedBy: user?.name || 'Staff',
+      });
+
+      addAuditEntry(
+        'ORDER_VOID',
+        user?.role || 'staff',
+        user?.name || 'Staff',
+        `Voided past order #${order.orderNumber || order.id}. Reason: ${reason}. Amount: ₹${(parseFloat(order.total) || 0).toFixed(2)}${cashToReverse > 0 ? ` (Reversed ₹${cashToReverse.toFixed(2)} cash)` : ''}`
+      );
+
+      showSuccess(`Order #${order.orderNumber || order.id} marked as voided.`);
+      setVoidOrderModal(null);
+    } catch (err) {
+      console.error('[POS] Error voiding order:', err);
+      alert('Failed to void order.');
+    }
+  };
+
+  const handleSaveEditedOrder = async (order, changes) => {
+    if (!order) return;
+    try {
+      const { items, subtotal, tax, total, discount, discountReason, delta, deltaAction, deltaPaymentMethod, guestName, customerPhone } = changes;
+
+      if ((deltaPaymentMethod || '').toLowerCase() === 'cash') {
+        const absDelta = Math.abs(delta || 0);
+        if (deltaAction === 'charge') {
+          updateCashDrawer({
+            ...cashDrawer,
+            cashIn: (cashDrawer?.cashIn || 0) + absDelta,
+          });
+        } else if (deltaAction === 'refund') {
+          updateCashDrawer({
+            ...cashDrawer,
+            cashIn: Math.max(0, (cashDrawer?.cashIn || 0) - absDelta),
+          });
+        }
+      }
+
+      const existingHistory = Array.isArray(order.history) ? order.history : [];
+      const editRecord = {
+        action: 'edited',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        previousTotal: order.total,
+        newTotal: total,
+        delta,
+        deltaAction,
+        deltaPaymentMethod,
+      };
+
+      await updatePOSOrder(order.id, {
+        items,
+        subtotal,
+        tax,
+        total,
+        discount,
+        discountReason,
+        guestName: guestName || order.guestName,
+        customerPhone: customerPhone || order.customerPhone,
+        editedAt: new Date().toISOString(),
+        editedBy: user?.name || 'Staff',
+        isRevised: true,
+        history: [...existingHistory, editRecord],
+      });
+
+      addAuditEntry(
+        'ORDER_EDIT',
+        user?.role || 'staff',
+        user?.name || 'Staff',
+        `Edited order #${order.orderNumber || order.id}: total changed from ₹${(order.total || 0).toFixed(2)} to ₹${total.toFixed(2)} (${deltaAction !== 'none' ? `${deltaAction} ₹${Math.abs(delta).toFixed(2)} via ${deltaPaymentMethod}` : 'no price change'})`
+      );
+
+      showSuccess(`Order #${order.orderNumber || order.id} updated! Total: ₹${total.toFixed(2)}`);
+      setEditPastOrderModal(null);
+    } catch (err) {
+      console.error('[POS] Error saving edited order:', err);
+      alert('Failed to update order.');
+    }
+  };
+
+  const handleReopenOrder = async (order) => {
+    if (!order) return;
+    try {
+      const formattedItems = (order.items || []).map(item => {
+        const itemId = item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
+        return {
+          ...item,
+          id: itemId,
+          _cartKey: item._cartKey || `${itemId}_${(item.modifiers || []).map(m => m.id || m.name).join('_')}`,
+          qty: item.qty || item.quantity || 1,
+          modifiers: item.modifiers || [],
+          specialInstructions: item.specialInstructions || '',
+          course: item.course || 1,
+          seat: item.seat || 1,
+        };
+      });
+
+      const targetTable = tables.find(t => 
+        String(t.id) === String(order.tableId) || 
+        String(t.number) === String(order.tableId) || 
+        (order.tableName && `Table ${t.number}` === order.tableName)
+      );
+
+      let restoreToTable = false;
+      if (targetTable) {
+        const isOccupied = (targetTable.status && targetTable.status !== 'available' && targetTable.status !== 'needs-bussing') || 
+                           (savedOrders[targetTable.id] && savedOrders[targetTable.id].length > 0);
+        if (isOccupied) {
+          const makeFloating = window.confirm(`Table ${targetTable.number} is currently occupied! Would you like to restore this order as a Floating Tab with a Token number instead?`);
+          if (!makeFloating) return;
+          restoreToTable = false;
+        } else {
+          restoreToTable = true;
+        }
+      }
+
+      if (restoreToTable && targetTable) {
+        setSavedOrders(prev => ({
+          ...prev,
+          [targetTable.id]: formattedItems,
+        }));
+
+        setTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
+          ...t,
+          status: 'ordered',
+          guestName: order.customerName || order.guestName || t.guestName || null,
+          guestPhone: order.customerPhone || t.guestPhone || null,
+          partySize: order.partySize || t.partySize || 1,
+          seatedAt: new Date().toISOString(),
+        } : t));
+
+        setActiveTable(targetTable);
+        setUnassignedTab(null);
+      } else {
+        const tokenNum = order.tokenNumber || getNextTokenNumber();
+        const tabId = `reopened_${Date.now()}`;
+        const newTab = {
+          id: tabId,
+          tokenNumber: tokenNum,
+          guestName: order.customerName || order.guestName || 'Reopened Guest',
+          guestPhone: order.customerPhone || '',
+          partySize: order.partySize || 1,
+          notes: `Reopened Order #${order.orderNumber || order.id}`,
+          createdAt: new Date().toISOString(),
+          items: formattedItems,
+          firedItems: formattedItems,
+        };
+
+        setSavedOrders(prev => ({
+          ...prev,
+          [`tab_${tabId}`]: formattedItems,
+          __tabs_meta__: {
+            ...(prev.__tabs_meta__ || {}),
+            [tabId]: newTab,
+          }
+        }));
+
+        setActiveTable(null);
+        setUnassignedTab(newTab);
+      }
+
+      // Reverse cash drawer if previous order was settled in cash
+      const cashToReverse = Array.isArray(order.paymentSplits) && order.paymentSplits.length > 0
+        ? order.paymentSplits.filter(p => (p.method || '').toLowerCase() === 'cash').reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+        : ((order.paymentMethod || '').toLowerCase() === 'cash' ? (parseFloat(order.total) || 0) : 0);
+
+      if (cashToReverse > 0) {
+        updateCashDrawer({
+          ...cashDrawer,
+          cashIn: Math.max(0, (cashDrawer?.cashIn || 0) - cashToReverse),
+        });
+      }
+
+      await updatePOSOrder(order.id, {
+        status: 'reopened',
+        reopenedAt: new Date().toISOString(),
+        reopenedBy: user?.name || 'Staff',
+      });
+
+      addAuditEntry(
+        'ORDER_REOPEN',
+        user?.role || 'staff',
+        user?.name || 'Staff',
+        `Re-opened order #${order.orderNumber || order.id} to ${restoreToTable ? `Table ${targetTable.number}` : 'Floating Tab'}`
+      );
+
+      setCart(formattedItems);
+      setDiscountAmount(order.discount || 0);
+      setView('order');
+      setTableHistoryModal(null);
+      showSuccess(`Order #${order.orderNumber || order.id} re-opened to ${restoreToTable ? `Table ${targetTable.number}` : 'active cart'}!`);
+    } catch (err) {
+      console.error('[POS] Error reopening order:', err);
+      alert('Failed to reopen order.');
+    }
+  };
+
+  const renderHistoryModals = () => (
+    <>
+      {tableHistoryModal && (
+        <TableHistoryModal
+          table={tableHistoryModal === 'all' ? null : tableHistoryModal}
+          tables={tables}
+          orders={orders}
+          menu={menuItems}
+          settings={settings}
+          onClose={() => setTableHistoryModal(null)}
+          onReprint={handleReprint}
+          onReopen={handleReopenOrder}
+          onChangePayment={(ord) => setChangePaymentModal(ord)}
+          onEditOrder={(ord) => setEditPastOrderModal(ord)}
+          onVoidOrder={(ord) => setVoidOrderModal(ord)}
+        />
+      )}
+
+      {changePaymentModal && (
+        <ChangePaymentModal
+          order={changePaymentModal}
+          onConfirm={(newMethod, splits) => handleChangePaymentMethod(changePaymentModal, newMethod, splits)}
+          onClose={() => setChangePaymentModal(null)}
+        />
+      )}
+
+      {editPastOrderModal && (
+        <EditPastOrderModal
+          order={editPastOrderModal}
+          menu={menuItems}
+          settings={settings}
+          onConfirm={(changes) => handleSaveEditedOrder(editPastOrderModal, changes)}
+          onClose={() => setEditPastOrderModal(null)}
+        />
+      )}
+
+      {voidOrderModal && (
+        <VoidOrderModal
+          order={voidOrderModal}
+          onConfirm={(reason) => handleVoidPastOrder(voidOrderModal, reason)}
+          onClose={() => setVoidOrderModal(null)}
+        />
+      )}
+    </>
+  );
+
   // ═══════════════════════════════════════════════════════════
   // ─── FLOOR / TABLE VIEW ───────────────────────────────────
   // ═══════════════════════════════════════════════════════════
@@ -4532,6 +5876,15 @@ const POS = () => {
               onClick={handleStartNoTableOrder}
             >
               <Sparkles size={14} /> Take Order (No Table)
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, padding: '6px 12px', borderRadius: '8px' }}
+              onClick={() => setTableHistoryModal('all')}
+              title="View past table orders, reprint receipts, and manage settled orders"
+            >
+              <Clock size={14} /> Table History
             </button>
             <button className="btn btn-secondary btn-sm" onClick={() => setCashDrawerModal(true)}>
               <Banknote size={14} /> {settings?.operations?.enhancedRegisterEnabled ? "Manage Register" : "Cash Drawer"}
@@ -4934,6 +6287,7 @@ const POS = () => {
                             onSettle={handleDirectSettle}
                             onOpenOrder={handleTableClick}
                             onReleaseTable={(t) => handleReleaseTable({ targetTable: t || table, markStatus: 'available', cancelKds: false })}
+                            onViewHistory={(t) => setTableHistoryModal(t || table)}
                             onMouseEnter={handlePopoverMouseEnter}
                             onMouseLeave={handlePopoverMouseLeave}
                           />
@@ -5038,6 +6392,7 @@ const POS = () => {
                           onSettle={handleDirectSettle}
                           onOpenOrder={handleTableClick}
                           onReleaseTable={(t) => handleReleaseTable({ targetTable: t || table, markStatus: 'available', cancelKds: false })}
+                          onViewHistory={(t) => setTableHistoryModal(t || table)}
                           onMouseEnter={handlePopoverMouseEnter}
                           onMouseLeave={handlePopoverMouseLeave}
                         />
@@ -5262,6 +6617,8 @@ const POS = () => {
             </div>
           </Modal>
         )}
+
+        {renderHistoryModals()}
       </div>
     );
   }
@@ -5446,6 +6803,27 @@ const POS = () => {
                       title="Release and clear table"
                     >
                       <UserX size={11} /> Release Table
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: '0.68rem',
+                        borderRadius: 'var(--r-sm)',
+                        marginLeft: 4,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        border: '1px solid var(--border-subtle)',
+                        background: 'rgba(255, 255, 255, 0.7)',
+                        color: 'var(--text-secondary)',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => setTableHistoryModal(activeTable)}
+                      title={`View past orders and receipts for Table ${activeTable.number || activeTable.id}`}
+                    >
+                      <History size={11} /> Past Orders
                     </button>
                   </>
                 )}
@@ -5937,7 +7315,7 @@ const POS = () => {
         <CashDrawerPanel cashDrawer={cashDrawer} onBlindDrop={handleBlindDrop} onClose={() => setCashDrawerModal(false)} onCloseRegister={handleCloseRegister} />
       )}
 
-
+      {renderHistoryModals()}
     </div>
   );
 };
