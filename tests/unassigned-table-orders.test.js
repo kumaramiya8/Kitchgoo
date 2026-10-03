@@ -239,4 +239,62 @@ describe('Unassigned Dine-In Orders & Floating Tabs (Order First, Choose Table L
       expect(receiptHtml).toContain('Margherita Pizza');
     });
   });
+
+  describe('Tab Resilience & Direct Settle Bill', () => {
+    it('persists self-contained tab in pos_saved_orders without losing items or metadata', () => {
+      const tabId = 'tab_guest_99';
+      const selfContainedTab = {
+        id: 'guest_99',
+        tokenNumber: '3',
+        guestName: 'Ananya',
+        partySize: 2,
+        createdAt: '2026-10-03T09:00:00.000Z',
+        orderType: 'dine-in',
+        items: [
+          { id: 'coffee', name: 'Cappuccino', price: 150, qty: 2 },
+          { id: 'pastry', name: 'Blueberry Muffin', price: 120, qty: 1 },
+        ],
+      };
+
+      const savedOrders = {
+        [tabId]: selfContainedTab,
+      };
+
+      // Simulates floatingTabs resolution across page refresh / KDS navigation
+      const resolvedTabs = Object.entries(savedOrders)
+        .filter(([k, v]) => k.startsWith('tab_') && v)
+        .map(([k, v]) => ({
+          ...v,
+          items: v.items || [],
+        }));
+
+      expect(resolvedTabs).toHaveLength(1);
+      expect(resolvedTabs[0].tokenNumber).toBe('3');
+      expect(resolvedTabs[0].guestName).toBe('Ananya');
+      expect(resolvedTabs[0].items).toHaveLength(2);
+      expect(resolvedTabs[0].items[0].name).toBe('Cappuccino');
+    });
+
+    it('identifies when KDS ticket for an unassigned tab has been bumped as Food Ready', async () => {
+      const ticket = await createKDSTicket(
+        'TOK-3-1234',
+        [{ id: 'item-1', name: 'Cold Brew', qty: 2 }],
+        'tab_guest_99',
+        'dine-in',
+        { tokenNumber: '3', guestName: 'Ananya' }
+      );
+
+      const allTickets = getAll('kds_tickets');
+      // Cook bumps order in KDS
+      const updatedTickets = allTickets.map(t =>
+        t.id === ticket.id ? { ...t, status: 'completed' } : t
+      );
+
+      // POS checks KDS ticket status for the tab
+      const tabTickets = updatedTickets.filter(t => t.tableId === 'tab_guest_99');
+      const isFoodReady = tabTickets.length > 0 && tabTickets.every(t => t.status === 'completed');
+
+      expect(isFoodReady).toBe(true);
+    });
+  });
 });

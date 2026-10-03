@@ -1132,7 +1132,14 @@ export async function saveTableOrder(tableId, savedOrder) {
   if (!isLive()) return;
   // Store the ordered lines lean (no menu images) — a table's saved order
   // otherwise carries a base64 image per line into pos_saved_orders.
-  const lean = Array.isArray(savedOrder) ? stripItems(savedOrder) : (savedOrder ?? null);
+  let lean;
+  if (Array.isArray(savedOrder)) {
+    lean = stripItems(savedOrder);
+  } else if (savedOrder && Array.isArray(savedOrder.items)) {
+    lean = { ...savedOrder, items: stripItems(savedOrder.items) };
+  } else {
+    lean = savedOrder ?? null;
+  }
   try {
     if (_guestMode) {
       await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(tableId)}`, { savedOrder: lean }));

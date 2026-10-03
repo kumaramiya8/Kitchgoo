@@ -394,6 +394,20 @@ async function getFlex(db, tenant, name, fallback) {
   return data ? data.value : fallback;
 }
 
+// Queue per tenant to prevent concurrent read-modify-write race conditions
+const tenantFlexQueues = new Map();
+
+function queueTenantFlexMutation(tenant, task) {
+  const previous = tenantFlexQueues.get(tenant) || Promise.resolve();
+  const next = previous.then(task, task);
+  tenantFlexQueues.set(tenant, next.finally(() => {
+    if (tenantFlexQueues.get(tenant) === next) {
+      tenantFlexQueues.delete(tenant);
+    }
+  }));
+  return next;
+}
+
 // PUT /api/data/tables/:tableId  body: { table }
 app.put('/api/data/tables/:tableId', wrap(async (req, res) => {
   const db = requireDb();
@@ -404,20 +418,23 @@ app.put('/api/data/tables/:tableId', wrap(async (req, res) => {
     return res.status(400).json({ success: false, error: 'table payload required' });
   }
 
-  const current = (await getFlex(db, tenant, 'pos_tables', [])) || [];
-  let found = false;
-  const merged = current.map(t => {
-    if (String(t.id) === String(tableId)) { found = true; return { ...t, ...table, id: t.id }; }
-    return t;
-  });
-  if (!found) merged.push({ ...table, id: table.id ?? tableId });
+  await queueTenantFlexMutation(tenant, async () => {
+    const current = (await getFlex(db, tenant, 'pos_tables', [])) || [];
+    let found = false;
+    const merged = current.map(t => {
+      if (String(t.id) === String(tableId)) { found = true; return { ...t, ...table, id: t.id }; }
+      return t;
+    });
+    if (!found) merged.push({ ...table, id: table.id ?? tableId });
 
-  const { error } = await db.from('tenant_data').upsert({
-    account_id: tenant, collection_name: 'pos_tables', value: merged,
-  });
-  if (error) throw error;
+    const { error } = await db.from('tenant_data').upsert({
+      account_id: tenant, collection_name: 'pos_tables', value: merged,
+    });
+    if (error) throw error;
 
-  broadcastChange(tenant, 'pos_tables');
+    broadcastChange(tenant, 'pos_tables');
+  });
+
   res.json({ success: true });
 }));
 
@@ -428,20 +445,23 @@ app.put('/api/data/table-orders/:tableId', wrap(async (req, res) => {
   const { tableId } = req.params;
   const { savedOrder } = req.body || {};
 
-  const current = (await getFlex(db, tenant, 'pos_saved_orders', {})) || {};
-  const merged = { ...current };
-  if (savedOrder === null || savedOrder === undefined) {
-    delete merged[tableId];
-  } else {
-    merged[tableId] = savedOrder;
-  }
+  await queueTenantFlexMutation(tenant, async () => {
+    const current = (await getFlex(db, tenant, 'pos_saved_orders', {})) || {};
+    const merged = { ...current };
+    if (savedOrder === null || savedOrder === undefined) {
+      delete merged[tableId];
+    } else {
+      merged[tableId] = savedOrder;
+    }
 
-  const { error } = await db.from('tenant_data').upsert({
-    account_id: tenant, collection_name: 'pos_saved_orders', value: merged,
+    const { error } = await db.from('tenant_data').upsert({
+      account_id: tenant, collection_name: 'pos_saved_orders', value: merged,
+    });
+    if (error) throw error;
+
+    broadcastChange(tenant, 'pos_saved_orders');
   });
-  if (error) throw error;
 
-  broadcastChange(tenant, 'pos_saved_orders');
   res.json({ success: true });
 }));
 
