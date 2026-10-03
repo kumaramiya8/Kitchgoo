@@ -2867,7 +2867,7 @@ const POS = () => {
     placeOrder, fireToKDS, transferKDSTickets, cancelKDSTickets, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
-    reservations,
+    reservations, orders,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
@@ -3484,7 +3484,8 @@ const POS = () => {
       .filter(n => !isNaN(n));
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const todayOrders = (orders || []).filter(o => o.createdAt?.startsWith(todayStr));
+    const orderList = orders || getAll('orders') || [];
+    const todayOrders = orderList.filter(o => o?.createdAt?.startsWith(todayStr));
     const completedTokens = todayOrders
       .map(o => parseInt(o.tokenNumber, 10))
       .filter(n => !isNaN(n));
