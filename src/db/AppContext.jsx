@@ -611,6 +611,7 @@ export function AppProvider({ children }) {
     }
     setDeliveryOrders(getAll('delivery_orders'));
     setOrders(getAll('orders')); // Sync orders!
+    setTodayStats(getTodayStats());
   }, []);
 
   const rejectDelivery = useCallback(async (id) => {
@@ -1042,16 +1043,19 @@ export function AppProvider({ children }) {
     }
     setOnlineOrders(getAll('online_orders'));
     setOrders(getAll('orders')); // Sync orders!
+    setTodayStats(getTodayStats());
   }, []);
 
   const updatePOSOrderDeliveryStatus = useCallback(async (id, deliveryStatus) => {
     await update('orders', id, { deliveryStatus });
     setOrders(getAll('orders'));
+    setTodayStats(getTodayStats());
   }, []);
 
   const updatePOSOrder = useCallback(async (id, data) => {
     await update('orders', id, data);
     setOrders(getAll('orders'));
+    setTodayStats(getTodayStats());
   }, []);
 
   // ── Settings ──────────────────────────────────────────────
@@ -1073,6 +1077,7 @@ export function AppProvider({ children }) {
     const fetched = await ensureOrdersSince(fromDayStr);
     if (fetched) {
       setOrders(getAll('orders'));
+      setTodayStats(getTodayStats());
     }
     return fetched;
   }, []);

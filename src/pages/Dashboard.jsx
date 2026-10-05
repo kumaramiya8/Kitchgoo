@@ -93,22 +93,29 @@ const Dashboard = () => {
       .sort((a, b) => new Date(a.since) - new Date(b.since));
   }, [attendance, nameById]);
 
-  const recentOrders = useMemo(() => {
-    return [...orders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
+  const validOrders = useMemo(() => {
+    return (orders || []).filter(o => {
+      const s = (o.status || '').toLowerCase();
+      return s !== 'voided' && s !== 'cancelled' && s !== 'reopened';
+    });
   }, [orders]);
+
+  const recentOrders = useMemo(() => {
+    return [...validOrders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
+  }, [validOrders]);
 
   const topItems = useMemo(() => {
     const itemMap = {};
-    orders.forEach(order => {
+    validOrders.forEach(order => {
       (order.items || []).forEach(item => {
         const key = item.name;
         if (!itemMap[key]) itemMap[key] = { name: item.name, orders: 0, revenue: 0 };
         itemMap[key].orders += item.qty || 1;
-        itemMap[key].revenue += (item.price || 0) * (item.qty || 1);
+        itemMap[key].revenue += (parseFloat(item.price) || 0) * (item.qty || 1);
       });
     });
     return Object.values(itemMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
-  }, [orders]);
+  }, [validOrders]);
 
   const activeDeliveries = deliveryOrders.filter(o => o.status !== 'delivered').length;
   const lowStockCount = inventory.filter(i => i.status !== 'good').length;
@@ -124,9 +131,11 @@ const Dashboard = () => {
   // Revenue by order type
   const revenueByType = useMemo(() => {
     const types = { 'dine-in': 0, takeout: 0, delivery: 0 };
-    todayStats.orders.forEach(o => {
+    (todayStats.orders || []).forEach(o => {
+      const s = (o.status || '').toLowerCase();
+      if (s === 'voided' || s === 'cancelled' || s === 'reopened') return;
       const t = o.orderType || 'dine-in';
-      types[t] = (types[t] || 0) + o.total;
+      types[t] = (types[t] || 0) + (parseFloat(o.total) || 0);
     });
     return types;
   }, [todayStats]);
@@ -136,9 +145,11 @@ const Dashboard = () => {
   // Hourly heatmap
   const hourlyData = useMemo(() => {
     const hours = Array(24).fill(0);
-    todayStats.orders.forEach(o => {
+    (todayStats.orders || []).forEach(o => {
+      const s = (o.status || '').toLowerCase();
+      if (s === 'voided' || s === 'cancelled' || s === 'reopened') return;
       const h = new Date(o.createdAt).getHours();
-      hours[h] += o.total || 0;
+      hours[h] += (parseFloat(o.total) || 0);
     });
     return hours;
   }, [todayStats]);
@@ -154,18 +165,18 @@ const Dashboard = () => {
       const date = new Date(now);
       date.setDate(date.getDate() - d);
       const dateStr = localDayStr(date);
-      const rev = orders
+      const rev = validOrders
         .filter(o => o.createdAt && localDayStr(o.createdAt) === dateStr)
-        .reduce((s, o) => s + (o.total || 0), 0);
+        .reduce((s, o) => s + (parseFloat(o.total) || 0), 0);
       if (rev > maxRev) maxRev = rev;
       result.push({ day: days[date.getDay()], rev, dateStr });
     }
     return result.map(d => ({ ...d, pct: Math.round((d.rev / maxRev) * 100) }));
-  }, [orders]);
+  }, [validOrders]);
 
   // Labor cost (simplified)
   const totalLabor = staff.reduce((s, m) => s + (m.salary || 0), 0);
-  const totalRevenue = orders.reduce((s, o) => s + (o.total || 0), 0) || 1;
+  const totalRevenue = validOrders.reduce((s, o) => s + (parseFloat(o.total) || 0), 0) || 1;
   const laborPct = ((totalLabor / totalRevenue) * 100).toFixed(1);
 
   // Today's waste
@@ -199,7 +210,7 @@ const Dashboard = () => {
           label="Orders Today"
           value={todayStats.orderCount.toLocaleString()}
           subLabel={todayStats.avg > 0 ? `Avg ₹${Math.round(todayStats.avg)}` : 'No orders yet'}
-          changeValue={orders.length > 0 ? `${orders.length} all time` : 'Start selling!'}
+          changeValue={validOrders.length > 0 ? `${validOrders.length} all time` : 'Start selling!'}
           changeUp={true}
           icon={CheckCircle}
         />
@@ -344,7 +355,7 @@ const Dashboard = () => {
           <div className="flex justify-between items-center mb-4">
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>Latest Orders</h3>
             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {orders.length} total
+              {validOrders.length} total
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>

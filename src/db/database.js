@@ -833,7 +833,7 @@ export function getTodayStats() {
   const allTodayOrders = getOrdersByDate(today);
   const todayOrders = allTodayOrders.filter(o => {
     const s = (o.status || '').toLowerCase();
-    return s !== 'voided' && s !== 'cancelled';
+    return s !== 'voided' && s !== 'cancelled' && s !== 'reopened';
   });
   const gross = todayOrders.reduce((s, o) => s + (parseFloat(o.total) || 0), 0);
   const orderCount = todayOrders.length;

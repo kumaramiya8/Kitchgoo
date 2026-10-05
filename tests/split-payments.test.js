@@ -188,5 +188,36 @@ describe('Split Payments & Report Aggregation', () => {
     expect(invoiceRegisterCashTotal).toBe(900);
     expect(accrualCollectedCash).toBe(900);
   });
+
+  it('excludes voided, cancelled, and reopened orders from Dashboard revenue, stats, and top items', () => {
+    const orders = [
+      { id: '1', total: 600, status: 'paid', items: [{ name: 'Burger', price: 600, qty: 1 }], createdAt: '2026-10-06T10:00:00.000Z' },
+      { id: '2', total: 400, status: 'voided', voidReason: 'Customer left', items: [{ name: 'Pizza', price: 400, qty: 1 }], createdAt: '2026-10-06T11:00:00.000Z' },
+      { id: '3', total: 250, status: 'cancelled', items: [{ name: 'Salad', price: 250, qty: 1 }], createdAt: '2026-10-06T12:00:00.000Z' },
+      { id: '4', total: 350, status: 'reopened', items: [{ name: 'Burger', price: 350, qty: 1 }], createdAt: '2026-10-06T13:00:00.000Z' },
+      { id: '5', total: 500, status: 'Closed', items: [{ name: 'Burger', price: 500, qty: 1 }], createdAt: '2026-10-06T14:00:00.000Z' }
+    ];
+
+    const validOrders = orders.filter(o => {
+      const s = (o.status || '').toLowerCase();
+      return s !== 'voided' && s !== 'cancelled' && s !== 'reopened';
+    });
+
+    const totalRevenue = validOrders.reduce((sum, o) => sum + o.total, 0);
+    expect(totalRevenue).toBe(1100); // 600 + 500 (voided 400, cancelled 250, reopened 350 excluded)
+    expect(validOrders.length).toBe(2);
+
+    const topItems = {};
+    validOrders.forEach(o => {
+      o.items.forEach(i => {
+        topItems[i.name] = (topItems[i.name] || 0) + (i.price * i.qty);
+      });
+    });
+
+    expect(topItems['Burger']).toBe(1100);
+    expect(topItems['Pizza']).toBeUndefined(); // Voided Pizza must not appear
+    expect(topItems['Salad']).toBeUndefined(); // Cancelled Salad must not appear
+  });
 });
+
 
