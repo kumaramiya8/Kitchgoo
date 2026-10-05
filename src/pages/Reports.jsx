@@ -243,12 +243,12 @@ const Th = ({ children, right, sortField, currentField, sortDirection, onSort })
   );
 };
 
-const Td = ({ children, right, bold, muted, style: extraStyle }) => (
-  <td style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: bold ? 700 : 400, color: muted ? 'var(--text-muted)' : 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap', ...extraStyle }}>{children}</td>
+const Td = ({ children, right, bold, muted, style: extraStyle, ...rest }) => (
+  <td style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: bold ? 700 : 400, color: muted ? 'var(--text-muted)' : 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap', ...extraStyle }} {...rest}>{children}</td>
 );
 
-const TdSummary = ({ children, right, bold }) => (
-  <td style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: bold ? 800 : 700, color: 'var(--primary)', borderTop: '2px solid var(--primary)', background: 'rgba(30, 94, 74,0.04)', whiteSpace: 'nowrap', fontSize: '0.83rem' }}>{children}</td>
+const TdSummary = ({ children, right, bold, colSpan, style: extraStyle, ...rest }) => (
+  <td colSpan={colSpan} style={{ padding: '10px 14px', textAlign: right ? 'right' : 'left', fontWeight: bold ? 800 : 700, color: 'var(--primary)', borderTop: '2px solid var(--primary)', background: 'rgba(30, 94, 74,0.04)', whiteSpace: 'nowrap', fontSize: '0.83rem', ...extraStyle }} {...rest}>{children}</td>
 );
 
 const FilterBar = ({ children }) => (
@@ -816,6 +816,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
   const [dateTo, setDateTo]     = useState('');
   useHistoricalOrders(range, dateFrom);
   const [statusFilter, setStatusFilter] = useState('All');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState('All');
   const [cashierFilter, setCashierFilter] = useState('All');
   const [selectedOrder, setSelectedOrder] = useState(null);
 
@@ -830,26 +831,59 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
         arr = arr.filter(o => (o.status || 'paid') === statusFilter);
       }
     }
+    if (paymentTypeFilter !== 'All') {
+      arr = arr.filter(o => {
+        if (paymentTypeFilter === 'Split') {
+          return (o.paymentMethod || '').toLowerCase().startsWith('split') || (o.paymentSplits?.length > 1) || (o.timestamps?.paymentSplits?.length > 1);
+        }
+        if ((o.paymentMethod || '').toLowerCase() === paymentTypeFilter.toLowerCase()) return true;
+        const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+        if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase() === paymentTypeFilter.toLowerCase())) {
+          return true;
+        }
+        return false;
+      });
+    }
     if (cashierFilter !== 'All') {
       arr = arr.filter(o => o.serverName === cashierFilter || o.serverId === cashierFilter);
     }
     return arr;
-  }, [orders, range, dateFrom, dateTo, statusFilter, cashierFilter]);
+  }, [orders, range, dateFrom, dateTo, statusFilter, paymentTypeFilter, cashierFilter]);
 
   const sortedInvoices = useMemo(() => {
     return sortData(filtered, sortField, sortDirection, {
       billNo: o => o.billNo || o.id,
-      orderType: o => o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')
+      orderType: o => o.orderType || (o.tableId ? 'Dine-in' : 'Takeout'),
+      paymentMethod: o => o.paymentMethod || ''
     });
   }, [filtered, sortField, sortDirection]);
 
   const cashiers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
 
+  const paymentMethods = useMemo(() => {
+    const standard = ['All', 'Cash', 'Card', 'UPI', 'Split'];
+    const extra = new Set();
+    orders.forEach(o => {
+      if (o.paymentMethod && !standard.map(s => s.toLowerCase()).includes(o.paymentMethod.toLowerCase())) {
+        extra.add(o.paymentMethod);
+      }
+      const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+      if (Array.isArray(splits)) {
+        splits.forEach(s => {
+          if (s.method && !standard.map(std => std.toLowerCase()).includes(s.method.toLowerCase())) {
+            extra.add(s.method);
+          }
+        });
+      }
+    });
+    return [...standard, ...Array.from(extra)];
+  }, [orders]);
+
   const handleExport = () => {
     const rows = [
-      'Invoice Number,Timestamp,Order Type,Total Amount,Status,Handled By',
+      'Invoice Number,Timestamp,Order Type,Total Amount,Payment Type,Status,Handled By',
       ...sortedInvoices.map(o =>
-        `"${o.billNo || o.id}","${fmtDateTime(o.createdAt)}","${o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')}",${(o.total || 0).toFixed(2)},"${o.status || 'Closed'}","${o.serverName || ''}"`
+        `"${o.billNo || o.id}","${fmtDateTime(o.createdAt)}","${o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')}",${(o.total || 0).toFixed(2)},"${o.paymentMethod || '—'}","${o.status || 'Closed'}","${o.serverName || ''}"`
       ),
     ];
     downloadCSV('detailed_invoice_register.csv', rows);
@@ -898,6 +932,12 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
           <option value="Voided">Voided</option>
           <option value="Refunded">Refunded</option>
         </Select>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Payment Type:</span>
+        <Select value={paymentTypeFilter} onChange={setPaymentTypeFilter}>
+          {paymentMethods.map(pm => (
+            <option key={pm} value={pm}>{pm === 'All' ? 'All Types' : pm}</option>
+          ))}
+        </Select>
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Cashier:</span>
         <Select value={cashierFilter} onChange={setCashierFilter}>
           {cashiers.map(c => <option key={c} value={c}>{c === 'All' ? 'All Cashiers' : c}</option>)}
@@ -915,6 +955,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                 <Th sortField={sortField} currentField="createdAt" sortDirection={sortDirection} onSort={handleSort}>Timestamp</Th>
                 <Th sortField={sortField} currentField="orderType" sortDirection={sortDirection} onSort={handleSort}>Order Type</Th>
                 <Th right sortField={sortField} currentField="total" sortDirection={sortDirection} onSort={handleSort}>Total Amount</Th>
+                <Th sortField={sortField} currentField="paymentMethod" sortDirection={sortDirection} onSort={handleSort}>Payment Type</Th>
                 <Th sortField={sortField} currentField="status" sortDirection={sortDirection} onSort={handleSort}>Status</Th>
                 <Th sortField={sortField} currentField="serverName" sortDirection={sortDirection} onSort={handleSort}>Handled By</Th>
                 <Th>Actions</Th>
@@ -930,6 +971,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                     <Td>{fmtDateTime(o.createdAt)}</Td>
                     <Td><Badge label={o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')} color="#1e5e4a" /></Td>
                     <Td right bold>{fmt(o.total || 0)}</Td>
+                    <Td><Badge label={o.paymentMethod || '—'} color="#6366f1" /></Td>
                     <Td><Badge label={status} color={statusColor} /></Td>
                     <Td muted>{o.serverName || '—'}</Td>
                     <Td>
@@ -1713,8 +1755,7 @@ const SalesAccrualReport = ({ orders, settings }) => {
                 </tr>
               ))}
               <tr>
-                <TdSummary bold>TOTAL</TdSummary>
-                <TdSummary colSpan={4} />
+                <TdSummary colSpan={5} bold>TOTAL</TdSummary>
                 <TdSummary right bold>{totals.qty}</TdSummary>
                 <TdSummary right bold>{fmt(totals.salesExcTax)}</TdSummary>
                 <TdSummary right bold>{fmt(totals.tax)}</TdSummary>
