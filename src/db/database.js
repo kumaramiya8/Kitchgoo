@@ -149,6 +149,44 @@ export function getTenantCode(tenant) {
   return cleaned.padEnd(3, 'X');
 }
 
+/**
+ * Extract trailing number from bill number string (e.g. "INV-KIK6Y-1069" -> 1069)
+ */
+export function extractBillNumber(billNo) {
+  if (!billNo) return null;
+  const match = String(billNo).trim().match(/(?:^|[^\d])(\d+)$/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * Dynamic Max Scan: scans all existing orders across cache/storage to determine the next sequential counter.
+ * Guarantees that any number ever issued in the past can never be repeated across any device or session.
+ */
+export function getNextBillCounter(tenantName = _currentTenant, fallbackCounter = 1001) {
+  const allOrders = _cache['orders'] || (typeof getAll === 'function' ? getAll('orders') : []) || [];
+  let maxOrderNum = 0;
+  for (const o of allOrders) {
+    if (!o || !o.billNo) continue;
+    const num = extractBillNumber(o.billNo);
+    if (num && num > maxOrderNum) {
+      maxOrderNum = num;
+    }
+  }
+
+  const bcKey = `${tenantName || _currentTenant}_bill_counter`;
+  const storedLocal = typeof window !== 'undefined' ? localRestore(bcKey) : undefined;
+  const memoryCached = _cache['bill_counter'];
+
+  const candidateCounter = Math.max(
+    typeof fallbackCounter === 'number' ? fallbackCounter : 1001,
+    typeof storedLocal === 'number' ? storedLocal : 1001,
+    typeof memoryCached === 'number' ? memoryCached : 1001,
+    maxOrderNum > 0 ? maxOrderNum + 1 : 1001
+  );
+
+  return candidateCounter;
+}
+
 // ─── Backend payload → cache ────────────────────────────────
 function mapUserRow(row) {
   const u = toCamelCase(row);
@@ -210,9 +248,10 @@ function applyTenantPayload(payload) {
       }
     });
     const bc = payload.collections.bill_counter;
-    if (bc && typeof bc.counter === 'number') {
-      _cache['bill_counter'] = bc.counter;
-    }
+    const remoteCounter = (bc && typeof bc.counter === 'number') ? bc.counter : 1001;
+    const dynamicCounter = getNextBillCounter(_currentTenant, remoteCounter);
+    _cache['bill_counter'] = Math.max(_cache['bill_counter'] || 1001, dynamicCounter);
+    localBackup(`${_currentTenant}_bill_counter`, _cache['bill_counter']);
   }
 
   // Platform admin gets the global accounts + users lists; everyone else
@@ -262,6 +301,7 @@ export async function syncOneCollection(name) {
     if (ROW_TABLES.includes(name)) {
       if (name === 'users') {
         _cache['users'] = (res.rows || []).map(mapUserRow);
+      } else if (name === 'orders') {
         const windowRows = (res.rows || []).map(o => {
           const camel = toCamelCase(o);
           if (!camel.paymentSplits && camel.timestamps?.paymentSplits) {
@@ -277,6 +317,11 @@ export async function syncOneCollection(name) {
         const older = (_cache['orders'] || []).filter(o => o.createdAt && from && o.createdAt < from);
         const ids = new Set(windowRows.map(o => o.id));
         _cache['orders'] = sortByCreatedAt([...windowRows, ...older.filter(o => !ids.has(o.id))]);
+
+        // Dynamically re-scan max counter after orders sync
+        const nextMax = getNextBillCounter(_currentTenant);
+        _cache['bill_counter'] = Math.max(_cache['bill_counter'] || 1001, nextMax);
+        localBackup(`${_currentTenant}_bill_counter`, _cache['bill_counter']);
       } else {
         _cache[name] = (res.rows || []).map(toCamelCase);
       }
@@ -329,7 +374,7 @@ export async function initDB() {
       _cache['users'] = [defaultAdmin];
       localBackup('users', _cache['users']);
     }
-    _cache['bill_counter'] = localRestore('Kitchgoo_bill_counter') || 1001;
+    _cache['bill_counter'] = getNextBillCounter('Kitchgoo');
     return;
   }
 
@@ -375,7 +420,7 @@ export async function initTenantDB(tenantName) {
         localBackup(key, val);
       }
     }
-    _cache['bill_counter'] = localRestore(`${tenantName}_bill_counter`) || 1001;
+    _cache['bill_counter'] = getNextBillCounter(tenantName);
     return;
   }
 
@@ -728,9 +773,27 @@ export async function updateSettings(section, data) {
 // ─── Orders / Transactions ──────────────────────────────────
 export async function createOrder(tableId, items, paymentMethod, extra = {}) {
   const bcKey = `${_currentTenant}_bill_counter`;
-  const counter = (_cache['bill_counter'] = (localRestore(bcKey) || _cache['bill_counter'] || 1001));
-
   const settings = getSettings();
+  const billPrefix = settings?.billing?.billPrefix || 'INV';
+  const tenantCode = getTenantCode(_currentTenant);
+
+  // 1. Dynamic Max Scan across all existing orders and stored counter
+  const baseCounter = getNextBillCounter(_currentTenant);
+
+  // 2. Uniqueness check against all known bills to prevent any collision
+  const existingBills = new Set((getAll('orders') || []).map(o => o.billNo).filter(Boolean));
+  let counter = baseCounter;
+  let candidateBillNo = `${billPrefix}-${tenantCode}-${counter}`;
+
+  while (existingBills.has(candidateBillNo)) {
+    counter++;
+    candidateBillNo = `${billPrefix}-${tenantCode}-${counter}`;
+  }
+
+  // Atomically update memory cache and local backup
+  _cache['bill_counter'] = counter + 1;
+  localBackup(bcKey, counter + 1);
+
   const pricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
   const itemsTotal = items.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
   const gstRate = settings?.billing?.gstRate ?? 5;
@@ -769,7 +832,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
   const nowIso = new Date().toISOString();
   const order = {
     id: genId(),
-    billNo: `${settings?.billing?.billPrefix || 'INV'}-${getTenantCode(_currentTenant)}-${counter}`,
+    billNo: candidateBillNo,
     tableId,
     items: stripItems(items), // store names/prices, not the ordered items' menu images
     subtotal,
@@ -829,10 +892,18 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
 
   if (isLive() && !_guestMode) {
     try {
-      await tracked(Promise.all([
+      const [orderRes] = await tracked(Promise.all([
         api.post('/api/data/rows/orders', { item: order }, { tenant: _currentTenant }),
         api.put('/api/data/collections/bill_counter', { value: { counter: counter + 1 } }, { tenant: _currentTenant }),
       ]));
+      if (orderRes?.billNo && orderRes.billNo !== order.billNo) {
+        order.billNo = orderRes.billNo;
+        const freshCounter = extractBillNumber(orderRes.billNo);
+        if (freshCounter) {
+          _cache['bill_counter'] = Math.max(_cache['bill_counter'] || 1001, freshCounter + 1);
+          localBackup(bcKey, _cache['bill_counter']);
+        }
+      }
     } catch (err) {
       console.error('[DB] createOrder API error:', err);
     }

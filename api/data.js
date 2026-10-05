@@ -22,6 +22,7 @@ import {
   uploadDataUrl,
   ordersWindowStart,
   ORDERS_WINDOW_LIMIT,
+  allocateNextBillCounter,
 } from './_lib/core.js';
 import { sanitizeInsertPayload, sanitizeUpdatePayload } from '../shared/mappers.js';
 import { FLEX_COLLECTIONS, ROW_TABLES, SEEDS } from '../shared/seeds.js';
@@ -316,6 +317,25 @@ app.post('/api/data/rows/:table', wrap(async (req, res) => {
     item.accountId = tenant;
   }
 
+  if (table === 'orders' && item.billNo) {
+    try {
+      const { data: existing } = await db.from('orders')
+        .select('id')
+        .eq('account_id', tenant)
+        .eq('bill_no', item.billNo)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        console.warn(`[Data API] Duplicate bill_no '${item.billNo}' detected for account '${tenant}'. Allocating next atomic sequence.`);
+        const nextNum = await allocateNextBillCounter(db, tenant);
+        const prefix = item.billNo.replace(/-\d+$/, '');
+        item.billNo = `${prefix}-${nextNum}`;
+      }
+    } catch (e) {
+      console.warn('[Data API] Error checking bill_no uniqueness:', e);
+    }
+  }
+
   const { dropped } = await writeWithColumnFallback(
     (p) => db.from(table).insert(p),
     sanitizeInsertPayload(table, item)
@@ -323,7 +343,15 @@ app.post('/api/data/rows/:table', wrap(async (req, res) => {
   if (dropped.length) console.warn(`[Data API] ${table} insert dropped unknown column(s): ${dropped.join(', ')}`);
 
   broadcastChange(tenant, table);
-  res.json({ success: true });
+  res.json({ success: true, billNo: item.billNo });
+}));
+
+// Atomic next bill counter generator
+app.post('/api/data/bill-counter/next', wrap(async (req, res) => {
+  const db = requireDb();
+  const tenant = resolveTenant(req);
+  const counter = await allocateNextBillCounter(db, tenant);
+  res.json({ success: true, counter });
 }));
 
 app.patch('/api/data/rows/:table/:id', wrap(async (req, res) => {

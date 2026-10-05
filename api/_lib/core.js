@@ -329,6 +329,47 @@ export async function loadTenantPayload(tenant) {
     collections[row.collection_name] = value;
   });
 
+  // Dynamic Max Scan: ensure bill_counter is at least MAX(bill_no) + 1
+  let serverMaxCounter = 1001;
+  const recentOrders = ordersRes.data || [];
+  for (const o of recentOrders) {
+    if (o && o.bill_no) {
+      const match = String(o.bill_no).trim().match(/(?:^|[^\d])(\d+)$/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n >= serverMaxCounter) serverMaxCounter = n + 1;
+      }
+    }
+  }
+
+  // Also query latest historical orders to ensure counter never falls below past bills
+  try {
+    const { data: topOrders } = await db.from('orders')
+      .select('bill_no')
+      .eq('account_id', tenant)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    for (const o of (topOrders || [])) {
+      if (o && o.bill_no) {
+        const match = String(o.bill_no).trim().match(/(?:^|[^\d])(\d+)$/);
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (n >= serverMaxCounter) serverMaxCounter = n + 1;
+        }
+      }
+    }
+  } catch (err) {
+    // ignore query failure in mock/offline
+  }
+
+  const existingCounter = (collections.bill_counter && typeof collections.bill_counter.counter === 'number')
+    ? collections.bill_counter.counter
+    : 1001;
+
+  collections.bill_counter = {
+    counter: Math.max(existingCounter, serverMaxCounter)
+  };
+
   return {
     menu: menuRes.data || [],
     inventory: inventoryRes.data || [],
@@ -339,4 +380,59 @@ export async function loadTenantPayload(tenant) {
     users: usersRes.data || [],
     collections,
   };
+}
+
+/**
+ * Atomically scan highest bill_no in database and allocate the next sequential number.
+ */
+export async function allocateNextBillCounter(db, tenant) {
+  let maxNum = 1000;
+
+  try {
+    const { data: topOrders } = await db.from('orders')
+      .select('bill_no')
+      .eq('account_id', tenant)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    for (const o of (topOrders || [])) {
+      if (o && o.bill_no) {
+        const match = String(o.bill_no).trim().match(/(?:^|[^\d])(\d+)$/);
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (n > maxNum) maxNum = n;
+        }
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    const { data: bcRow } = await db.from('tenant_data')
+      .select('value')
+      .eq('account_id', tenant)
+      .eq('collection_name', 'bill_counter')
+      .maybeSingle();
+
+    if (bcRow?.value?.counter && typeof bcRow.value.counter === 'number') {
+      if (bcRow.value.counter > maxNum) maxNum = bcRow.value.counter - 1;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  const nextCounter = maxNum + 1;
+
+  try {
+    await db.from('tenant_data').upsert({
+      account_id: tenant,
+      collection_name: 'bill_counter',
+      value: { counter: nextCounter + 1 },
+    });
+  } catch (e) {
+    // ignore
+  }
+
+  return nextCounter;
 }
