@@ -592,7 +592,7 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans, posTables }) => {
 // TAB 2 -- SALES & INVOICING REPORT
 // =================================================================
 
-const DailySalesSummaryReport = ({ orders }) => {
+const DailySalesSummaryReport = ({ orders, settings }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -640,6 +640,7 @@ const DailySalesSummaryReport = ({ orders }) => {
   }, [processed, terminalFilter, shiftFilter]);
 
   const dailyData = useMemo(() => {
+    const globalPricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
     const map = {};
     filtered.forEach(o => {
       const dateKey = (o.createdAt || '').split('T')[0];
@@ -665,8 +666,18 @@ const DailySalesSummaryReport = ({ orders }) => {
       const taxAmount = parseFloat(o.tax || 0);
       day.tax += taxAmount;
       
-      // Calculate gross sales (before discounts and taxes)
-      day.gross += (totalAmount + disc - taxAmount);
+      const orderPricesIncludeGst = o.pricesIncludeGst !== undefined ? o.pricesIncludeGst : globalPricesIncludeGst;
+      
+      const itemsTotal = (o.items && o.items.length > 0)
+        ? o.items.reduce((sum, i) => sum + (parseFloat(i.price || 0) * (i.qty || 1)), 0)
+        : (totalAmount + disc);
+
+      // Reconstructed taxable gross sales before discounts and taxes
+      const grossSales = orderPricesIncludeGst
+        ? (itemsTotal - taxAmount)
+        : itemsTotal;
+
+      day.gross += grossSales;
 
       const splits = o.paymentSplits || o.timestamps?.paymentSplits;
       if (Array.isArray(splits) && splits.length > 0) {
@@ -688,7 +699,7 @@ const DailySalesSummaryReport = ({ orders }) => {
     });
 
     return Object.values(map);
-  }, [filtered]);
+  }, [filtered, settings]);
 
   const sortedDailyData = useMemo(() => {
     return sortData(dailyData, sortField, sortDirection, {
@@ -799,7 +810,7 @@ const DailySalesSummaryReport = ({ orders }) => {
   );
 };
 
-const DetailedInvoiceRegisterReport = ({ orders }) => {
+const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -813,7 +824,11 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
   const filtered = useMemo(() => {
     let arr = filterByRange(orders, range, dateFrom, dateTo);
     if (statusFilter !== 'All') {
-      arr = arr.filter(o => (o.status || 'Closed') === statusFilter);
+      if (statusFilter === 'Closed') {
+        arr = arr.filter(o => o.status === 'Closed' || o.status === 'Completed' || o.status === 'paid');
+      } else {
+        arr = arr.filter(o => (o.status || 'paid') === statusFilter);
+      }
     }
     if (cashierFilter !== 'All') {
       arr = arr.filter(o => o.serverName === cashierFilter || o.serverId === cashierFilter);
@@ -841,6 +856,11 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
   };
 
   const handlePrintInvoice = (order) => {
+    const isInclusive = order.pricesIncludeGst !== undefined
+      ? order.pricesIncludeGst
+      : (settings?.billing?.pricesIncludeGst !== false);
+    const taxRate = order.taxRate || settings?.billing?.gstRate || 5;
+
     const w = window.open('', '_blank', 'width=400,height=600');
     const items = (order.items || []).map(i =>
       `<tr><td>${i.name}</td><td style="text-align:center">${i.qty || 1}</td><td style="text-align:right">₹${((i.price || 0) * (i.qty || 1)).toFixed(2)}</td></tr>`
@@ -849,11 +869,11 @@ const DetailedInvoiceRegisterReport = ({ orders }) => {
       <style>body{font-family:monospace;padding:20px;font-size:12px}table{width:100%;border-collapse:collapse}td,th{padding:4px;border-bottom:1px dashed #ccc}h2{text-align:center}</style></head>
       <body><h2>Kitchgoo</h2><p>Invoice: ${order.billNo || order.id}<br/>Date: ${fmtDateTime(order.createdAt)}<br/>Table: ${order.tableId || 'N/A'}<br/>Server: ${order.serverName || 'N/A'}</p>
       <table><tr><th style="text-align:left">Item</th><th>Qty</th><th style="text-align:right">Amount</th></tr>${items}
-      <tr><td colspan="2"><strong>Subtotal</strong></td><td style="text-align:right">₹${(order.subtotal || 0).toFixed(2)}</td></tr>
-      <tr><td colspan="2">Tax</td><td style="text-align:right">₹${(order.tax || 0).toFixed(2)}</td></tr>
+      <tr><td colspan="2"><strong>${isInclusive ? 'Taxable Amount' : 'Subtotal'}</strong></td><td style="text-align:right">₹${(order.subtotal || 0).toFixed(2)}</td></tr>
+      <tr><td colspan="2">GST (${taxRate}%${isInclusive ? ' incl.' : ''})</td><td style="text-align:right">₹${(order.tax || 0).toFixed(2)}</td></tr>
       ${order.tip ? `<tr><td colspan="2">Tip</td><td style="text-align:right">₹${(order.tip || 0).toFixed(2)}</td></tr>` : ''}
       ${order.serviceCharge ? `<tr><td colspan="2">Service Charge</td><td style="text-align:right">₹${(order.serviceCharge || 0).toFixed(2)}</td></tr>` : ''}
-      <tr><td colspan="2"><strong>TOTAL</strong></td><td style="text-align:right"><strong>₹${(order.total || 0).toFixed(2)}</strong></td></tr>
+      <tr><td colspan="2"><strong>TOTAL ${isInclusive ? '(INCL. GST)' : ''}</strong></td><td style="text-align:right"><strong>₹${(order.total || 0).toFixed(2)}</strong></td></tr>
       ${(() => {
         const splits = order.paymentSplits || order.timestamps?.paymentSplits;
         if (Array.isArray(splits) && splits.length > 0) {
@@ -1508,7 +1528,7 @@ const RegisterClosuresReport = () => {
   );
 };
 
-const SalesAccrualReport = ({ orders }) => {
+const SalesAccrualReport = ({ orders, settings }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -1521,12 +1541,13 @@ const SalesAccrualReport = ({ orders }) => {
   // Itemized Accrual Apportionment Logic
   const processed = useMemo(() => {
     let arr = filterByRange(orders, range, dateFrom, dateTo);
+    const globalPricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
 
     if (statusFilter !== 'All') {
       if (statusFilter === 'Closed') {
-        arr = arr.filter(o => o.status === 'Closed' || o.status === 'Completed');
+        arr = arr.filter(o => o.status === 'Closed' || o.status === 'Completed' || o.status === 'paid');
       } else if (statusFilter === 'Open') {
-        arr = arr.filter(o => o.status !== 'Closed' && o.status !== 'Completed');
+        arr = arr.filter(o => o.status !== 'Closed' && o.status !== 'Completed' && o.status !== 'paid');
       }
     }
 
@@ -1547,23 +1568,35 @@ const SalesAccrualReport = ({ orders }) => {
     const itemized = [];
 
     arr.forEach(o => {
-      const isClosed = o.status === 'Closed' || o.status === 'Completed';
-      const orderSubtotal = parseFloat(o.subtotal || (o.items || []).reduce((sum, i) => sum + (i.price * (i.qty || 1)), 0));
+      const isClosed = o.status === 'Closed' || o.status === 'Completed' || o.status === 'paid';
+      const orderPricesIncludeGst = o.pricesIncludeGst !== undefined ? o.pricesIncludeGst : globalPricesIncludeGst;
+
       const orderDiscount = parseFloat(o.discount || o.discountAmount || 0);
       const orderTax = parseFloat(o.tax || 0);
+      const itemsTotal = (o.items && o.items.length > 0)
+        ? o.items.reduce((sum, i) => sum + (parseFloat(i.price || 0) * (i.qty || 1)), 0)
+        : parseFloat(o.subtotal || o.total || 0);
 
       (o.items || []).forEach(item => {
         const itemQty = item.qty || 1;
-        const itemGross = parseFloat(item.price || 0) * itemQty;
+        const itemRaw = parseFloat(item.price || 0) * itemQty;
         
         // Apportionment ratio
-        const ratio = orderSubtotal > 0 ? (itemGross / orderSubtotal) : 0;
+        const ratio = itemsTotal > 0 ? (itemRaw / itemsTotal) : 0;
         
         const apportionedDiscount = ratio * orderDiscount;
         const apportionedTax = ratio * orderTax;
         
-        const salesExcTax = itemGross - apportionedDiscount;
-        const salesIncTax = salesExcTax + apportionedTax;
+        let salesExcTax = 0;
+        let salesIncTax = 0;
+
+        if (orderPricesIncludeGst) {
+          salesIncTax = itemRaw - apportionedDiscount;
+          salesExcTax = salesIncTax - apportionedTax;
+        } else {
+          salesExcTax = itemRaw - apportionedDiscount;
+          salesIncTax = salesExcTax + apportionedTax;
+        }
 
         const collected = isClosed ? salesIncTax : 0;
         const due = isClosed ? 0 : salesIncTax;
@@ -1583,13 +1616,13 @@ const SalesAccrualReport = ({ orders }) => {
           collected,
           due,
           paymentMethod: o.paymentMethod || 'N/A',
-          status: o.status || 'Closed'
+          status: o.status || 'paid'
         });
       });
     });
 
     return itemized;
-  }, [orders, range, dateFrom, dateTo, statusFilter, paymentTypeFilter]);
+  }, [orders, range, dateFrom, dateTo, statusFilter, paymentTypeFilter, settings]);
 
   const sortedData = useMemo(() => {
     return sortData(processed, sortField, sortDirection);
@@ -1698,7 +1731,7 @@ const SalesAccrualReport = ({ orders }) => {
   );
 };
 
-const SalesInvoicingTab = ({ orders }) => {
+const SalesInvoicingTab = ({ orders, settings }) => {
   const [subTab, setSubTab] = useState('daily');
 
   return (
@@ -1723,13 +1756,13 @@ const SalesInvoicingTab = ({ orders }) => {
       </div>
 
       {subTab === 'daily' ? (
-        <DailySalesSummaryReport orders={orders} />
+        <DailySalesSummaryReport orders={orders} settings={settings} />
       ) : subTab === 'register' ? (
-        <DetailedInvoiceRegisterReport orders={orders} />
+        <DetailedInvoiceRegisterReport orders={orders} settings={settings} />
       ) : subTab === 'closures' ? (
         <RegisterClosuresReport />
       ) : (
-        <SalesAccrualReport orders={orders} />
+        <SalesAccrualReport orders={orders} settings={settings} />
       )}
     </div>
   );
@@ -1739,7 +1772,7 @@ const SalesInvoicingTab = ({ orders }) => {
 // TAB 3 -- TAX FILING & COMPLIANCE
 // =================================================================
 
-const TaxComplianceTab = ({ orders }) => {
+const TaxComplianceTab = ({ orders, settings }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -1751,11 +1784,14 @@ const TaxComplianceTab = ({ orders }) => {
   const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
   const taxData = useMemo(() => {
+    const defaultGst = settings?.billing?.gstRate ?? 5;
+    const globalPricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
+
     const slabs = {
-      '5% Food Tax': { rate: 5, type: 'GST', name: '5% Food Tax' },
-      '12% Beverage Tax': { rate: 12, type: 'GST', name: '12% Beverage Tax' },
-      '18% Alcohol Tax': { rate: 18, type: 'VAT', name: '18% Alcohol Tax' },
-      '5% Takeout GST': { rate: 5, type: 'GST', name: '5% Takeout GST' },
+      'Food Tax': { rate: defaultGst, type: 'GST', name: `${defaultGst}% Food Tax` },
+      'Beverage Tax': { rate: 12, type: 'GST', name: '12% Beverage Tax' },
+      'Alcohol Tax': { rate: 18, type: 'VAT', name: '18% Alcohol Tax' },
+      'Takeout GST': { rate: defaultGst, type: 'GST', name: `${defaultGst}% Takeout GST` },
     };
 
     const aggregated = {};
@@ -1765,6 +1801,8 @@ const TaxComplianceTab = ({ orders }) => {
 
     filtered.forEach(o => {
       const isTakeout = !o.tableId || o.orderType === 'Takeout' || o.orderType === 'Delivery';
+      const orderPricesIncludeGst = o.pricesIncludeGst !== undefined ? o.pricesIncludeGst : globalPricesIncludeGst;
+
       (o.items || []).forEach(item => {
         const cat = (item.category || '').toLowerCase();
         const revenue = (item.price || 0) * (item.qty || 1);
@@ -1772,14 +1810,26 @@ const TaxComplianceTab = ({ orders }) => {
         const isBev = cat.includes('beverage') || cat.includes('juice') || cat.includes('coffee') || cat.includes('tea');
 
         let slabKey;
-        if (isAlcohol) slabKey = '18% Alcohol Tax';
-        else if (isTakeout) slabKey = '5% Takeout GST';
-        else if (isBev) slabKey = '12% Beverage Tax';
-        else slabKey = '5% Food Tax';
+        if (isAlcohol) slabKey = 'Alcohol Tax';
+        else if (isTakeout) slabKey = 'Takeout GST';
+        else if (isBev) slabKey = 'Beverage Tax';
+        else slabKey = 'Food Tax';
 
         if (!item.taxExempt) {
-          aggregated[slabKey].taxable += revenue;
-          aggregated[slabKey].collected += revenue * (slabs[slabKey].rate / 100);
+          const rate = slabs[slabKey].rate;
+          let taxable = 0;
+          let taxCollected = 0;
+
+          if (orderPricesIncludeGst) {
+            taxCollected = rate > 0 ? revenue - (revenue / (1 + rate / 100)) : 0;
+            taxable = revenue - taxCollected;
+          } else {
+            taxable = revenue;
+            taxCollected = taxable * (rate / 100);
+          }
+
+          aggregated[slabKey].taxable += taxable;
+          aggregated[slabKey].collected += taxCollected;
         }
       });
     });
@@ -1788,8 +1838,7 @@ const TaxComplianceTab = ({ orders }) => {
     if (taxTypeFilter !== 'All') {
       result = result.filter(r => r.type === taxTypeFilter);
     }
-    return result;
-  }, [filtered, taxTypeFilter]);
+  }, [filtered, taxTypeFilter, settings]);
 
   const sortedTaxData = useMemo(() => {
     return sortData(taxData, sortField, sortDirection, {
@@ -3259,7 +3308,6 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
       intensityPct: Math.round((h.occupiedTables.size / maxTables) * 100),
     }));
   }, [enrichedOrders]);
-  }, [filteredTableAnalytics, sortField, sortDirection]);
 
   // CSV Export for Table Analytics
   const handleExportCSV = () => {
@@ -4182,7 +4230,7 @@ const TABS = [
 ];
 
 const Reports = () => {
-  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, posTables, attendance, registerClosures } = useApp();
+  const { orders, settings, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, posTables, attendance, registerClosures } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   
@@ -4227,8 +4275,8 @@ const Reports = () => {
 
       {/* Tab Content */}
       {activeTab === 'dashboard'        && <DashboardTab orders={orders} inventory={inventory} staff={staff} floorPlans={floorPlans} posTables={posTables} />}
-      {activeTab === 'sales_invoicing'  && <SalesInvoicingTab orders={orders} />}
-      {activeTab === 'tax_compliance'   && <TaxComplianceTab orders={orders} />}
+      {activeTab === 'sales_invoicing'  && <SalesInvoicingTab orders={orders} settings={settings} />}
+      {activeTab === 'tax_compliance'   && <TaxComplianceTab orders={orders} settings={settings} />}
       {activeTab === 'inventory_mgmt'   && <InventoryMgmtTab inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}
       {activeTab === 'menu_mgmt'        && <MenuManagementTab orders={orders} menu={menu} />}
       {activeTab === 'table_analytics'  && <TableAnalyticsTab orders={orders} floorPlans={floorPlans} posTables={posTables} kdsTickets={kdsTickets} staff={staff} />}

@@ -7,6 +7,7 @@ import {
   Timer, TrendingUp, Hash, Zap
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
+import { todayLocalStr, localDayStr } from '../../shared/dates';
 
 /* ── helpers ───────────────────────────────────────────── */
 const STATIONS = ['All', 'Grill', 'Main Kitchen', 'Tandoor', 'Bar', 'Dessert', 'Pantry'];
@@ -328,18 +329,17 @@ const RecallPanel = ({ tickets, onRecall, onClose }) => {
 
 /* ── Main KDS Component ────────────────────────────────── */
 export default function KDS() {
-  const { kdsTickets, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, posTables, posSavedOrders, reload } = useApp();
+  const { kdsTickets, orders, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, posTables, posSavedOrders, reload } = useApp();
 
   const [station, setStation] = useState('All');
   const [viewMode, setViewMode] = useState('tickets');
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const [highlightIdx, setHighlightIdx] = useState(0);
   const [showRecall, setShowRecall] = useState(false);
   const [recipeItem, setRecipeItem] = useState(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [newTicketCount, setNewTicketCount] = useState(0);
   const prevTicketCountRef = useRef(0);
-  const [bumpedToday, setBumpedToday] = useState(0);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   useEffect(() => {
@@ -388,26 +388,117 @@ export default function KDS() {
     return false;
   };
 
+  const ticketMatchesStation = useCallback((t) => {
+    if (station === 'All') return true;
+    const tStation = (t.station || 'all').toLowerCase();
+    return tStation === 'all' || tStation === station.toLowerCase() ||
+      (t.items || []).some(i => (i.station || '').toLowerCase() === station.toLowerCase());
+  }, [station]);
+
   // Filter tickets
   const activeTickets = useMemo(() => {
-    return kdsTickets
+    return (kdsTickets || [])
       .filter(t => t.status === 'active')
-      .filter(t => {
-        const tStation = (t.station || 'all').toLowerCase();
-        return station === 'All' || tStation === 'all' || tStation === station.toLowerCase() ||
-          (t.items || []).some(i => (i.station || '').toLowerCase() === station.toLowerCase());
-      })
-      .sort((a, b) => new Date(a.firedAt) - new Date(b.firedAt));
-  }, [kdsTickets, station]);
+      .filter(ticketMatchesStation)
+      .sort((a, b) => new Date(a.firedAt || a.createdAt) - new Date(b.firedAt || b.createdAt));
+  }, [kdsTickets, ticketMatchesStation]);
 
-  // Stats
+  const orderMap = useMemo(() => {
+    const map = new Map();
+    (orders || []).forEach(o => {
+      if (o.id) map.set(o.id, o);
+      if (o.billNo) map.set(o.billNo, o);
+    });
+    return map;
+  }, [orders]);
+
+  // Helper to extract preparation time (in seconds) for a ticket
+  const getTicketPrepSeconds = useCallback((t) => {
+    const linkedOrder = (t.orderId && orderMap.get(t.orderId)) || null;
+    const startIso = t.firedAt || t.createdAt || linkedOrder?.ticketPrintedAt || linkedOrder?.orderPlacedAt || linkedOrder?.createdAt;
+    if (!startIso) return null;
+    const startTime = new Date(startIso).getTime();
+    if (isNaN(startTime)) return null;
+
+    let endTime = null;
+    if (t.bumpedAt) {
+      endTime = new Date(t.bumpedAt).getTime();
+    } else if (t.completedAt) {
+      endTime = new Date(t.completedAt).getTime();
+    } else if (t.items && t.items.length > 0) {
+      const itemBumps = t.items.map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+      if (itemBumps.length > 0) {
+        endTime = Math.max(...itemBumps);
+      }
+    }
+    if (!endTime && linkedOrder?.foodBumpedAt) {
+      endTime = new Date(linkedOrder.foodBumpedAt).getTime();
+    }
+    if (!endTime && linkedOrder?.timestamps?.foodBumped) {
+      endTime = new Date(linkedOrder.timestamps.foodBumped).getTime();
+    }
+    if (!endTime && t.status === 'completed' && t.updatedAt) {
+      endTime = new Date(t.updatedAt).getTime();
+    }
+    if (!endTime && t.settledAt) {
+      endTime = new Date(t.settledAt).getTime();
+    }
+
+    if (endTime && !isNaN(endTime) && endTime >= startTime) {
+      const diffSec = Math.round((endTime - startTime) / 1000);
+      if (diffSec >= 0 && diffSec < 86400) {
+        return diffSec;
+      }
+    }
+    return null;
+  }, [orderMap]);
+
+  // Stats for the day
   const stats = useMemo(() => {
-    const active = kdsTickets.filter(t => t.status === 'active');
-    const times = active.map(t => elapsed(t.firedAt));
-    const avgTime = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
-    const overdue = times.filter(t => t > 600).length;
-    return { active: active.length, avgTime, overdue, bumpedToday };
-  }, [kdsTickets, bumpedToday]);
+    const today = todayLocalStr();
+
+    // Tickets matching current station view
+    const stationTickets = (kdsTickets || []).filter(ticketMatchesStation);
+
+    // Active tickets currently cooking in kitchen
+    const active = stationTickets.filter(t => t.status === 'active');
+    const activeTimes = active.map(t => elapsed(t.firedAt || t.createdAt)).filter(s => s >= 0);
+    const overdue = activeTimes.filter(t => t > 600).length;
+
+    // Bumped/completed tickets for the entire local day
+    const bumpedTodayTickets = stationTickets.filter(t => {
+      const isCompleted = t.status === 'completed' || Boolean(t.bumpedAt) || Boolean(t.completedAt) ||
+        (t.items && t.items.length > 0 && t.items.every(i => i.status === 'bumped'));
+      if (!isCompleted || t.status === 'active') return false;
+
+      const bumpDate = t.bumpedAt || t.completedAt || t.updatedAt || t.settledAt || t.firedAt || t.createdAt;
+      return Boolean(bumpDate && localDayStr(bumpDate) === today);
+    });
+
+    // Preparation duration of all completed orders of the day
+    const completedTimes = [];
+    bumpedTodayTickets.forEach(t => {
+      const prepSec = getTicketPrepSeconds(t);
+      if (prepSec !== null) completedTimes.push(prepSec);
+    });
+
+    // Average order fulfillment time of the day:
+    // If completed orders exist today, show their average prep/fulfillment time.
+    // If no orders have been completed yet today, show the average elapsed wait time of active tickets.
+    let avgTime = 0;
+    if (completedTimes.length > 0) {
+      avgTime = Math.round(completedTimes.reduce((a, b) => a + b, 0) / completedTimes.length);
+    } else if (activeTimes.length > 0) {
+      avgTime = Math.round(activeTimes.reduce((a, b) => a + b, 0) / activeTimes.length);
+    }
+
+    return {
+      active: active.length,
+      avgTime,
+      overdue,
+      bumpedToday: bumpedTodayTickets.length,
+    };
+  }, [kdsTickets, ticketMatchesStation, getTicketPrepSeconds, tick]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -424,7 +515,6 @@ export default function KDS() {
         const ticket = activeTickets[highlightIdx];
         if (ticket) {
           bumpKDSTicketAction(ticket.id);
-          setBumpedToday(b => b + (ticket.items || []).length);
         }
       } else if (e.key === 'Escape') {
         setShowRecall(false);
@@ -441,14 +531,12 @@ export default function KDS() {
     if (highlightIdx >= activeTickets.length) setHighlightIdx(Math.max(0, activeTickets.length - 1));
   }, [activeTickets.length, highlightIdx]);
 
-  const handleBumpItem = useCallback((ticketId, idx, itemCount) => {
+  const handleBumpItem = useCallback((ticketId, idx) => {
     bumpKDSItemAction(ticketId, idx);
-    setBumpedToday(b => b + 1);
   }, [bumpKDSItemAction]);
 
-  const handleBumpTicket = useCallback((ticketId, itemCount) => {
+  const handleBumpTicket = useCallback((ticketId) => {
     bumpKDSTicketAction(ticketId);
-    setBumpedToday(b => b + itemCount);
   }, [bumpKDSTicketAction]);
 
   const handleRecall = useCallback((ticketId) => {
