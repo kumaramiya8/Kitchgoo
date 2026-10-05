@@ -9,7 +9,7 @@ import {
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
   GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check, Eye,
-  Sparkles, Trash2, AlertCircle, Edit3
+  Sparkles, Trash2, AlertCircle, Edit3, Edit2
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -20,6 +20,8 @@ import { isModuleEnabled } from '../../shared/seeds';
 import { calculateTableBill } from '../utils/tableOrders';
 import { localDayStr } from '../../shared/dates';
 import { stripItems } from '../../shared/items';
+import InvoiceHistoryModal from '../components/InvoiceHistoryModal';
+import { orderMatchesPaymentType, getOrderPaymentAmount } from './Reports';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const ORDER_TYPES = [
@@ -801,11 +803,23 @@ const SplitBillModal = ({ cart, grandTotal, gstRate, pricesIncludeGst = true, on
 
 
 // ─── Manager PIN Modal ──────────────────────────────────────────────────────
-const ManagerPinModal = ({ title, reasons, onConfirm, onClose, showAmount }) => {
+const ManagerPinModal = ({ title, reasons, onConfirm, onClose, showAmount, cartSubtotal = 0 }) => {
   const [pin, setPin] = useState('');
   const [reason, setReason] = useState(reasons[0]);
   const [amount, setAmount] = useState('');
+  const [discountType, setDiscountType] = useState('flat'); // 'flat' | 'percent'
+  const [percent, setPercent] = useState('');
   const [error, setError] = useState('');
+
+  const isDiscount = (title || '').toLowerCase().includes('discount');
+
+  const getEffectiveAmount = () => {
+    if (isDiscount && discountType === 'percent') {
+      const p = parseFloat(percent) || 0;
+      return parseFloat(((cartSubtotal * p) / 100).toFixed(2));
+    }
+    return parseFloat(amount) || 0;
+  };
 
   const handleSubmit = () => {
     // Accept any 4-digit PIN for demo (in production, validate against staff PINs)
@@ -813,11 +827,18 @@ const ManagerPinModal = ({ title, reasons, onConfirm, onClose, showAmount }) => 
       setError('Enter a valid 4-digit PIN');
       return;
     }
-    if (showAmount && (!amount || parseFloat(amount) <= 0)) {
-      setError('Enter a valid amount');
+    const finalAmount = getEffectiveAmount();
+    if (showAmount && finalAmount <= 0) {
+      setError('Enter a valid amount or percentage greater than 0');
       return;
     }
-    onConfirm({ pin, reason, amount: parseFloat(amount) || 0 });
+    onConfirm({
+      pin,
+      reason,
+      amount: finalAmount,
+      discountType: isDiscount ? discountType : 'flat',
+      percent: isDiscount && discountType === 'percent' ? parseFloat(percent) || 0 : 0
+    });
   };
 
   return (
@@ -844,11 +865,68 @@ const ManagerPinModal = ({ title, reasons, onConfirm, onClose, showAmount }) => 
           </select>
         </div>
 
-        {showAmount && (
-          <div className="input-group">
-            <label className="input-label">Amount</label>
-            <input className="input-field" type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+        {showAmount && isDiscount && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{
+                flex: 1,
+                background: discountType === 'flat' ? 'var(--primary)' : 'rgba(0,0,0,0.05)',
+                color: discountType === 'flat' ? 'white' : 'var(--text-secondary)',
+                fontWeight: 600, border: 'none', padding: '6px'
+              }}
+              onClick={() => setDiscountType('flat')}
+            >
+              Flat ₹ Amount
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{
+                flex: 1,
+                background: discountType === 'percent' ? 'var(--primary)' : 'rgba(0,0,0,0.05)',
+                color: discountType === 'percent' ? 'white' : 'var(--text-secondary)',
+                fontWeight: 600, border: 'none', padding: '6px'
+              }}
+              onClick={() => setDiscountType('percent')}
+            >
+              Percentage (%)
+            </button>
           </div>
+        )}
+
+        {showAmount && (
+          <>
+            {isDiscount && discountType === 'percent' ? (
+              <div className="input-group">
+                <label className="input-label">Discount Percentage (%)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    className="input-field"
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={percent}
+                    onChange={e => setPercent(e.target.value)}
+                    placeholder="e.g. 10"
+                    style={{ flex: 1 }}
+                  />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>%</span>
+                </div>
+                {cartSubtotal > 0 && percent && (
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    Calculates to: <strong>₹{getEffectiveAmount().toFixed(2)}</strong> (on subtotal ₹{cartSubtotal.toFixed(2)})
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="input-group">
+                <label className="input-label">Amount (₹)</label>
+                <input className="input-field" type="number" min="0" step="any" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+              </div>
+            )}
+          </>
         )}
 
         {error && <div style={{ fontSize: '0.78rem', color: 'var(--danger)', fontWeight: 600, marginTop: 8 }}>{error}</div>}
@@ -859,6 +937,349 @@ const ManagerPinModal = ({ title, reasons, onConfirm, onClose, showAmount }) => 
           <Lock size={15} /> Authorize
         </button>
       </div>
+    </Modal>
+  );
+};
+
+// ─── Custom Price / Price Check Modal ───────────────────────────────────────
+const CustomPriceModal = ({ item, onConfirm, onReset, onClose }) => {
+  const [priceInput, setPriceInput] = useState(String(item?.price ?? ''));
+  const [reason, setReason] = useState('Price Check Override');
+  const [error, setError] = useState('');
+
+  if (!item) return null;
+
+  const originalPrice = item.originalPrice !== undefined ? item.originalPrice : item.price;
+  const numPrice = parseFloat(priceInput);
+  const qty = item.qty || 1;
+  const lineTotal = (!isNaN(numPrice) && numPrice >= 0) ? numPrice * qty : 0;
+
+  const handleSave = (e) => {
+    e?.preventDefault?.();
+    if (isNaN(numPrice) || numPrice < 0) {
+      setError('Please enter a valid price (₹0 or greater)');
+      return;
+    }
+    onConfirm(numPrice, reason);
+  };
+
+  return (
+    <Modal title={`Custom Price / Check • ${item.name}`} onClose={onClose}>
+      <form onSubmit={handleSave}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{
+            padding: '10px 14px', borderRadius: 8, background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center', fontSize: '0.82rem'
+          }}>
+            <div>
+              <span style={{ color: 'var(--text-muted)' }}>Menu / Original Price: </span>
+              <strong>₹{originalPrice} each</strong>
+            </div>
+            {item.customPrice && (
+              <span style={{
+                fontSize: '0.70rem', background: '#f59e0b', color: 'white',
+                padding: '2px 6px', borderRadius: 4, fontWeight: 700
+              }}>
+                Custom Price Active
+              </span>
+            )}
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+              New Unit Price (₹):
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--primary)' }}>₹</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                className="input-field"
+                value={priceInput}
+                onChange={e => { setPriceInput(e.target.value); setError(''); }}
+                placeholder="Enter new price"
+                autoFocus
+                style={{ fontSize: '1.1rem', fontWeight: 700, height: 40 }}
+              />
+            </div>
+            {error && <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: 4, fontWeight: 600 }}>{error}</div>}
+          </div>
+
+          {/* Quick preset buttons */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Presets:</span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+              onClick={() => setPriceInput('0')}
+            >
+              Free (₹0)
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+              onClick={() => setPriceInput(String(Math.round(originalPrice * 0.9)))}
+            >
+              -10% (₹{Math.round(originalPrice * 0.9)})
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+              onClick={() => setPriceInput(String(Math.round(originalPrice * 0.8)))}
+            >
+              -20% (₹{Math.round(originalPrice * 0.8)})
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+              onClick={() => setPriceInput(String(Math.round(originalPrice * 0.5)))}
+            >
+              -50% (₹{Math.round(originalPrice * 0.5)})
+            </button>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+              Reason for Custom Price:
+            </label>
+            <input
+              type="text"
+              className="input-field"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="e.g. Special Deal, Manager Override, Price Check..."
+              style={{ width: '100%', height: 36 }}
+            />
+          </div>
+
+          {/* Line summary */}
+          <div style={{
+            background: 'var(--surface-muted, #f8fafc)', padding: '10px 14px', borderRadius: 8,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem'
+          }}>
+            <span>Line Total ({qty}x @ ₹{isNaN(numPrice) ? 0 : numPrice}):</span>
+            <strong style={{ fontSize: '1.05rem', color: 'var(--primary)' }}>₹{lineTotal.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div>
+            {item.customPrice && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onReset}
+                style={{ color: '#dc2626' }}
+              >
+                Reset to Menu Price
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary">
+              <CheckCircle size={15} /> Apply Price
+            </button>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+// ─── POS Void Action Modal ──────────────────────────────────────────────────
+const PosVoidModal = ({ cart = [], activeTable, unassignedTab, settings = {}, onVoidItem, onVoidOrder, onClose }) => {
+  const [voidType, setVoidType] = useState('item'); // 'item' | 'order'
+  const [selectedItemKey, setSelectedItemKey] = useState(cart[0]?._cartKey || cart[0]?.id || '');
+  const [voidQty, setVoidQty] = useState(1);
+  const [reason, setReason] = useState(VOID_REASONS[0]);
+  const [customReason, setCustomReason] = useState('');
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+
+  const selectedItem = cart.find(i => (i._cartKey || i.id) === selectedItemKey) || cart[0];
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const finalReason = reason === 'Other' ? (customReason.trim() || 'Other') : reason;
+
+    const voidThreshold = settings?.operations?.voidApprovalThreshold || settings?.workflow?.voidApprovalAmount || 0;
+    if (voidThreshold > 0 && pin.length < 4) {
+      setError('Enter 4-digit Manager PIN to authorize void');
+      return;
+    }
+
+    if (voidType === 'item') {
+      if (!selectedItem) {
+        setError('Please select an item to void');
+        return;
+      }
+      onVoidItem(selectedItem, Math.min(voidQty, selectedItem.qty || 1), finalReason);
+    } else {
+      onVoidOrder(finalReason);
+    }
+  };
+
+  return (
+    <Modal title="Void Action" onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Segmented control: Void Item vs Void Entire Bill */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6,
+            background: 'var(--surface-muted, #f1f5f9)', padding: 4, borderRadius: 10
+          }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{
+                background: voidType === 'item' ? '#fff' : 'transparent',
+                color: voidType === 'item' ? 'var(--primary)' : 'var(--text-muted)',
+                fontWeight: voidType === 'item' ? 700 : 500,
+                boxShadow: voidType === 'item' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                padding: '8px', border: 'none', borderRadius: 8
+              }}
+              onClick={() => setVoidType('item')}
+            >
+              Void Specific Item
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{
+                background: voidType === 'order' ? '#fff' : 'transparent',
+                color: voidType === 'order' ? '#dc2626' : 'var(--text-muted)',
+                fontWeight: voidType === 'order' ? 700 : 500,
+                boxShadow: voidType === 'order' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                padding: '8px', border: 'none', borderRadius: 8
+              }}
+              onClick={() => setVoidType('order')}
+            >
+              Void Entire Bill / Order
+            </button>
+          </div>
+
+          {voidType === 'item' ? (
+            <>
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                  Select Item to Void:
+                </label>
+                <select
+                  className="input-field"
+                  value={selectedItemKey}
+                  onChange={e => {
+                    setSelectedItemKey(e.target.value);
+                    setVoidQty(1);
+                  }}
+                  style={{ width: '100%', height: 38 }}
+                >
+                  {cart.map(i => {
+                    const k = i._cartKey || i.id;
+                    return (
+                      <option key={k} value={k}>
+                        {i.name} (Qty: {i.qty}) — ₹{((i.price || 0) * (i.qty || 1)).toFixed(2)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {selectedItem && (selectedItem.qty > 1) && (
+                <div>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                    Quantity to Void (max {selectedItem.qty}):
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      max={selectedItem.qty}
+                      className="input-field"
+                      value={voidQty}
+                      onChange={e => setVoidQty(Math.max(1, Math.min(selectedItem.qty, parseInt(e.target.value) || 1)))}
+                      style={{ width: 80, height: 36, textAlign: 'center', fontWeight: 700 }}
+                    />
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      of {selectedItem.qty} {selectedItem.name}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{
+              padding: '12px 14px', borderRadius: 10, background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)', color: '#dc2626', fontSize: '0.82rem'
+            }}>
+              <strong>Warning:</strong> Voiding this bill will cancel all {cart.reduce((s, i) => s + (i.qty || 1), 0)} items,
+              clear {activeTable ? `Table ${activeTable.number || activeTable.id}` : (unassignedTab ? `Token #${unassignedTab.tokenNumber}` : 'the order')},
+              and mark the order as voided in reports and audit logs.
+            </div>
+          )}
+
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+              Void Reason:
+            </label>
+            <select
+              className="input-field"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              style={{ width: '100%', height: 38 }}
+            >
+              {VOID_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+
+          {reason === 'Other' && (
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                Specific Reason Details:
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                value={customReason}
+                onChange={e => setCustomReason(e.target.value)}
+                placeholder="Enter reason..."
+                required
+                style={{ width: '100%', height: 36 }}
+              />
+            </div>
+          )}
+
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+              Manager PIN:
+            </label>
+            <input
+              type="password"
+              maxLength={6}
+              className="input-field"
+              value={pin}
+              onChange={e => { setPin(e.target.value.replace(/\D/g, '')); setError(''); }}
+              placeholder="Enter PIN (e.g. 1234)"
+              style={{ width: '100%', height: 36, letterSpacing: '0.3em', textAlign: 'center', fontSize: '1.1rem' }}
+            />
+          </div>
+
+          {error && <div style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>{error}</div>}
+        </div>
+
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-danger" style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
+            <Ban size={15} /> Confirm Void
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 };
@@ -3301,7 +3722,31 @@ const EditPastOrderModal = ({ order, menu = [], settings = {}, onClose, onConfir
                 <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px', background: 'var(--card-bg)', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{item.name}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>₹{item.price} each</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={item.price}
+                        onChange={e => {
+                          const p = parseFloat(e.target.value) || 0;
+                          const next = [...items];
+                          next[idx] = {
+                            ...next[idx],
+                            price: p,
+                            customPrice: true,
+                            originalPrice: next[idx].originalPrice !== undefined ? next[idx].originalPrice : next[idx].price,
+                            customPriceAt: new Date().toISOString(),
+                            customPriceBy: 'Staff',
+                          };
+                          setItems(next);
+                        }}
+                        style={{ width: 64, height: 22, fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, border: '1px solid var(--border)' }}
+                        title="Custom Unit Price"
+                      />
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>each</span>
+                    </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <button
@@ -3512,8 +3957,10 @@ const TableHistoryModal = ({
   const [period, setPeriod] = useState('today'); // 'today' | '7days' | 'all' | 'date'
   const [filterDate, setFilterDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'paid' | 'voided' | 'reopened'
+  const [paymentModeFilter, setPaymentModeFilter] = useState('all'); // 'all' | 'Cash' | 'UPI' | 'Card' | 'Split'
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState(null);
+  const [invoiceHistoryOrder, setInvoiceHistoryOrder] = useState(null);
 
   useEffect(() => {
     if (filterDate && typeof loadOlderOrders === 'function') {
@@ -3537,7 +3984,7 @@ const TableHistoryModal = ({
     return getTableOrders(orders, activeTableObj);
   }, [orders, activeTableObj]);
 
-  // Filter by period, status, search query
+  // Filter by period, status, payment mode, search query
   const filteredOrders = useMemo(() => {
     const now = new Date();
     const todayStr = localDayStr(now);
@@ -3559,6 +4006,11 @@ const TableHistoryModal = ({
       if (statusFilter === 'voided' && o.status !== 'voided' && o.status !== 'cancelled') return false;
       if (statusFilter === 'reopened' && o.status !== 'reopened') return false;
 
+      // Payment mode filter
+      if (paymentModeFilter !== 'all') {
+        if (!orderMatchesPaymentType(o, paymentModeFilter)) return false;
+      }
+
       // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -3570,14 +4022,19 @@ const TableHistoryModal = ({
 
       return true;
     });
-  }, [tableOrders, period, filterDate, statusFilter, searchQuery]);
+  }, [tableOrders, period, filterDate, statusFilter, paymentModeFilter, searchQuery]);
 
   // Aggregate stats
   const totalRevenue = useMemo(() => {
     return filteredOrders
       .filter(o => o.status === 'paid')
-      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-  }, [filteredOrders]);
+      .reduce((sum, o) => {
+        if (paymentModeFilter !== 'all' && paymentModeFilter !== 'Split') {
+          return sum + getOrderPaymentAmount(o, paymentModeFilter);
+        }
+        return sum + (Number(o.total) || 0);
+      }, 0);
+  }, [filteredOrders, paymentModeFilter]);
 
   const paidCount = filteredOrders.filter(o => o.status === 'paid').length;
   const avgOrder = paidCount > 0 ? (totalRevenue / paidCount) : 0;
@@ -3701,6 +4158,23 @@ const TableHistoryModal = ({
               </button>
             ))}
           </div>
+
+          {/* Payment Mode filter */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)' }}>Payment:</span>
+            <select
+              className="input-field"
+              value={paymentModeFilter}
+              onChange={e => setPaymentModeFilter(e.target.value)}
+              style={{ height: 32, fontSize: '0.82rem', padding: '0 8px', minWidth: 100 }}
+            >
+              <option value="all">All Modes</option>
+              <option value="Cash">Cash</option>
+              <option value="UPI">UPI</option>
+              <option value="Card">Card</option>
+              <option value="Split">Split</option>
+            </select>
+          </div>
         </div>
 
         {/* Search bar */}
@@ -3723,7 +4197,9 @@ const TableHistoryModal = ({
             <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{filteredOrders.length}</div>
           </div>
           <div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Revenue (Paid)</div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              Revenue (Paid{paymentModeFilter !== 'all' ? ` • ${paymentModeFilter}` : ''})
+            </div>
             <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--primary)' }}>
               ₹{totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
@@ -3865,6 +4341,16 @@ const TableHistoryModal = ({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
+                      style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--primary)', fontWeight: 600 }}
+                      onClick={() => setInvoiceHistoryOrder(order)}
+                      title="View chronological audit history of this invoice"
+                    >
+                      <History size={12} /> Invoice History
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
                       style={{ padding: '4px 8px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                       onClick={() => onReprint?.(order)}
                       title="Reprint Bill Receipt"
@@ -3926,6 +4412,13 @@ const TableHistoryModal = ({
       <div className="modal-footer">
         <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
       </div>
+
+      {invoiceHistoryOrder && (
+        <InvoiceHistoryModal
+          order={invoiceHistoryOrder}
+          onClose={() => setInvoiceHistoryOrder(null)}
+        />
+      )}
     </Modal>
   );
 };
@@ -4213,8 +4706,12 @@ const POS = () => {
   // Tab pre-auth
   const [hasCardOnFile, setHasCardOnFile] = useState(false);
 
-  // Discount state
+  // Custom Price, Void & Discount states
+  const [customPriceModalItem, setCustomPriceModalItem] = useState(null);
+  const [posVoidModal, setPosVoidModal] = useState(false);
   const [discountAmount, setDiscountAmount] = useState(0);
+  const [discountReason, setDiscountReason] = useState('');
+  const [cartAudit, setCartAudit] = useState([]);
 
   // Party size for auto-gratuity
   const [partySize, setPartySize] = useState(1);
@@ -5142,6 +5639,19 @@ const POS = () => {
       `Shifted Table ${fromTable.number || fromTable.id} to Table ${toTable.number || toTable.id} (${fromItems.length} items)`
     );
 
+    setCartAudit(prev => [
+      ...prev,
+      {
+        action: 'table_shifted',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        description: `Shifted from Table ${fromTable.number || fromTable.id} to Table ${toTable.number || toTable.id} (${fromItems.length} items)`,
+        fromTable: fromTable.number || fromTable.id,
+        toTable: toTable.number || toTable.id,
+        itemsCount: fromItems.length,
+      }
+    ]);
+
     // 6. Broadcast Realtime
     broadcastOrderCreated(toTable.id, `SHIFT-T${toTable.number || toTable.id}`);
 
@@ -5247,16 +5757,9 @@ const POS = () => {
 
   // ── Comp / Void / Discount ────────────────────────────────
   const handleManagerAction = (action) => {
-    if (action === 'void' && cart.length > 0) {
-      const lastItem = cart[cart.length - 1];
-      const voidAmount = lastItem.price * lastItem.qty;
-      const voidThreshold = settings?.operations?.voidApprovalThreshold || settings?.workflow?.voidApprovalAmount || 0;
-      if (voidThreshold > 0 && voidAmount <= voidThreshold) {
-        setCart(prev => prev.slice(0, -1));
-        addAuditEntry('VOID', user?.role || 'staff', user?.name || 'Staff', `Void (under threshold ₹${voidThreshold}): ${lastItem.name}`);
-        showSuccess(`Voided: ${lastItem.name}`);
-        return;
-      }
+    if (action === 'void') {
+      setPosVoidModal(true);
+      return;
     }
     setManagerPinModal(action);
   };
@@ -5265,24 +5768,251 @@ const POS = () => {
     const action = managerPinModal;
     if (action === 'comp') {
       setDiscountAmount(prev => prev + data.amount);
+      setDiscountReason(data.reason || 'Manager Comp');
+      setCartAudit(prev => [
+        ...prev,
+        {
+          action: 'discount_applied',
+          timestamp: new Date().toISOString(),
+          by: user?.name || 'Staff',
+          description: `Comp applied: ₹${data.amount.toFixed(2)} (${data.reason})`,
+          amount: data.amount,
+          reason: data.reason,
+        }
+      ]);
       addAuditEntry('COMP', 'manager', 'Manager', `Comp: ${data.reason} - ${data.amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`);
       showSuccess(`Comp applied: ${data.amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`);
-    } else if (action === 'void') {
-      // Void removes last item
-      if (cart.length > 0) {
-        const lastItem = cart[cart.length - 1];
-        const voidAmount = lastItem.price * lastItem.qty;
-        setCart(prev => prev.slice(0, -1));
-        addAuditEntry('VOID', 'manager', 'Manager', `Void: ${lastItem.name} - ${data.reason}`);
-        showSuccess(`Voided: ${lastItem.name}`);
-      }
     } else if (action === 'discount') {
       const discAmt = data.amount > 0 ? data.amount : 0;
-      setDiscountAmount(prev => prev + discAmt);
+      setDiscountAmount(discAmt);
+      setDiscountReason(data.reason || 'Manager Discount');
+      setCartAudit(prev => [
+        ...prev,
+        {
+          action: 'discount_applied',
+          timestamp: new Date().toISOString(),
+          by: user?.name || 'Staff',
+          description: `Discount applied: ₹${discAmt.toFixed(2)}${data.percent > 0 ? ` (${data.percent}%)` : ''} (${data.reason || 'Discount'})`,
+          amount: discAmt,
+          reason: data.reason || 'Discount',
+        }
+      ]);
       addAuditEntry('DISCOUNT', 'manager', 'Manager', `Discount: ${data.reason} - ${discAmt.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`);
-      showSuccess(`Discount: ${discAmt.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`);
+      showSuccess(`Discount applied: ${discAmt.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}`);
     }
     setManagerPinModal(null);
+  };
+
+  const handleRemoveDiscount = () => {
+    setDiscountAmount(0);
+    setDiscountReason('');
+    setCartAudit(prev => [
+      ...prev,
+      {
+        action: 'discount_removed',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        description: 'Discount removed from order',
+      }
+    ]);
+    addAuditEntry('DISCOUNT_REMOVED', user?.role || 'staff', user?.name || 'Staff', 'Discount removed from order');
+    showSuccess('Discount removed');
+  };
+
+  // ── Custom Amount / Price Override ────────────────────────
+  const handleCustomPriceConfirm = (newPrice, reason) => {
+    if (!customPriceModalItem) return;
+    const targetKey = customPriceModalItem._cartKey || customPriceModalItem.id;
+    const oldPrice = customPriceModalItem.price;
+
+    setCart(prev => prev.map(item => {
+      const match = (item._cartKey && item._cartKey === targetKey) || (item.id === customPriceModalItem.id);
+      if (!match) return item;
+      const orig = item.originalPrice !== undefined ? item.originalPrice : item.price;
+      return {
+        ...item,
+        price: newPrice,
+        originalPrice: orig,
+        customPrice: true,
+        customPriceAt: new Date().toISOString(),
+        customPriceBy: user?.name || 'Staff',
+        customPriceReason: reason,
+      };
+    }));
+
+    setCartAudit(prev => [
+      ...prev,
+      {
+        action: 'custom_amount',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        description: `Price override on "${customPriceModalItem.name}": ₹${oldPrice} → ₹${newPrice} each (Qty: ${customPriceModalItem.qty || 1})`,
+        item: customPriceModalItem.name,
+        originalPrice: oldPrice,
+        customPrice: newPrice,
+        reason,
+      }
+    ]);
+
+    addAuditEntry(
+      'CUSTOM_PRICE',
+      user?.role || 'staff',
+      user?.name || 'Staff',
+      `Custom price for ${customPriceModalItem.name}: ₹${oldPrice} → ₹${newPrice} (${reason})`
+    );
+
+    showSuccess(`Updated price for ${customPriceModalItem.name} to ₹${newPrice}`);
+    setCustomPriceModalItem(null);
+  };
+
+  const handleCustomPriceReset = () => {
+    if (!customPriceModalItem) return;
+    const targetKey = customPriceModalItem._cartKey || customPriceModalItem.id;
+    const orig = customPriceModalItem.originalPrice !== undefined ? customPriceModalItem.originalPrice : customPriceModalItem.price;
+
+    setCart(prev => prev.map(item => {
+      const match = (item._cartKey && item._cartKey === targetKey) || (item.id === customPriceModalItem.id);
+      if (!match) return item;
+      return {
+        ...item,
+        price: orig,
+        customPrice: false,
+        customPriceAt: null,
+        customPriceBy: null,
+      };
+    }));
+
+    showSuccess(`Reset ${customPriceModalItem.name} to original price (₹${orig})`);
+    setCustomPriceModalItem(null);
+  };
+
+  // ── POS Void Item & Void Bill Actions ───────────────────────
+  const handleVoidItemAction = (item, qtyToVoid, reason) => {
+    const key = item._cartKey || item.id;
+    const origQty = item.qty || 1;
+    const voidAmt = (item.price || 0) * qtyToVoid;
+
+    if (qtyToVoid >= origQty) {
+      setCart(prev => prev.filter(i => (i._cartKey || i.id) !== key));
+    } else {
+      setCart(prev => prev.map(i => {
+        if ((i._cartKey || i.id) === key) {
+          return { ...i, qty: origQty - qtyToVoid };
+        }
+        return i;
+      }));
+    }
+
+    setCartAudit(prev => [
+      ...prev,
+      {
+        action: 'item_removed',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        description: `Voided ${qtyToVoid}x ${item.name} (${reason})`,
+        item: item.name,
+        qty: qtyToVoid,
+        reason,
+      }
+    ]);
+
+    addAuditEntry(
+      'VOID_ITEM',
+      user?.role || 'staff',
+      user?.name || 'Staff',
+      `Voided ${qtyToVoid}x ${item.name} (₹${voidAmt.toFixed(2)}). Reason: ${reason}`
+    );
+
+    setPosVoidModal(false);
+    showSuccess(`Voided ${qtyToVoid}x ${item.name}`);
+  };
+
+  const handleVoidOrderAction = async (reason) => {
+    try {
+      const itemsToVoid = [...cart];
+      const tableId = activeTable?.id;
+      const tableNum = activeTable?.number || activeTable?.id;
+      const totalToVoid = grandTotal;
+
+      const extra = {
+        orderType,
+        customerName: activeTable?.guestName || unassignedTab?.guestName || customerName,
+        customerPhone: customerPhone || unassignedTab?.guestPhone || '',
+        tokenNumber: unassignedTab?.tokenNumber || null,
+        status: 'voided',
+        voidReason: reason,
+        voidedAt: new Date().toISOString(),
+        voidedBy: user?.name || 'Staff',
+        discount: discountAmount,
+        discountReason,
+        history: [
+          {
+            action: 'created',
+            timestamp: activeTable?.seatedAt || new Date().toISOString(),
+            by: user?.name || 'Staff',
+            description: `Order initiated on ${activeTable ? `Table ${tableNum}` : 'POS'}`,
+          },
+          ...cartAudit,
+          {
+            action: 'voided',
+            timestamp: new Date().toISOString(),
+            by: user?.name || 'Staff',
+            description: `Order voided: ${reason} (Amount: ₹${totalToVoid.toFixed(2)})`,
+            reason,
+            amount: totalToVoid,
+          }
+        ]
+      };
+
+      await placeOrder(tableId || null, itemsToVoid, 'Voided', extra);
+
+      if (cancelKDSTickets && tableId) {
+        try {
+          await cancelKDSTickets(tableId);
+        } catch (err) {
+          console.error('[POS] Failed to cancel KDS tickets on void:', err);
+        }
+      }
+
+      if (activeTable) {
+        setSavedOrders(prev => {
+          const next = { ...prev };
+          delete next[activeTable.id];
+          return next;
+        });
+        setTables(prev => prev.map(t =>
+          String(t.id) === String(activeTable.id)
+            ? { ...t, status: 'available', guestName: '', guestPhone: '', guestId: null, partySize: 1, seatedAt: null }
+            : t
+        ));
+        setActiveTable(null);
+      } else if (unassignedTab) {
+        setSavedOrders(prev => {
+          const next = { ...prev };
+          delete next[`tab_${unassignedTab.id}`];
+          return next;
+        });
+        setUnassignedTab(null);
+      }
+
+      setCart([]);
+      setDiscountAmount(0);
+      setDiscountReason('');
+      setCartAudit([]);
+      setPosVoidModal(false);
+
+      addAuditEntry(
+        'VOID_ORDER',
+        user?.role || 'staff',
+        user?.name || 'Staff',
+        `Voided entire order on ${tableId ? `Table ${tableNum}` : 'POS'}. Reason: ${reason}. Amount: ₹${totalToVoid.toFixed(2)}`
+      );
+
+      showSuccess(`Order voided (${reason}).`);
+    } catch (err) {
+      console.error('[POS] Error voiding order:', err);
+      alert('Failed to void order.');
+    }
   };
 
   // ── Blind Drop ────────────────────────────────────────────
@@ -5444,6 +6174,9 @@ const POS = () => {
       tip: tipValue,
       autoGratuity,
       discount: discountAmount,
+      discountReason: discountReason || '',
+      discountAppliedAt: discountAmount > 0 ? new Date().toISOString() : null,
+      discountAppliedBy: discountAmount > 0 ? (user?.name || 'Staff') : null,
       serviceCharge,
       partySize,
       paymentSplits,
@@ -5451,6 +6184,25 @@ const POS = () => {
       ticketPrintedAt: firstTicketPrinted,
       foodBumpedAt: latestFoodBumped,
       kdsTicketIds: relatedTickets.map(t => t.id),
+      history: [
+        {
+          action: 'created',
+          timestamp: orderPlacedTime,
+          by: user?.name || 'Staff',
+          description: `Order created with ${cart.reduce((s, i) => s + (i.qty || 1), 0)} items (${activeTable ? `Table ${activeTable.number || activeTable.id}` : (unassignedTab ? `Token #${unassignedTab.tokenNumber}` : 'Direct')})`,
+        },
+        ...cartAudit,
+        {
+          action: 'payment_settled',
+          timestamp: new Date().toISOString(),
+          by: user?.name || 'Cashier',
+          description: Array.isArray(paymentSplits) && paymentSplits.length > 0
+            ? `Settled via Split: ${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal).toFixed(2)})`
+            : `Settled via ${paymentMethod} for ₹${(finalTotal).toFixed(2)}`,
+          paymentMethod,
+          paymentSplits: paymentSplits || null,
+        }
+      ],
     };
 
     const tableId = activeTable?.id || null;
@@ -5577,6 +6329,8 @@ const POS = () => {
     setUnassignedTab(null);
     setPaymentModal(false);
     setDiscountAmount(0);
+    setDiscountReason('');
+    setCartAudit([]);
     setFiredCourses(new Set([1]));
     setIsHeld(false);
     setHoldTimer(0);
@@ -5655,11 +6409,23 @@ const POS = () => {
         });
       }
 
+      const existingHistory = Array.isArray(order.history) ? order.history : [];
+      const pmRecord = {
+        action: 'payment_method_changed',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        description: `Payment method updated from ${order.paymentMethod || 'Unknown'} to ${newMethod}${Array.isArray(splits) && splits.length > 0 ? ` (Split: ${splits.map(s => `${s.method}: ₹${s.amount}`).join(', ')})` : ''}`,
+        previousMethod: order.paymentMethod,
+        newMethod,
+        paymentSplits: splits || [],
+      };
+
       await updatePOSOrder(order.id, {
         paymentMethod: newMethod,
         paymentSplits: splits || [],
         paymentMethodChangedAt: new Date().toISOString(),
         paymentMethodChangedBy: user?.name || 'Staff',
+        history: [...existingHistory, pmRecord],
       });
 
       addAuditEntry(
@@ -5691,11 +6457,22 @@ const POS = () => {
         });
       }
 
+      const existingHistory = Array.isArray(order.history) ? order.history : [];
+      const voidRecord = {
+        action: 'voided',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        description: `Order marked as voided. Reason: ${reason} (Amount: ₹${(parseFloat(order.total) || 0).toFixed(2)})`,
+        reason,
+        amount: order.total,
+      };
+
       await updatePOSOrder(order.id, {
         status: 'voided',
         voidReason: reason,
         voidedAt: new Date().toISOString(),
         voidedBy: user?.name || 'Staff',
+        history: [...existingHistory, voidRecord],
       });
 
       addAuditEntry(
@@ -5868,10 +6645,19 @@ const POS = () => {
         });
       }
 
+      const existingHistory = Array.isArray(order.history) ? order.history : [];
+      const reopenRecord = {
+        action: 'reopened',
+        timestamp: new Date().toISOString(),
+        by: user?.name || 'Staff',
+        description: `Order reopened to ${restoreToTable && targetTable ? `Table ${targetTable.number}` : 'Floating Tab'}`,
+      };
+
       await updatePOSOrder(order.id, {
         status: 'reopened',
         reopenedAt: new Date().toISOString(),
         reopenedBy: user?.name || 'Staff',
+        history: [...existingHistory, reopenRecord],
       });
 
       addAuditEntry(
@@ -7139,8 +7925,33 @@ const POS = () => {
                         {item.specialInstructions}
                       </div>
                     )}
-                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      {(item.price + modPrice).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })} ea
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                      <button
+                        type="button"
+                        onClick={() => setCustomPriceModalItem(item)}
+                        title="Click to edit unit price / enter custom amount"
+                        style={{
+                          background: item.customPrice ? 'rgba(30, 94, 74, 0.12)' : 'rgba(0, 0, 0, 0.04)',
+                          border: item.customPrice ? '1px dashed var(--primary)' : '1px solid transparent',
+                          borderRadius: 'var(--r-sm)',
+                          padding: '1px 5px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          fontSize: '0.68rem',
+                          color: item.customPrice ? 'var(--primary)' : 'var(--text-muted)',
+                          fontWeight: item.customPrice ? 700 : 500,
+                        }}
+                      >
+                        <Edit2 size={9} />
+                        {(item.price + modPrice).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })} ea
+                        {item.customPrice && (
+                          <span style={{ fontSize: '0.62rem', color: 'var(--primary)', fontWeight: 800 }}>
+                            [Custom]
+                          </span>
+                        )}
+                      </button>
                     </div>
                   </div>
 
@@ -7158,9 +7969,26 @@ const POS = () => {
                     }}>+</button>
                   </div>
 
-                  <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)', width: 52, textAlign: 'right', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => setCustomPriceModalItem(item)}
+                    title="Click to edit item price / enter custom amount"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      fontSize: '0.82rem',
+                      fontWeight: 800,
+                      color: item.customPrice ? 'var(--primary)' : 'var(--text-primary)',
+                      width: 58,
+                      textAlign: 'right',
+                      flexShrink: 0,
+                      textDecoration: item.customPrice ? 'underline dotted' : 'none',
+                    }}
+                  >
                     {lineTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                  </div>
+                  </button>
                 </div>
 
                 {/* Course & Seat selectors */}
@@ -7298,8 +8126,27 @@ const POS = () => {
             </div>
           )}
           {discountAmount > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: '0.8rem' }}>
-              <span style={{ color: 'var(--success)' }}>Discount</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, fontSize: '0.8rem' }}>
+              <span style={{ color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Discount {discountReason ? `(${discountReason})` : ''}
+                <button
+                  type="button"
+                  onClick={handleRemoveDiscount}
+                  title="Remove discount"
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#dc2626',
+                    borderRadius: 4,
+                    padding: '1px 5px',
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ✕ Remove
+                </button>
+              </span>
               <span style={{ fontWeight: 600, color: 'var(--success)' }}>-{discountAmount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
             </div>
           )}
@@ -7436,8 +8283,30 @@ const POS = () => {
           title={managerPinModal === 'comp' ? 'Comp Item' : managerPinModal === 'void' ? 'Void Item' : 'Apply Discount'}
           reasons={managerPinModal === 'comp' ? COMP_REASONS : managerPinModal === 'void' ? VOID_REASONS : DISCOUNT_REASONS}
           showAmount={managerPinModal !== 'void'}
+          cartSubtotal={subtotalNet}
           onConfirm={handleManagerPinConfirm}
           onClose={() => setManagerPinModal(null)}
+        />
+      )}
+
+      {customPriceModalItem && (
+        <CustomPriceModal
+          item={customPriceModalItem}
+          onConfirm={handleCustomPriceConfirm}
+          onReset={handleCustomPriceReset}
+          onClose={() => setCustomPriceModalItem(null)}
+        />
+      )}
+
+      {posVoidModal && (
+        <PosVoidModal
+          cart={cart}
+          activeTable={activeTable}
+          unassignedTab={unassignedTab}
+          settings={settings}
+          onVoidItem={handleVoidItemAction}
+          onVoidOrder={handleVoidOrderAction}
+          onClose={() => setPosVoidModal(false)}
         />
       )}
 

@@ -7,12 +7,13 @@ import {
   Clock, CheckCircle, AlertTriangle, XCircle, FileText, Zap,
   Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
   Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck,
-  TableProperties, Armchair, Eye, Layers
+  TableProperties, Armchair, Eye, Layers, History
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
 import { localDayStr } from '../../shared/dates';
 import AttendanceCalendar from '../components/AttendanceCalendar';
+import InvoiceHistoryModal from '../components/InvoiceHistoryModal';
 import {
   localDay as attLocalDay, daysAgo, recordDay, recordTs, fmtTime as attFmtTime,
   fmtDate as attFmtDate, pairSessions, totalHours, activeDays,
@@ -899,6 +900,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
   const [paymentTypeFilter, setPaymentTypeFilter] = useState('All');
   const [cashierFilter, setCashierFilter] = useState('All');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [invoiceHistoryOrder, setInvoiceHistoryOrder] = useState(null);
 
   const { sortField, sortDirection, handleSort } = useSort('createdAt', 'desc');
 
@@ -915,10 +917,19 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       arr = filterByRange(orders, range, dateFrom, dateTo);
     }
     if (statusFilter !== 'All') {
-      if (statusFilter === 'Closed') {
-        arr = arr.filter(o => o.status === 'Closed' || o.status === 'Completed' || o.status === 'paid');
+      const sf = statusFilter.toLowerCase();
+      if (sf === 'closed' || sf === 'paid') {
+        arr = arr.filter(o => {
+          const s = (o.status || 'paid').toLowerCase();
+          return s === 'closed' || s === 'completed' || s === 'paid';
+        });
+      } else if (sf === 'voided') {
+        arr = arr.filter(o => {
+          const s = (o.status || '').toLowerCase();
+          return s === 'voided' || s === 'cancelled';
+        });
       } else {
-        arr = arr.filter(o => (o.status || 'paid') === statusFilter);
+        arr = arr.filter(o => (o.status || 'paid').toLowerCase() === sf);
       }
     }
     if (paymentTypeFilter !== 'All') {
@@ -939,10 +950,13 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
   }, [filtered, sortField, sortDirection]);
 
   const totals = useMemo(() => {
-    const validOrders = sortedInvoices.filter(o => {
-      const s = (o.status || '').toLowerCase();
-      return s !== 'voided' && s !== 'cancelled';
-    });
+    const isExplicitVoided = statusFilter.toLowerCase() === 'voided';
+    const validOrders = isExplicitVoided
+      ? sortedInvoices
+      : sortedInvoices.filter(o => {
+          const s = (o.status || '').toLowerCase();
+          return s !== 'voided' && s !== 'cancelled';
+        });
     const totalAmount = validOrders.reduce((sum, o) => {
       if (paymentTypeFilter !== 'All' && paymentTypeFilter !== 'Split') {
         return sum + getOrderPaymentAmount(o, paymentTypeFilter);
@@ -950,13 +964,14 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       return sum + (parseFloat(o.total) || 0);
     }, 0);
     const count = validOrders.length;
-    const voidedCount = sortedInvoices.length - count;
+    const voidedCount = isExplicitVoided ? 0 : sortedInvoices.length - count;
     return {
       totalAmount,
       count,
-      voidedCount
+      voidedCount,
+      isExplicitVoided
     };
-  }, [sortedInvoices, paymentTypeFilter]);
+  }, [sortedInvoices, paymentTypeFilter, statusFilter]);
 
   const cashiers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
 
@@ -1130,17 +1145,43 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                     <Td><Badge label={status} color={statusColor} /></Td>
                     <Td muted>{o.serverName || '—'}</Td>
                     <Td>
-                      <button onClick={e => { e.stopPropagation(); handlePrintInvoice(o); }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
-                        <Printer size={14} color="var(--text-muted)" />
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setInvoiceHistoryOrder(o); }}
+                          title="View Invoice Audit History"
+                          style={{
+                            background: 'rgba(30, 94, 74, 0.08)',
+                            border: '1px solid rgba(30, 94, 74, 0.2)',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            padding: '3px 6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            color: 'var(--primary)',
+                            fontSize: '0.72rem',
+                            fontWeight: 600
+                          }}
+                        >
+                          <History size={12} /> History
+                        </button>
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); handlePrintInvoice(o); }}
+                          title="Print Invoice"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+                        >
+                          <Printer size={14} color="var(--text-muted)" />
+                        </button>
+                      </div>
                     </Td>
                   </tr>
                 );
               })}
               <tr>
                 <TdSummary colSpan={3} bold>
-                  TOTAL ({totals.count} {totals.count === 1 ? 'Invoice' : 'Invoices'}{totals.voidedCount > 0 ? ` • ${totals.voidedCount} voided excluded` : ''}{paymentTypeFilter !== 'All' && paymentTypeFilter !== 'Split' ? ` • ${paymentTypeFilter} Total` : ''})
+                  TOTAL ({totals.count} {totals.count === 1 ? 'Invoice' : 'Invoices'}{totals.isExplicitVoided ? ' • Voided Invoices' : totals.voidedCount > 0 ? ` • ${totals.voidedCount} voided excluded` : ''}{paymentTypeFilter !== 'All' && paymentTypeFilter !== 'Split' ? ` • ${paymentTypeFilter} Total` : ''})
                 </TdSummary>
                 <TdSummary right bold>{fmt(totals.totalAmount)}</TdSummary>
                 <TdSummary colSpan={4} />
@@ -1159,7 +1200,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
               <div><span style={{ color: 'var(--text-muted)' }}>Table: </span><strong>{selectedOrder.tableId ? `T-${selectedOrder.tableId}` : 'N/A'}</strong></div>
               <div><span style={{ color: 'var(--text-muted)' }}>Server: </span><strong>{selectedOrder.serverName || 'N/A'}</strong></div>
               <div><span style={{ color: 'var(--text-muted)' }}>Payment: </span><strong>{selectedOrder.paymentMethod || 'N/A'}</strong></div>
-              <div><span style={{ color: 'var(--text-muted)' }}>Status: </span><Badge label={selectedOrder.status || 'Closed'} color={selectedOrder.status === 'Voided' ? '#ef4444' : '#22c55e'} /></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Status: </span><Badge label={selectedOrder.status || 'Closed'} color={selectedOrder.status === 'Voided' || selectedOrder.status === 'voided' ? '#ef4444' : '#22c55e'} /></div>
               {(selectedOrder.paymentSplits || selectedOrder.timestamps?.paymentSplits)?.length > 0 && (
                 <div style={{ gridColumn: 'span 2', padding: '8px 12px', background: 'rgba(30, 94, 74, 0.05)', borderRadius: 'var(--r-sm)', border: '1px solid rgba(30, 94, 74, 0.15)' }}>
                   <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>Split Payment Breakdown:</span>
@@ -1201,6 +1242,14 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setInvoiceHistoryOrder(selectedOrder)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', color: 'var(--primary)' }}
+              >
+                <History size={14} /> View Audit History
+              </button>
               <button className="btn btn-secondary" onClick={() => handlePrintInvoice(selectedOrder)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem' }}>
                 <Printer size={14} /> Print Invoice
               </button>
@@ -1208,6 +1257,13 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
           </div>
         )}
       </Modal>
+
+      {invoiceHistoryOrder && (
+        <InvoiceHistoryModal
+          order={invoiceHistoryOrder}
+          onClose={() => setInvoiceHistoryOrder(null)}
+        />
+      )}
     </div>
   );
 };
