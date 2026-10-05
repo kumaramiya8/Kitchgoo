@@ -755,6 +755,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     ? Math.ceil(rawTotal)
     : parseFloat(rawTotal.toFixed(2));
 
+  const nowIso = new Date().toISOString();
   const order = {
     id: genId(),
     billNo: `${settings?.billing?.billPrefix || 'INV'}-${getTenantCode(_currentTenant)}-${counter}`,
@@ -783,15 +784,22 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     compReason: '',
     discountReason: '',
     courseFiring: extra.courseFiring || [],
+    paidAt: nowIso,
+    closedAt: nowIso,
+    settledAt: nowIso,
+    orderPlacedAt: extra.orderPlacedAt || extra.seatedAt || nowIso,
+    ticketPrintedAt: extra.ticketPrintedAt || null,
+    foodBumpedAt: extra.foodBumpedAt || null,
+    kdsTicketIds: extra.kdsTicketIds || [],
     timestamps: {
-      ordered: new Date().toISOString(),
-      ticketPrinted: null,
-      foodBumped: null,
-      paid: new Date().toISOString(),
+      ordered: extra.orderPlacedAt || extra.seatedAt || nowIso,
+      ticketPrinted: extra.ticketPrintedAt || null,
+      foodBumped: extra.foodBumpedAt || null,
+      paid: nowIso,
       paymentSplits: extra.paymentSplits || null,
     },
     paymentSplits: extra.paymentSplits || null,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
   };
 
   const newOrders = [...getAll('orders'), order];
@@ -960,21 +968,43 @@ export async function createKDSTicket(orderId, items, tableId, orderType, extra 
 export async function bumpKDSItem(ticketId, itemIndex) {
   const ticket = getById('kds_tickets', ticketId);
   if (!ticket) return;
+  const nowIso = new Date().toISOString();
   const items = [...ticket.items];
-  items[itemIndex] = { ...items[itemIndex], status: 'bumped', bumpedAt: new Date().toISOString() };
+  items[itemIndex] = { ...items[itemIndex], status: 'bumped', bumpedAt: nowIso };
   const allBumped = items.every(i => i.status === 'bumped');
-  return update('kds_tickets', ticketId, { items, status: allBumped ? 'completed' : 'active' });
+  const updateData = {
+    items,
+    status: allBumped ? 'completed' : 'active',
+    updatedAt: nowIso,
+  };
+  if (allBumped) {
+    updateData.bumpedAt = nowIso;
+    updateData.completedAt = nowIso;
+  }
+  return update('kds_tickets', ticketId, updateData);
 }
 
 export async function bumpKDSTicket(ticketId) {
   const ticket = getById('kds_tickets', ticketId);
   if (!ticket) return;
-  const items = ticket.items.map(i => ({ ...i, status: 'bumped', bumpedAt: new Date().toISOString() }));
-  return update('kds_tickets', ticketId, { items, status: 'completed' });
+  const nowIso = new Date().toISOString();
+  const items = ticket.items.map(i => ({ ...i, status: 'bumped', bumpedAt: nowIso }));
+  return update('kds_tickets', ticketId, {
+    items,
+    status: 'completed',
+    bumpedAt: nowIso,
+    completedAt: nowIso,
+    updatedAt: nowIso,
+  });
 }
 
 export async function recallKDSTicket(ticketId) {
-  return update('kds_tickets', ticketId, { status: 'active' });
+  return update('kds_tickets', ticketId, {
+    status: 'active',
+    bumpedAt: null,
+    completedAt: null,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function transferKDSTickets(fromTableId, toTableId, fromTableNum, toTableNum) {

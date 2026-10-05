@@ -37,8 +37,9 @@ const fmtTime = (iso) =>
 const fmtDateTime = (iso) => iso ? `${fmtDate(iso)} ${fmtTime(iso)}` : '—';
 
 const fmtMinSec = (ms) => {
-  if (!ms || ms <= 0) return '—';
+  if (ms === null || ms === undefined || isNaN(ms) || ms < 0) return '—';
   const totalSec = Math.round(ms / 1000);
+  if (totalSec === 0) return '< 1m';
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
   if (min === 0) return `${sec}s`;
@@ -58,8 +59,9 @@ function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
   // so comparing UTC date-prefixes shifts every report by the tz offset.
   const now = new Date();
   const today = localDayStr(now);
-  return list.filter(item => {
-    const val = item[key];
+  return (list || []).filter(item => {
+    if (!item) return false;
+    const val = item[key] || item.createdAt || item.date || item.timestamp || item.timestamps?.ordered;
     if (!val) return false;
     const d = new Date(val);
     if (isNaN(d.getTime())) return false;
@@ -77,10 +79,14 @@ function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
         w.setHours(0, 0, 0, 0);
         return d >= w;
       }
-      case 'This Month': return d >= new Date(now.getFullYear(), now.getMonth(), 1);
+      case 'This Month': {
+        const m = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        return d >= m;
+      }
       case 'This Quarter': {
         const qm = Math.floor(now.getMonth() / 3) * 3;
-        return d >= new Date(now.getFullYear(), qm, 1);
+        const q = new Date(now.getFullYear(), qm, 1, 0, 0, 0, 0);
+        return d >= q;
       }
       case 'Custom': {
         // Date-input values are local days; span them fully, local midnight to midnight
@@ -102,14 +108,24 @@ function useHistoricalOrders(range, dateFrom) {
   useEffect(() => {
     let from = null;
     const now = new Date();
-    if (range === 'This Quarter') {
-      from = localDayStr(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1));
+    if (range === 'Yesterday') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      from = localDayStr(y);
+    } else if (range === 'This Week') {
+      const w = new Date(now);
+      w.setDate(w.getDate() - ((w.getDay() + 6) % 7));
+      from = localDayStr(w);
     } else if (range === 'This Month') {
       from = localDayStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    } else if (range === 'This Quarter') {
+      from = localDayStr(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1));
     } else if (range === 'Custom' && dateFrom) {
       from = dateFrom;
     }
-    if (from) loadOlderOrders(from);
+    if (from && typeof loadOlderOrders === 'function') {
+      loadOlderOrders(from);
+    }
   }, [range, dateFrom, loadOlderOrders]);
 }
 
@@ -2368,10 +2384,11 @@ const OperationalEfficiencyTab = ({ orders }) => {
 // TAB 7 -- SPEED OF SERVICE (Retained from original layout)
 // =================================================================
 
-const SpeedOfService = ({ orders, kdsTickets }) => {
+const SpeedOfService = ({ orders, kdsTickets = [] }) => {
   const [range, setRange]       = useState('Today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
+  const [showAll, setShowAll]   = useState(false);
   useHistoricalOrders(range, dateFrom);
 
   const { sortField, sortDirection, handleSort } = useSort('orderPlaced', 'desc');
@@ -2379,32 +2396,173 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
   const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
   const serviceData = useMemo(() => {
-    return filteredOrders.map(o => {
-      const ticket = kdsTickets.find(t => t.orderId === o.id);
-      const orderPlaced = o.createdAt ? new Date(o.createdAt).getTime() : null;
-      const ticketPrinted = ticket?.createdAt ? new Date(ticket.createdAt).getTime() : orderPlaced;
-      const foodBumped = ticket?.bumpedAt ? new Date(ticket.bumpedAt).getTime() : (ticket?.completedAt ? new Date(ticket.completedAt).getTime() : null);
-      const checkPaid = o.paidAt ? new Date(o.paidAt).getTime() : (o.closedAt ? new Date(o.closedAt).getTime() : null);
+    // Index KDS tickets by possible keys for fast and accurate lookup
+    const ticketsByOrderId = new Map();
+    const ticketsByTableId = new Map();
+    const ticketsByToken = new Map();
 
-      const orderToTicket = ticketPrinted && orderPlaced ? ticketPrinted - orderPlaced : null;
-      const ticketToFood = foodBumped && ticketPrinted ? foodBumped - ticketPrinted : null;
-      const foodToPaid = checkPaid && foodBumped ? checkPaid - foodBumped : null;
-      const totalTime = checkPaid && orderPlaced ? checkPaid - orderPlaced : null;
+    (kdsTickets || []).forEach(ticket => {
+      // 1. Direct orderId / billNo
+      if (ticket.orderId) {
+        if (!ticketsByOrderId.has(ticket.orderId)) ticketsByOrderId.set(ticket.orderId, []);
+        ticketsByOrderId.get(ticket.orderId).push(ticket);
+      }
+      if (ticket.billNo) {
+        if (!ticketsByOrderId.has(ticket.billNo)) ticketsByOrderId.set(ticket.billNo, []);
+        ticketsByOrderId.get(ticket.billNo).push(ticket);
+      }
+      // 2. Table ID (normalized to string and bare number)
+      if (ticket.tableId !== undefined && ticket.tableId !== null) {
+        const rawTid = String(ticket.tableId).trim();
+        const bareTid = rawTid.replace(/^T-?|^tab_/i, '');
+        [rawTid, bareTid, `T-${bareTid}`, `tab_${bareTid}`].forEach(k => {
+          if (!ticketsByTableId.has(k)) ticketsByTableId.set(k, []);
+          ticketsByTableId.get(k).push(ticket);
+        });
+      }
+      // 3. Token number
+      if (ticket.tokenNumber !== undefined && ticket.tokenNumber !== null) {
+        const tok = String(ticket.tokenNumber).trim();
+        if (!ticketsByToken.has(tok)) ticketsByToken.set(tok, []);
+        ticketsByToken.get(tok).push(ticket);
+      }
+    });
+
+    return filteredOrders.map(o => {
+      // Find matching tickets
+      let matchedTickets = [];
+
+      // Check direct matches
+      if (ticketsByOrderId.has(o.id)) {
+        matchedTickets = ticketsByOrderId.get(o.id);
+      } else if (o.billNo && ticketsByOrderId.has(o.billNo)) {
+        matchedTickets = ticketsByOrderId.get(o.billNo);
+      } else if (o.kdsTicketId || (Array.isArray(o.kdsTicketIds) && o.kdsTicketIds.length > 0)) {
+        const targetIds = new Set(Array.isArray(o.kdsTicketIds) ? o.kdsTicketIds : [o.kdsTicketId]);
+        matchedTickets = (kdsTickets || []).filter(t => targetIds.has(t.id));
+      }
+
+      // Check table / token matches if not matched directly
+      const orderPaidIso = o.paidAt || o.closedAt || o.settledAt || o.timestamps?.paid || (o.status === 'paid' ? o.createdAt : null);
+      const orderPaidTime = orderPaidIso ? new Date(orderPaidIso).getTime() : (o.createdAt ? new Date(o.createdAt).getTime() : Date.now());
+
+      if (matchedTickets.length === 0) {
+        let candidates = [];
+        if (o.tableId !== undefined && o.tableId !== null) {
+          const rawId = String(o.tableId);
+          candidates = ticketsByTableId.get(rawId) || [];
+        } else if (o.tokenNumber) {
+          candidates = ticketsByToken.get(String(o.tokenNumber)) || [];
+        }
+
+        if (candidates.length > 0) {
+          // Filter tickets created within realistic dining window before this order's payment
+          // (up to 6 hours before payment, and not more than 5 minutes after payment)
+          const validCandidates = candidates.filter(t => {
+            const ticketTime = new Date(t.firedAt || t.createdAt).getTime();
+            return ticketTime <= orderPaidTime + 5 * 60 * 1000 && ticketTime >= orderPaidTime - 6 * 60 * 60 * 1000;
+          });
+
+          // Sort by firedAt/createdAt descending (most recent first)
+          validCandidates.sort((a, b) => new Date(b.firedAt || b.createdAt) - new Date(a.firedAt || a.createdAt));
+          matchedTickets = validCandidates;
+        }
+      }
+
+      // Resolve checkPaid
+      const checkPaid = orderPaidIso ? new Date(orderPaidIso).getTime() : null;
+
+      // Resolve ticketPrinted
+      let ticketPrintedTime = null;
+      if (matchedTickets.length > 0) {
+        const ticketTimes = matchedTickets.map(t => new Date(t.firedAt || t.createdAt).getTime()).filter(Boolean);
+        if (ticketTimes.length > 0) ticketPrintedTime = Math.min(...ticketTimes);
+      }
+      if (!ticketPrintedTime && o.timestamps?.ticketPrinted) {
+        ticketPrintedTime = new Date(o.timestamps.ticketPrinted).getTime();
+      }
+      if (!ticketPrintedTime && o.ticketPrintedAt) {
+        ticketPrintedTime = new Date(o.ticketPrintedAt).getTime();
+      }
+
+      // Resolve foodBumped
+      let foodBumpedTime = null;
+      if (matchedTickets.length > 0) {
+        const bumpTimes = [];
+        matchedTickets.forEach(t => {
+          if (t.bumpedAt) bumpTimes.push(new Date(t.bumpedAt).getTime());
+          else if (t.completedAt) bumpTimes.push(new Date(t.completedAt).getTime());
+          else {
+            const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+            if (itemBumps.length > 0) bumpTimes.push(Math.max(...itemBumps));
+            else if (t.status === 'completed' && t.updatedAt) bumpTimes.push(new Date(t.updatedAt).getTime());
+          }
+        });
+        if (bumpTimes.length > 0) foodBumpedTime = Math.max(...bumpTimes);
+      }
+      if (!foodBumpedTime && o.timestamps?.foodBumped) {
+        foodBumpedTime = new Date(o.timestamps.foodBumped).getTime();
+      }
+      if (!foodBumpedTime && o.foodBumpedAt) {
+        foodBumpedTime = new Date(o.foodBumpedAt).getTime();
+      }
+
+      // Resolve orderPlaced
+      let orderPlacedTime = null;
+      if (o.orderPlacedAt) orderPlacedTime = new Date(o.orderPlacedAt).getTime();
+      else if (o.seatedAt) orderPlacedTime = new Date(o.seatedAt).getTime();
+      else if (o.timestamps?.ordered) orderPlacedTime = new Date(o.timestamps.ordered).getTime();
+
+      // If orderPlacedTime is missing or identical to checkPaid, but we have a ticket printed earlier:
+      if (ticketPrintedTime && (!orderPlacedTime || orderPlacedTime >= checkPaid || orderPlacedTime > ticketPrintedTime)) {
+        orderPlacedTime = ticketPrintedTime;
+      }
+      if (!orderPlacedTime && o.createdAt) {
+        orderPlacedTime = new Date(o.createdAt).getTime();
+      }
+      if (!ticketPrintedTime && orderPlacedTime) {
+        ticketPrintedTime = orderPlacedTime;
+      }
+
+      // Ensure valid timeline progression
+      const orderToTicket = (ticketPrintedTime && orderPlacedTime && ticketPrintedTime >= orderPlacedTime)
+        ? ticketPrintedTime - orderPlacedTime
+        : 0;
+
+      const ticketToFood = (foodBumpedTime && ticketPrintedTime && foodBumpedTime >= ticketPrintedTime)
+        ? foodBumpedTime - ticketPrintedTime
+        : null;
+
+      const foodToPaid = (checkPaid && foodBumpedTime && checkPaid >= foodBumpedTime)
+        ? checkPaid - foodBumpedTime
+        : null;
+
+      let totalTime = (checkPaid && orderPlacedTime && checkPaid >= orderPlacedTime)
+        ? checkPaid - orderPlacedTime
+        : null;
+
+      if (totalTime === null && foodBumpedTime && orderPlacedTime && foodBumpedTime >= orderPlacedTime) {
+        totalTime = foodBumpedTime - orderPlacedTime;
+      }
+
+      const tableDisplay = o.tableName
+        ? o.tableName
+        : (o.tableId ? `T-${o.tableId}` : (o.tokenNumber ? `Token #${o.tokenNumber}` : (o.orderType === 'takeout' ? 'Takeout' : (o.orderType === 'delivery' ? 'Delivery' : '—'))));
 
       return {
         id: o.billNo || o.id?.slice(0, 8),
         orderId: o.id,
-        table: o.tableId ? `T-${o.tableId}` : '—',
-        orderPlaced: o.createdAt,
-        ticketPrinted: ticket?.createdAt || o.createdAt,
-        foodBumped: ticket?.bumpedAt || ticket?.completedAt,
-        checkPaid: o.paidAt || o.closedAt,
+        table: tableDisplay,
+        orderPlaced: orderPlacedTime,
+        ticketPrinted: ticketPrintedTime,
+        foodBumped: foodBumpedTime,
+        checkPaid: checkPaid,
         orderToTicket,
         ticketToFood,
         foodToPaid,
         totalTime,
       };
-    }).filter(d => d.orderPlaced);
+    }).filter(d => d.orderPlaced || d.checkPaid);
   }, [filteredOrders, kdsTickets]);
 
   const sortedServiceData = useMemo(() => {
@@ -2412,13 +2570,13 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
   }, [serviceData, sortField, sortDirection]);
 
   const averages = useMemo(() => {
-    const valid = (arr) => arr.filter(v => v !== null && v > 0);
-    const avg = (arr) => { const v = valid(arr); return v.length > 0 ? v.reduce((s, x) => s + x, 0) / v.length : 0; };
+    const valid = (arr) => arr.filter(v => v !== null && v !== undefined && !isNaN(v) && v >= 0);
+    const avg = (arr) => { const v = valid(arr); return v.length > 0 ? v.reduce((s, x) => s + x, 0) / v.length : null; };
     return {
-      orderToTicket: avg(serviceData.map(d => d.orderToTicket)),
-      ticketToFood: avg(serviceData.map(d => d.ticketToFood)),
-      foodToPaid: avg(serviceData.map(d => d.foodToPaid)),
-      totalTime: avg(serviceData.map(d => d.totalTime)),
+      orderToTicket: avg(serviceData.filter(d => d.ticketPrinted !== null).map(d => d.orderToTicket)),
+      ticketToFood: avg(serviceData.filter(d => d.ticketToFood !== null).map(d => d.ticketToFood)),
+      foodToPaid: avg(serviceData.filter(d => d.foodToPaid !== null).map(d => d.foodToPaid)),
+      totalTime: avg(serviceData.filter(d => d.totalTime !== null).map(d => d.totalTime)),
     };
   }, [serviceData]);
 
@@ -2431,6 +2589,8 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
     ];
     downloadCSV('speed_of_service.csv', rows);
   };
+
+  const displayedRows = showAll ? sortedServiceData : sortedServiceData.slice(0, 50);
 
   return (
     <div>
@@ -2448,7 +2608,21 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
       </div>
 
       <div className="card">
-        <SectionTitle>Order Speed Timeline ({sortedServiceData.length} orders)</SectionTitle>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <SectionTitle style={{ marginBottom: 0 }}>Order Speed Timeline ({sortedServiceData.length} orders)</SectionTitle>
+          {sortedServiceData.length > 50 && (
+            <button
+              onClick={() => setShowAll(prev => !prev)}
+              style={{
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)',
+                fontWeight: 600,
+              }}
+            >
+              {showAll ? 'Show First 50' : `Show All (${sortedServiceData.length})`}
+            </button>
+          )}
+        </div>
         {sortedServiceData.length === 0 ? <Empty /> : (
           <TableWrap>
             <thead>
@@ -2464,27 +2638,36 @@ const SpeedOfService = ({ orders, kdsTickets }) => {
               </tr>
             </thead>
             <tbody>
-              {sortedServiceData.slice(0, 50).map(d => {
-                const maxTime = averages.totalTime * 2 || 600000;
+              {displayedRows.map(d => {
+                const maxTime = (averages.totalTime && averages.totalTime > 0) ? averages.totalTime * 2 : 600000;
                 const phases = [];
-                if (d.orderToTicket > 0) phases.push({ pct: Math.min((d.orderToTicket / maxTime) * 100, 33), color: '#1e5e4a', label: 'Queue' });
-                if (d.ticketToFood > 0) phases.push({ pct: Math.min((d.ticketToFood / maxTime) * 100, 33), color: '#f59e0b', label: 'Kitchen' });
-                if (d.foodToPaid > 0) phases.push({ pct: Math.min((d.foodToPaid / maxTime) * 100, 33), color: '#22c55e', label: 'Service' });
+                if (d.orderToTicket > 0) {
+                  phases.push({ pct: Math.min((d.orderToTicket / maxTime) * 100, 33), duration: d.orderToTicket, color: '#1e5e4a', label: 'Queue' });
+                }
+                if (d.ticketToFood > 0) {
+                  phases.push({ pct: Math.min((d.ticketToFood / maxTime) * 100, 50), duration: d.ticketToFood, color: '#f59e0b', label: 'Kitchen' });
+                }
+                if (d.foodToPaid > 0) {
+                  phases.push({ pct: Math.min((d.foodToPaid / maxTime) * 100, 50), duration: d.foodToPaid, color: '#0ea5e9', label: 'Service' });
+                }
+                if (phases.length === 0 && d.totalTime !== null && d.totalTime > 0) {
+                  phases.push({ pct: Math.min((d.totalTime / maxTime) * 100, 100), duration: d.totalTime, color: '#22c55e', label: 'Turnaround' });
+                }
 
                 return (
                   <tr key={d.orderId}>
                     <Td bold>{d.id}</Td>
                     <Td muted>{d.table}</Td>
                     <Td style={{ fontSize: '0.73rem' }}>{fmtTime(d.orderPlaced)}</Td>
-                    <Td style={{ fontSize: '0.73rem' }}>{fmtTime(d.ticketPrinted)}</Td>
+                    <Td style={{ fontSize: '0.73rem' }}>{d.ticketPrinted ? fmtTime(d.ticketPrinted) : '—'}</Td>
                     <Td style={{ fontSize: '0.73rem' }}>{d.foodBumped ? fmtTime(d.foodBumped) : '—'}</Td>
                     <Td style={{ fontSize: '0.73rem' }}>{d.checkPaid ? fmtTime(d.checkPaid) : '—'}</Td>
                     <Td right bold>{fmtMinSec(d.totalTime)}</Td>
                     <Td>
                       <div style={{ display: 'flex', height: 12, borderRadius: 4, overflow: 'hidden', minWidth: 100, background: 'rgba(226,232,240,0.3)' }}>
                         {phases.map((p, i) => (
-                          <div key={i} title={`${p.label}: ${fmtMinSec(p.pct * maxTime / 100)}`}
-                            style={{ width: `${Math.max(p.pct, 3)}%`, height: '100%', background: p.color, transition: 'width 0.4s' }} />
+                          <div key={i} title={`${p.label}: ${fmtMinSec(p.duration || (p.pct * maxTime / 100))}`}
+                            style={{ width: `${Math.max(p.pct, 4)}%`, height: '100%', background: p.color, transition: 'width 0.4s' }} />
                         ))}
                       </div>
                     </Td>

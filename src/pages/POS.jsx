@@ -5342,6 +5342,38 @@ const POS = () => {
   const handleConfirmPayment = async (paymentMethod, tipValue, finalTotal, paymentSplits = null) => {
     if (cart.length === 0) return;
 
+    // Find any KDS tickets associated with this table or tab
+    const relatedTickets = (kdsTickets || []).filter(t => {
+      if (activeTable && (
+        String(t.tableId) === String(activeTable.id) ||
+        t.tableId === `T-${activeTable.id}` ||
+        t.tableId === `T${activeTable.id}` ||
+        String(t.tableId) === `tab_${activeTable.id}`
+      )) return true;
+      if (unassignedTab && (
+        String(t.tableId) === `tab_${unassignedTab.id}` ||
+        (unassignedTab.tokenNumber && String(t.tokenNumber) === String(unassignedTab.tokenNumber)) ||
+        String(t.tableId) === `token_${unassignedTab.tokenNumber}`
+      )) return true;
+      return false;
+    });
+
+    const ticketTimes = relatedTickets.map(t => new Date(t.firedAt || t.createdAt).getTime()).filter(Boolean);
+    const firstTicketPrinted = ticketTimes.length > 0 ? new Date(Math.min(...ticketTimes)).toISOString() : null;
+
+    const bumpTimes = [];
+    relatedTickets.forEach(t => {
+      if (t.bumpedAt) bumpTimes.push(new Date(t.bumpedAt).getTime());
+      else if (t.completedAt) bumpTimes.push(new Date(t.completedAt).getTime());
+      else {
+        const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+        if (itemBumps.length > 0) bumpTimes.push(Math.max(...itemBumps));
+      }
+    });
+    const latestFoodBumped = bumpTimes.length > 0 ? new Date(Math.max(...bumpTimes)).toISOString() : null;
+
+    const orderPlacedTime = activeTable?.seatedAt || unassignedTab?.createdAt || firstTicketPrinted || new Date().toISOString();
+
     const extra = {
       orderType,
       customerName: activeTable?.guestName || unassignedTab?.guestName || customerName,
@@ -5358,10 +5390,29 @@ const POS = () => {
       serviceCharge,
       partySize,
       paymentSplits,
+      orderPlacedAt: orderPlacedTime,
+      ticketPrintedAt: firstTicketPrinted,
+      foodBumpedAt: latestFoodBumped,
+      kdsTicketIds: relatedTickets.map(t => t.id),
     };
 
     const tableId = activeTable?.id || null;
     const order = await placeOrder(tableId, cart, paymentMethod, extra);
+
+    // Link tickets to this settled order in database
+    if (relatedTickets.length > 0 && order?.id) {
+      for (const t of relatedTickets) {
+        try {
+          await update('kds_tickets', t.id, {
+            orderId: order.id,
+            billNo: order.billNo,
+            settledAt: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.warn('[POS] Could not update ticket order link:', e);
+        }
+      }
+    }
 
     // Update guest
     if (activeTable?.guestId) {

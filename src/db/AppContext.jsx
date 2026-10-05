@@ -664,15 +664,22 @@ export function AppProvider({ children }) {
   const bumpKDSItemAction = useCallback(async (ticketId, itemIndex) => {
     // 1. Optimistic update: Update React state immediately (0ms delay)
     let shouldCheckEating = false;
+    const nowIso = new Date().toISOString();
     setKdsTickets(prev => prev.map(t => {
       if (t.id !== ticketId) return t;
       const items = [...(t.items || [])];
       if (items[itemIndex]) {
-        items[itemIndex] = { ...items[itemIndex], status: 'bumped', bumpedAt: new Date().toISOString() };
+        items[itemIndex] = { ...items[itemIndex], status: 'bumped', bumpedAt: nowIso };
       }
       const allBumped = items.length > 0 && items.every(i => i.status === 'bumped');
       if (allBumped) shouldCheckEating = true;
-      return { ...t, items, status: allBumped ? 'completed' : 'active' };
+      return {
+        ...t,
+        items,
+        status: allBumped ? 'completed' : 'active',
+        ...(allBumped ? { bumpedAt: nowIso, completedAt: nowIso } : {}),
+        updatedAt: nowIso,
+      };
     }));
 
     if (shouldCheckEating) {
@@ -693,10 +700,18 @@ export function AppProvider({ children }) {
 
   const bumpKDSTicketAction = useCallback(async (ticketId) => {
     // 1. Optimistic update: mark ticket and items completed immediately
+    const nowIso = new Date().toISOString();
     setKdsTickets(prev => prev.map(t => {
       if (t.id !== ticketId) return t;
-      const items = (t.items || []).map(i => ({ ...i, status: 'bumped', bumpedAt: new Date().toISOString() }));
-      return { ...t, items, status: 'completed' };
+      const items = (t.items || []).map(i => ({ ...i, status: 'bumped', bumpedAt: nowIso }));
+      return {
+        ...t,
+        items,
+        status: 'completed',
+        bumpedAt: nowIso,
+        completedAt: nowIso,
+        updatedAt: nowIso,
+      };
     }));
     maybeMarkTableEating(ticketId);
 
@@ -715,7 +730,7 @@ export function AppProvider({ children }) {
     setKdsTickets(prev => prev.map(t => {
       if (t.id !== ticketId) return t;
       const items = (t.items || []).map(i => ({ ...i, status: 'pending', bumpedAt: null }));
-      return { ...t, items, status: 'active' };
+      return { ...t, items, status: 'active', bumpedAt: null, completedAt: null, updatedAt: new Date().toISOString() };
     }));
 
     // 2. Persist in background
