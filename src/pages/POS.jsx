@@ -922,7 +922,7 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
 
   const currentItems = (currentCart && currentCart.length > 0)
     ? currentCart
-    : (savedOrders[currentTable?.id] || []);
+    : (savedOrders[currentTable?.id] || savedOrders[String(currentTable?.id)] || []);
 
   const totalAmount = currentItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
 
@@ -1129,9 +1129,11 @@ const AssignTableModal = ({ tab, tables, savedOrders, currentCart, onAssign, onC
   const [selectedTableId, setSelectedTableId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
+  const cleanTabId = String(tab?.id || '').replace(/^tab_/, '');
+  const tabRaw = tab ? (savedOrders[`tab_${cleanTabId}`] || savedOrders[tab.id]) : null;
   const currentItems = (currentCart && currentCart.length > 0)
     ? currentCart
-    : (tab ? (tab.items || (Array.isArray(savedOrders[`tab_${tab.id}`]) ? savedOrders[`tab_${tab.id}`] : (savedOrders[`tab_${tab.id}`]?.items || []))) : []);
+    : (tab ? (tab.items || (Array.isArray(tabRaw) ? tabRaw : tabRaw?.items) || []) : []);
 
   const totalAmount = currentItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
 
@@ -4711,17 +4713,21 @@ const POS = () => {
     const targetTable = tables.find(t => String(t.id) === String(targetTableId));
     if (!targetTable) return;
 
-    const tabRaw = savedOrders[`tab_${tab.id}`];
-    const tabItems = (unassignedTab && unassignedTab.id === tab.id && cart && cart.length > 0)
+    const rawTabId = String(tab.id || '');
+    const cleanTabId = rawTabId.replace(/^tab_/, '');
+    const tabKey = `tab_${cleanTabId}`;
+
+    const tabRaw = savedOrders[tabKey] || savedOrders[rawTabId];
+    const tabItems = (unassignedTab && String(unassignedTab.id).replace(/^tab_/, '') === cleanTabId && cart && cart.length > 0)
       ? cart
       : (tab.items || (Array.isArray(tabRaw) ? tabRaw : tabRaw?.items) || []);
 
-    const existingTargetItems = savedOrders[targetTable.id] || [];
+    const existingTargetItems = savedOrders[targetTable.id] || savedOrders[String(targetTable.id)] || [];
     const mergedItems = [...existingTargetItems];
     tabItems.forEach(item => {
       const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (item._cartKey || item.id));
       if (idx >= 0) {
-        mergedItems[idx].qty += item.qty;
+        mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + item.qty };
       } else {
         mergedItems.push({ ...item });
       }
@@ -4731,24 +4737,29 @@ const POS = () => {
     setSavedOrders(prev => {
       const next = { ...prev };
       next[targetTable.id] = mergedItems;
-      delete next[`tab_${tab.id}`];
+      next[String(targetTable.id)] = mergedItems;
+      delete next[tabKey];
+      delete next[rawTabId];
       if (next.__tabs_meta__) {
         const nextMeta = { ...next.__tabs_meta__ };
-        delete nextMeta[tab.id];
+        delete nextMeta[cleanTabId];
+        delete nextMeta[rawTabId];
         next.__tabs_meta__ = nextMeta;
       }
       return next;
     });
 
     // Update target table
+    const updatedTargetTable = {
+      ...targetTable,
+      status: mergedItems.length > 0 ? 'ordered' : 'seated',
+      guestName: tab.guestName || targetTable.guestName || `Token #${tab.tokenNumber}`,
+      partySize: tab.partySize || targetTable.partySize || 1,
+      seatedAt: targetTable.seatedAt || tab.createdAt || new Date().toISOString(),
+    };
+
     setTables(prev => prev.map(t => String(t.id) === String(targetTable.id)
-      ? {
-          ...t,
-          status: mergedItems.length > 0 ? 'ordered' : 'seated',
-          guestName: tab.guestName || t.guestName || `Token #${tab.tokenNumber}`,
-          partySize: tab.partySize || t.partySize || 1,
-          seatedAt: t.seatedAt || tab.createdAt || new Date().toISOString(),
-        }
+      ? updatedTargetTable
       : t
     ));
 
@@ -4756,7 +4767,7 @@ const POS = () => {
     if (transferKDSTickets) {
       try {
         await transferKDSTickets(
-          `tab_${tab.id}`,
+          tabKey,
           targetTable.id,
           `Token #${tab.tokenNumber}`,
           targetTable.number || targetTable.id
@@ -4768,16 +4779,13 @@ const POS = () => {
 
     broadcastOrderCreated(targetTable.id, `ASSIGN-${tab.tokenNumber}-T${targetTable.number || targetTable.id}`);
 
-    // If currently inside order view with this tab, switch activeTable to target
-    if (unassignedTab && unassignedTab.id === tab.id) {
-      setActiveTable({
-        ...targetTable,
-        status: mergedItems.length > 0 ? 'ordered' : 'seated',
-        guestName: tab.guestName || `Token #${tab.tokenNumber}`,
-        partySize: tab.partySize || 1,
-      });
-      setUnassignedTab(null);
-    }
+    // Update active table & cart so the staff sees the assigned table with all items in the cart!
+    setActiveTable(updatedTargetTable);
+    setCart(mergedItems);
+    setUnassignedTab(null);
+    setOrderType('dine-in');
+    setPartySize(updatedTargetTable.partySize || 1);
+    setView('order');
 
     setAssignTableModal(null);
     showSuccess(`Token #${tab.tokenNumber} assigned to Table ${targetTable.number || targetTable.id}!`);
@@ -4791,7 +4799,8 @@ const POS = () => {
     }
     if (table.status !== 'available') {
       setActiveTable(table);
-      setCart(savedOrders[table.id] || []);
+      const items = savedOrders[table.id] || savedOrders[String(table.id)] || [];
+      setCart(items);
       setPartySize(table.partySize || 1);
       setView('order');
     } else {
@@ -4808,7 +4817,8 @@ const POS = () => {
     const table = tables.find(t => String(t.id) === String(tableId));
     const updatedTable = { ...table, status: 'seated', guestName: guest.name, guestId: guest.id || null, seatedAt: new Date().toISOString() };
     setActiveTable(updatedTable);
-    setCart(savedOrders[tableId] || []);
+    const items = savedOrders[tableId] || savedOrders[String(tableId)] || [];
+    setCart(items);
     setGuestModal(null);
     setView('order');
   };
@@ -4954,22 +4964,25 @@ const POS = () => {
 
   // ── Merge ─────────────────────────────────────────────────
   const handleMerge = (fromTableId) => {
-    const fromItems = savedOrders[fromTableId] || [];
-    setCart(prev => {
-      const merged = [...prev];
-      fromItems.forEach(item => {
-        const existing = merged.find(i => (i._cartKey || i.id) === (item._cartKey || item.id));
-        if (existing) {
-          existing.qty += item.qty;
-        } else {
-          merged.push({ ...item });
-        }
-      });
-      return merged;
+    const fromItems = savedOrders[fromTableId] || savedOrders[String(fromTableId)] || [];
+    const merged = [...cart];
+    fromItems.forEach(item => {
+      const existing = merged.find(i => (i._cartKey || i.id) === (item._cartKey || item.id));
+      if (existing) {
+        existing.qty += item.qty;
+      } else {
+        merged.push({ ...item });
+      }
     });
+    setCart(merged);
     setSavedOrders(prev => {
       const next = { ...prev };
       delete next[fromTableId];
+      delete next[String(fromTableId)];
+      if (activeTable?.id) {
+        next[activeTable.id] = merged;
+        next[String(activeTable.id)] = merged;
+      }
       return next;
     });
     setTables(prev => prev.map(t => String(t.id) === String(fromTableId)
@@ -4986,12 +4999,15 @@ const POS = () => {
     const toTable = tables.find(t => String(t.id) === String(targetTableId));
     if (!toTable || String(fromTable.id) === String(toTable.id)) return;
 
+    const fromKey = fromTable.id;
+    const toKey = toTable.id;
+
     // Items from current cart or saved order
     const fromItems = (cart && cart.length > 0)
       ? cart
-      : (savedOrders[fromTable.id] || []);
+      : (savedOrders[fromKey] || savedOrders[String(fromKey)] || []);
 
-    const targetExistingItems = savedOrders[toTable.id] || [];
+    const targetExistingItems = savedOrders[toKey] || savedOrders[String(toKey)] || [];
 
     // Combine items if target already has an order, else take fromItems
     let finalTargetItems = [];
@@ -5006,21 +5022,23 @@ const POS = () => {
         }
       });
     } else {
-      finalTargetItems = [...fromItems];
+      finalTargetItems = fromItems.map(i => ({ ...i }));
     }
 
     // 1. Update savedOrders
     setSavedOrders(prev => {
       const next = { ...prev };
-      delete next[fromTable.id];
-      next[toTable.id] = finalTargetItems;
+      delete next[fromKey];
+      delete next[String(fromKey)];
+      next[toKey] = finalTargetItems;
+      next[String(toKey)] = finalTargetItems;
       return next;
     });
 
     // 2. Update tables status
     const updatedToTable = {
       ...toTable,
-      status: fromTable.status && fromTable.status !== 'available' ? fromTable.status : 'ordered',
+      status: fromTable.status && fromTable.status !== 'available' ? fromTable.status : (finalTargetItems.length > 0 ? 'ordered' : 'seated'),
       guestName: fromTable.guestName || toTable.guestName,
       guestId: fromTable.guestId || toTable.guestId,
       seatedAt: fromTable.seatedAt || toTable.seatedAt || new Date().toISOString(),
@@ -5048,6 +5066,7 @@ const POS = () => {
     // 3. Update active table & cart so the screen stays on the new table
     setActiveTable(updatedToTable);
     setCart(finalTargetItems);
+    setView('order');
 
     // 4. Transfer KDS tickets in real time
     if (transferKDSTickets) {
@@ -6500,17 +6519,7 @@ const POS = () => {
           />
         )}
 
-        {/* Assign Table Modal */}
-        {assignTableModal && (
-          <AssignTableModal
-            tab={assignTableModal}
-            tables={tables}
-            savedOrders={savedOrders}
-            currentCart={cart}
-            onAssign={handleAssignTableToTab}
-            onClose={() => setAssignTableModal(null)}
-          />
-        )}
+
 
         {/* Cash Drawer Modal */}
         {cashDrawerModal && (
@@ -6671,7 +6680,7 @@ const POS = () => {
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => {
-                  const items = (cart && cart.length > 0) ? cart : (activeTable ? (savedOrders[activeTable.id] || []) : []);
+                  const items = (cart && cart.length > 0) ? cart : (activeTable ? (savedOrders[activeTable.id] || savedOrders[String(activeTable.id)] || []) : []);
                   if (activeTable && items.length === 0 && (activeTable.status === 'seated' || activeTable.guestName)) {
                     if (window.confirm(`Table ${activeTable.number || activeTable.id} has no orders. Release table and mark it available?`)) {
                       handleReleaseTable({ markStatus: 'available', cancelKds: false });
@@ -6710,6 +6719,19 @@ const POS = () => {
                       }
                     }
                     setUnassignedTab(null);
+                  } else if (activeTable) {
+                    if (cart.length > 0) {
+                      setSavedOrders(prev => ({
+                        ...prev,
+                        [activeTable.id]: cart,
+                        [String(activeTable.id)]: cart,
+                      }));
+                      setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
+                        ? { ...t, status: t.status === 'available' ? 'ordered' : t.status }
+                        : t
+                      ));
+                    }
+                    setActiveTable(null);
                   }
                   setView('floor');
                   setCart([]);

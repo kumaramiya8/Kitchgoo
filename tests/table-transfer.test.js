@@ -174,5 +174,94 @@ describe('Table Shift & Transfer System', () => {
       const dessert = nextSavedOrders['table-2'].find(i => i.id === 'dessert');
       expect(dessert.qty).toBe(1);
     });
+
+    it('preserves active cart items during shift table even if not yet saved to savedOrders', () => {
+      // User is on Table 1, has added items to cart without firing KOT
+      const activeTable = { id: 1, number: 1, status: 'seated', guestName: 'Bob', partySize: 2 };
+      const currentCart = [
+        { id: 'burger', name: 'Veggie Burger', price: 150, qty: 2 },
+        { id: 'fries', name: 'Peri Peri Fries', price: 90, qty: 1 },
+      ];
+      const savedOrders = {}; // Not yet saved via KOT
+      const tables = [
+        { id: 1, number: 1, status: 'seated', guestName: 'Bob', partySize: 2 },
+        { id: 2, number: 2, status: 'available', guestName: null, partySize: null },
+      ];
+
+      const fromTable = activeTable;
+      const targetTableId = 2;
+      const toTable = tables.find(t => String(t.id) === String(targetTableId));
+
+      const fromItems = (currentCart && currentCart.length > 0)
+        ? currentCart
+        : (savedOrders[fromTable.id] || savedOrders[String(fromTable.id)] || []);
+      const targetExistingItems = savedOrders[toTable.id] || savedOrders[String(toTable.id)] || [];
+
+      let finalTargetItems = [];
+      if (targetExistingItems.length > 0) {
+        finalTargetItems = [...targetExistingItems];
+        fromItems.forEach(item => {
+          const existing = finalTargetItems.find(i => (i._cartKey || i.id) === (item._cartKey || item.id));
+          if (existing) {
+            existing.qty += item.qty;
+          } else {
+            finalTargetItems.push({ ...item });
+          }
+        });
+      } else {
+        finalTargetItems = fromItems.map(i => ({ ...i }));
+      }
+
+      // Update savedOrders
+      const nextSavedOrders = { ...savedOrders };
+      delete nextSavedOrders[fromTable.id];
+      delete nextSavedOrders[String(fromTable.id)];
+      nextSavedOrders[toTable.id] = finalTargetItems;
+      nextSavedOrders[String(toTable.id)] = finalTargetItems;
+
+      // Update active table & cart
+      const updatedToTable = {
+        ...toTable,
+        status: finalTargetItems.length > 0 ? 'ordered' : 'seated',
+        guestName: fromTable.guestName || toTable.guestName,
+        partySize: fromTable.partySize || toTable.partySize || 1,
+      };
+
+      const newActiveCart = finalTargetItems;
+
+      // Assertions
+      expect(newActiveCart).toHaveLength(2);
+      expect(newActiveCart[0].name).toBe('Veggie Burger');
+      expect(newActiveCart[1].name).toBe('Peri Peri Fries');
+      expect(nextSavedOrders[2]).toHaveLength(2);
+      expect(nextSavedOrders['2']).toHaveLength(2);
+      expect(updatedToTable.status).toBe('ordered');
+      expect(updatedToTable.guestName).toBe('Bob');
+    });
+
+    it('preserves active table cart into savedOrders when returning to floor view', () => {
+      const activeTable = { id: 1, number: 1, status: 'seated', guestName: 'Charlie' };
+      const cart = [{ id: 'coffee', name: 'Cappuccino', price: 120, qty: 1 }];
+      let savedOrders = {};
+      let tables = [{ id: 1, number: 1, status: 'seated', guestName: 'Charlie' }];
+
+      // Simulate Floor back button handler for activeTable
+      if (cart.length > 0) {
+        savedOrders = {
+          ...savedOrders,
+          [activeTable.id]: cart,
+          [String(activeTable.id)]: cart,
+        };
+        tables = tables.map(t => String(t.id) === String(activeTable.id)
+          ? { ...t, status: t.status === 'available' ? 'ordered' : t.status }
+          : t
+        );
+      }
+
+      // Assert savedOrders now contains the unfired cart
+      expect(savedOrders[1]).toBeDefined();
+      expect(savedOrders[1]).toHaveLength(1);
+      expect(savedOrders['1'][0].name).toBe('Cappuccino');
+    });
   });
 });

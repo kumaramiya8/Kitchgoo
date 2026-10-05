@@ -191,6 +191,100 @@ describe('Unassigned Dine-In Orders & Floating Tabs (Order First, Choose Table L
       expect(updatedTicket.tableShiftedFrom).toBe('Token #7');
       expect(updatedTicket.tableShiftedTo).toBe('5');
     });
+
+    it('assigns table to token tab with active cart items, preserving cart and updating active table', () => {
+      const tab = { id: 'tab_99', tokenNumber: '9', guestName: 'Priya', partySize: 3 };
+      const currentCart = [
+        { _cartKey: 'k1', id: 'biryani', name: 'Dum Biryani', price: 320, qty: 2 },
+      ];
+      const targetTable = { id: 4, number: 4, status: 'available' };
+      const savedOrders = {
+        tab_99: { id: 'tab_99', tokenNumber: '9', items: currentCart },
+      };
+
+      // Simulated handleAssignTableToTab logic
+      const rawTabId = String(tab.id || '');
+      const cleanTabId = rawTabId.replace(/^tab_/, '');
+      const tabKey = `tab_${cleanTabId}`;
+
+      const tabRaw = savedOrders[tabKey] || savedOrders[rawTabId];
+      const tabItems = currentCart;
+      const existingTargetItems = savedOrders[targetTable.id] || savedOrders[String(targetTable.id)] || [];
+      const mergedItems = [...existingTargetItems];
+      tabItems.forEach(item => {
+        const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (item._cartKey || item.id));
+        if (idx >= 0) {
+          mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + item.qty };
+        } else {
+          mergedItems.push({ ...item });
+        }
+      });
+
+      const nextSavedOrders = { ...savedOrders };
+      nextSavedOrders[targetTable.id] = mergedItems;
+      nextSavedOrders[String(targetTable.id)] = mergedItems;
+      delete nextSavedOrders[tabKey];
+      delete nextSavedOrders[rawTabId];
+
+      const updatedTargetTable = {
+        ...targetTable,
+        status: mergedItems.length > 0 ? 'ordered' : 'seated',
+        guestName: tab.guestName || `Token #${tab.tokenNumber}`,
+        partySize: tab.partySize || 1,
+      };
+
+      const newCart = mergedItems;
+
+      expect(newCart).toHaveLength(1);
+      expect(newCart[0].name).toBe('Dum Biryani');
+      expect(newCart[0].qty).toBe(2);
+      expect(nextSavedOrders[4]).toBeDefined();
+      expect(nextSavedOrders[4]).toHaveLength(1);
+      expect(nextSavedOrders['tab_99']).toBeUndefined();
+      expect(updatedTargetTable.status).toBe('ordered');
+      expect(updatedTargetTable.guestName).toBe('Priya');
+    });
+
+    it('merges token tab items with target table existing orders without losing either', () => {
+      const tab = { id: '123_abc', tokenNumber: '12', guestName: 'David' };
+      const tabItems = [
+        { _cartKey: 'c1', id: 'coke', name: 'Coke', price: 50, qty: 2 },
+        { _cartKey: 'p1', id: 'pizza', name: 'Pizza', price: 300, qty: 1 },
+      ];
+      const targetTable = { id: 2, number: 2, status: 'ordered', guestName: 'Alice' };
+      const savedOrders = {
+        'tab_123_abc': tabItems,
+        '2': [
+          { _cartKey: 'c1', id: 'coke', name: 'Coke', price: 50, qty: 1 },
+          { _cartKey: 'w1', id: 'water', name: 'Water', price: 20, qty: 1 },
+        ],
+      };
+
+      const rawTabId = String(tab.id);
+      const cleanTabId = rawTabId.replace(/^tab_/, '');
+      const tabKey = `tab_${cleanTabId}`;
+      const tabRaw = savedOrders[tabKey] || savedOrders[rawTabId];
+      const existingTargetItems = savedOrders[targetTable.id] || savedOrders[String(targetTable.id)] || [];
+
+      const mergedItems = [...existingTargetItems];
+      (tabRaw || []).forEach(item => {
+        const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (item._cartKey || item.id));
+        if (idx >= 0) {
+          mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + item.qty };
+        } else {
+          mergedItems.push({ ...item });
+        }
+      });
+
+      expect(mergedItems).toHaveLength(3);
+      // Coke merged: 1 + 2 = 3
+      const coke = mergedItems.find(i => i.id === 'coke');
+      expect(coke.qty).toBe(3);
+      // Pizza added
+      expect(mergedItems.find(i => i.id === 'pizza')).toBeDefined();
+      // Water preserved
+      expect(mergedItems.find(i => i.id === 'water')).toBeDefined();
+    });
   });
 
   describe('Pre-pay at Counter vs Table Post-pay Settlement', () => {
