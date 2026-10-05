@@ -181,6 +181,9 @@ function applyTenantPayload(payload) {
       if (!camel.paymentSplits && camel.timestamps?.paymentSplits) {
         camel.paymentSplits = camel.timestamps.paymentSplits;
       }
+      if (!camel.history && camel.timestamps?.history) {
+        camel.history = camel.timestamps.history;
+      }
       return camel;
     });
     if (payload.ordersFrom) {
@@ -259,8 +262,16 @@ export async function syncOneCollection(name) {
     if (ROW_TABLES.includes(name)) {
       if (name === 'users') {
         _cache['users'] = (res.rows || []).map(mapUserRow);
-      } else if (name === 'orders') {
-        const windowRows = (res.rows || []).map(toCamelCase);
+        const windowRows = (res.rows || []).map(o => {
+          const camel = toCamelCase(o);
+          if (!camel.paymentSplits && camel.timestamps?.paymentSplits) {
+            camel.paymentSplits = camel.timestamps.paymentSplits;
+          }
+          if (!camel.history && camel.timestamps?.history) {
+            camel.history = camel.timestamps.history;
+          }
+          return camel;
+        });
         const from = res.ordersFrom;
         // Keep any older orders already fetched for a report view
         const older = (_cache['orders'] || []).filter(o => o.createdAt && from && o.createdAt < from);
@@ -801,10 +812,11 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
       foodBumped: extra.foodBumpedAt || null,
       paid: extra.status === 'voided' ? null : nowIso,
       paymentSplits: extra.paymentSplits || null,
+      history: Array.isArray(extra.history) ? extra.history : [],
       ...(extra.timestamps || {})
     },
     paymentSplits: extra.paymentSplits || null,
-    history: Array.isArray(extra.history) ? extra.history : [],
+    history: Array.isArray(extra.history) ? extra.history : (extra.timestamps?.history || []),
     createdAt: extra.createdAt || nowIso,
   };
 

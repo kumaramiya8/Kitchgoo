@@ -6420,12 +6420,18 @@ const POS = () => {
         paymentSplits: splits || [],
       };
 
+      const updatedPmHistory = [...existingHistory, pmRecord];
       await updatePOSOrder(order.id, {
         paymentMethod: newMethod,
         paymentSplits: splits || [],
         paymentMethodChangedAt: new Date().toISOString(),
         paymentMethodChangedBy: user?.name || 'Staff',
-        history: [...existingHistory, pmRecord],
+        history: updatedPmHistory,
+        timestamps: {
+          ...(order.timestamps || {}),
+          paymentSplits: splits || [],
+          history: updatedPmHistory,
+        },
       });
 
       addAuditEntry(
@@ -6467,12 +6473,18 @@ const POS = () => {
         amount: order.total,
       };
 
+      const updatedVoidHistory = [...existingHistory, voidRecord];
       await updatePOSOrder(order.id, {
         status: 'voided',
         voidReason: reason,
         voidedAt: new Date().toISOString(),
         voidedBy: user?.name || 'Staff',
-        history: [...existingHistory, voidRecord],
+        history: updatedVoidHistory,
+        timestamps: {
+          ...(order.timestamps || {}),
+          paid: null,
+          history: updatedVoidHistory,
+        },
       });
 
       addAuditEntry(
@@ -6522,6 +6534,7 @@ const POS = () => {
         deltaPaymentMethod,
       };
 
+      const updatedEditHistory = [...existingHistory, editRecord];
       await updatePOSOrder(order.id, {
         items,
         subtotal,
@@ -6534,7 +6547,11 @@ const POS = () => {
         editedAt: new Date().toISOString(),
         editedBy: user?.name || 'Staff',
         isRevised: true,
-        history: [...existingHistory, editRecord],
+        history: updatedEditHistory,
+        timestamps: {
+          ...(order.timestamps || {}),
+          history: updatedEditHistory,
+        },
       });
 
       addAuditEntry(
@@ -6653,11 +6670,17 @@ const POS = () => {
         description: `Order reopened to ${restoreToTable && targetTable ? `Table ${targetTable.number}` : 'Floating Tab'}`,
       };
 
+      const updatedReopenHistory = [...existingHistory, reopenRecord];
       await updatePOSOrder(order.id, {
         status: 'reopened',
         reopenedAt: new Date().toISOString(),
         reopenedBy: user?.name || 'Staff',
-        history: [...existingHistory, reopenRecord],
+        history: updatedReopenHistory,
+        timestamps: {
+          ...(order.timestamps || {}),
+          paid: null,
+          history: updatedReopenHistory,
+        },
       });
 
       addAuditEntry(
