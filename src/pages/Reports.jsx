@@ -119,7 +119,9 @@ function useHistoricalOrders(range, dateFrom) {
   useEffect(() => {
     let from = null;
     const now = new Date();
-    if (range === 'Yesterday') {
+    if (dateFrom) {
+      from = dateFrom;
+    } else if (range === 'Yesterday') {
       const y = new Date(now);
       y.setDate(y.getDate() - 1);
       from = localDayStr(y);
@@ -131,8 +133,6 @@ function useHistoricalOrders(range, dateFrom) {
       from = localDayStr(new Date(now.getFullYear(), now.getMonth(), 1));
     } else if (range === 'This Quarter') {
       from = localDayStr(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1));
-    } else if (range === 'Custom' && dateFrom) {
-      from = dateFrom;
     }
     if (from && typeof loadOlderOrders === 'function') {
       loadOlderOrders(from);
@@ -814,7 +814,8 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
-  useHistoricalOrders(range, dateFrom);
+  const [dateFilter, setDateFilter] = useState('');
+  useHistoricalOrders(range, dateFilter || dateFrom);
   const [statusFilter, setStatusFilter] = useState('All');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState('All');
   const [cashierFilter, setCashierFilter] = useState('All');
@@ -823,7 +824,17 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
   const { sortField, sortDirection, handleSort } = useSort('createdAt', 'desc');
 
   const filtered = useMemo(() => {
-    let arr = filterByRange(orders, range, dateFrom, dateTo);
+    let arr = orders || [];
+    if (dateFilter) {
+      arr = arr.filter(item => {
+        if (!item) return false;
+        const val = item.createdAt || item.date || item.timestamp || item.timestamps?.ordered;
+        if (!val) return false;
+        return localDayStr(val) === dateFilter;
+      });
+    } else {
+      arr = filterByRange(orders, range, dateFrom, dateTo);
+    }
     if (statusFilter !== 'All') {
       if (statusFilter === 'Closed') {
         arr = arr.filter(o => o.status === 'Closed' || o.status === 'Completed' || o.status === 'paid');
@@ -848,7 +859,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       arr = arr.filter(o => o.serverName === cashierFilter || o.serverId === cashierFilter);
     }
     return arr;
-  }, [orders, range, dateFrom, dateTo, statusFilter, paymentTypeFilter, cashierFilter]);
+  }, [orders, range, dateFrom, dateTo, dateFilter, statusFilter, paymentTypeFilter, cashierFilter]);
 
   const sortedInvoices = useMemo(() => {
     return sortData(filtered, sortField, sortDirection, {
@@ -857,6 +868,21 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       paymentMethod: o => o.paymentMethod || ''
     });
   }, [filtered, sortField, sortDirection]);
+
+  const totals = useMemo(() => {
+    const validOrders = sortedInvoices.filter(o => {
+      const s = (o.status || '').toLowerCase();
+      return s !== 'voided' && s !== 'cancelled';
+    });
+    const totalAmount = validOrders.reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
+    const count = validOrders.length;
+    const voidedCount = sortedInvoices.length - count;
+    return {
+      totalAmount,
+      count,
+      voidedCount
+    };
+  }, [sortedInvoices]);
 
   const cashiers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
 
@@ -885,6 +911,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       ...sortedInvoices.map(o =>
         `"${o.billNo || o.id}","${fmtDateTime(o.createdAt)}","${o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')}",${(o.total || 0).toFixed(2)},"${o.paymentMethod || '—'}","${o.status || 'Closed'}","${o.serverName || ''}"`
       ),
+      `"TOTAL (${totals.count} Invoices)","","",${totals.totalAmount.toFixed(2)},"","",""`
     ];
     downloadCSV('detailed_invoice_register.csv', rows);
   };
@@ -923,7 +950,50 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
     <div>
       <FilterBar>
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
-        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <RangePicker
+          range={range}
+          setRange={r => { setRange(r); setDateFilter(''); }}
+          dateFrom={dateFrom}
+          setDateFrom={setDateFrom}
+          dateTo={dateTo}
+          setDateTo={setDateTo}
+        />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Date:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 8,
+              border: dateFilter ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+              background: dateFilter ? 'rgba(30, 94, 74, 0.05)' : 'white',
+              fontSize: '0.8rem',
+              color: 'var(--text-primary)',
+              cursor: 'pointer'
+            }}
+          />
+          {dateFilter && (
+            <button
+              type="button"
+              onClick={() => setDateFilter('')}
+              title="Clear date filter"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                padding: '2px 4px',
+                fontWeight: 700
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
         <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Payment Status:</span>
         <Select value={statusFilter} onChange={setStatusFilter}>
@@ -983,6 +1053,13 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                   </tr>
                 );
               })}
+              <tr>
+                <TdSummary colSpan={3} bold>
+                  TOTAL ({totals.count} {totals.count === 1 ? 'Invoice' : 'Invoices'}{totals.voidedCount > 0 ? ` • ${totals.voidedCount} voided excluded` : ''})
+                </TdSummary>
+                <TdSummary right bold>{fmt(totals.totalAmount)}</TdSummary>
+                <TdSummary colSpan={4} />
+              </tr>
             </tbody>
           </TableWrap>
         )}

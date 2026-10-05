@@ -3507,11 +3507,25 @@ const TableHistoryModal = ({
   onEditOrder,
   onVoidOrder,
 }) => {
+  const { loadOlderOrders } = useApp();
   const [selectedTableId, setSelectedTableId] = useState(table ? (table.id || 'all') : 'all');
-  const [period, setPeriod] = useState('today'); // 'today' | '7days' | 'all'
+  const [period, setPeriod] = useState('today'); // 'today' | '7days' | 'all' | 'date'
+  const [filterDate, setFilterDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'paid' | 'voided' | 'reopened'
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState(null);
+
+  useEffect(() => {
+    if (filterDate && typeof loadOlderOrders === 'function') {
+      loadOlderOrders(filterDate);
+    } else if (period === '7days' && typeof loadOlderOrders === 'function') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      loadOlderOrders(localDayStr(d));
+    } else if (period === 'all' && typeof loadOlderOrders === 'function') {
+      loadOlderOrders('2020-01-01');
+    }
+  }, [filterDate, period, loadOlderOrders]);
 
   const activeTableObj = useMemo(() => {
     if (selectedTableId === 'all') return { id: 'all', number: 'All Tables' };
@@ -3529,8 +3543,10 @@ const TableHistoryModal = ({
     const todayStr = localDayStr(now);
 
     return tableOrders.filter(o => {
-      // Period filter
-      if (period === 'today') {
+      // Date / Period filter
+      if (filterDate) {
+        if (!o.createdAt || localDayStr(new Date(o.createdAt)) !== filterDate) return false;
+      } else if (period === 'today') {
         if (!o.createdAt || localDayStr(new Date(o.createdAt)) !== todayStr) return false;
       } else if (period === '7days') {
         const orderDate = new Date(o.createdAt || 0);
@@ -3554,7 +3570,7 @@ const TableHistoryModal = ({
 
       return true;
     });
-  }, [tableOrders, period, statusFilter, searchQuery]);
+  }, [tableOrders, period, filterDate, statusFilter, searchQuery]);
 
   // Aggregate stats
   const totalRevenue = useMemo(() => {
@@ -3602,18 +3618,59 @@ const TableHistoryModal = ({
                 style={{
                   padding: '4px 10px',
                   fontSize: '0.75rem',
-                  fontWeight: period === p.id ? 700 : 500,
-                  background: period === p.id ? 'var(--card-bg, #fff)' : 'transparent',
-                  color: period === p.id ? 'var(--primary)' : 'var(--text-muted)',
+                  fontWeight: (!filterDate && period === p.id) ? 700 : 500,
+                  background: (!filterDate && period === p.id) ? 'var(--card-bg, #fff)' : 'transparent',
+                  color: (!filterDate && period === p.id) ? 'var(--primary)' : 'var(--text-muted)',
                   border: 'none',
                   borderRadius: 6,
-                  boxShadow: period === p.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  boxShadow: (!filterDate && period === p.id) ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
                 }}
-                onClick={() => setPeriod(p.id)}
+                onClick={() => { setPeriod(p.id); setFilterDate(''); }}
               >
                 {p.label}
               </button>
             ))}
+          </div>
+
+          {/* Date filter */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)' }}>Date:</span>
+            <input
+              type="date"
+              className="input-field"
+              value={filterDate}
+              onChange={e => {
+                setFilterDate(e.target.value);
+                if (e.target.value) setPeriod('date');
+              }}
+              style={{
+                height: 32,
+                fontSize: '0.82rem',
+                padding: '0 8px',
+                minWidth: 130,
+                border: filterDate ? '1px solid var(--primary)' : '1px solid var(--border)',
+                background: filterDate ? 'rgba(30, 94, 74, 0.05)' : 'white'
+              }}
+            />
+            {filterDate && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => { setFilterDate(''); setPeriod('today'); }}
+                title="Clear date filter"
+                style={{
+                  height: 32,
+                  padding: '0 8px',
+                  fontSize: '0.75rem',
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           {/* Status filter tabs */}
