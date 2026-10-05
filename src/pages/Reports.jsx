@@ -643,7 +643,11 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
     const globalPricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
     const map = {};
     filtered.forEach(o => {
-      const dateKey = (o.createdAt || '').split('T')[0];
+      // Exclude voided and cancelled orders from daily realized sales & breakdown
+      const s = (o.status || '').toLowerCase();
+      if (s === 'voided' || s === 'cancelled') return;
+
+      const dateKey = localDayStr(o.createdAt || o.date);
       if (!map[dateKey]) {
         map[dateKey] = {
           date: dateKey,
@@ -653,7 +657,10 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
           tax: 0,
           cash: 0,
           card: 0,
-          upi: 0
+          upi: 0,
+          wallet: 0,
+          online: 0,
+          other: 0
         };
       }
       const day = map[dateKey];
@@ -686,15 +693,19 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
           const amt = parseFloat(sp.amount || 0);
           if (pm.includes('cash')) day.cash += amt;
           else if (pm.includes('card')) day.card += amt;
+          else if (pm.includes('upi')) day.upi += amt;
           else if (pm.includes('wallet')) day.wallet = (day.wallet || 0) + amt;
-          else day.upi += amt;
+          else if (pm.includes('online')) day.online = (day.online || 0) + amt;
+          else day.other = (day.other || 0) + amt;
         });
       } else {
         const pMethod = (o.paymentMethod || 'Cash').toLowerCase();
         if (pMethod.includes('cash')) day.cash += totalAmount;
         else if (pMethod.includes('card')) day.card += totalAmount;
+        else if (pMethod.includes('upi')) day.upi += totalAmount;
         else if (pMethod.includes('wallet')) day.wallet = (day.wallet || 0) + totalAmount;
-        else day.upi += totalAmount; // UPI
+        else if (pMethod.includes('online')) day.online = (day.online || 0) + totalAmount;
+        else day.other = (day.other || 0) + totalAmount;
       }
     });
 
@@ -716,15 +727,17 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
       cash: s.cash + r.cash,
       card: s.card + r.card,
       upi: s.upi + r.upi,
-      wallet: (s.wallet || 0) + (r.wallet || 0)
-    }), { ordersCount: 0, gross: 0, discounts: 0, tax: 0, cash: 0, card: 0, upi: 0, wallet: 0 });
+      wallet: (s.wallet || 0) + (r.wallet || 0),
+      online: (s.online || 0) + (r.online || 0),
+      other: (s.other || 0) + (r.other || 0)
+    }), { ordersCount: 0, gross: 0, discounts: 0, tax: 0, cash: 0, card: 0, upi: 0, wallet: 0, online: 0, other: 0 });
   }, [dailyData]);
 
   const handleExport = () => {
     const rows = [
-      'Date,Total Orders,Gross Sales,Discounts Applied,Net Sales,Tax Collected,Cash Totals,Card Totals,UPI Totals,Wallet Totals',
+      'Date,Total Orders,Gross Sales,Discounts Applied,Net Sales,Tax Collected,Cash Totals,Card Totals,UPI Totals,Wallet Totals,Online Totals,Other Totals',
       ...sortedDailyData.map(r =>
-        `"${r.date}",${r.ordersCount},${r.gross.toFixed(2)},${r.discounts.toFixed(2)},${(r.gross - r.discounts).toFixed(2)},${r.tax.toFixed(2)},${r.cash.toFixed(2)},${r.card.toFixed(2)},${r.upi.toFixed(2)},${(r.wallet || 0).toFixed(2)}`
+        `"${r.date}",${r.ordersCount},${r.gross.toFixed(2)},${r.discounts.toFixed(2)},${(r.gross - r.discounts).toFixed(2)},${r.tax.toFixed(2)},${r.cash.toFixed(2)},${r.card.toFixed(2)},${r.upi.toFixed(2)},${(r.wallet || 0).toFixed(2)},${(r.online || 0).toFixed(2)},${(r.other || 0).toFixed(2)}`
       ),
     ];
     downloadCSV('daily_sales_summary.csv', rows);
@@ -787,6 +800,8 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
                   <Td style={{ fontSize: '0.75rem' }}>
                     <span style={{ color: 'var(--success)', fontWeight: 600 }}>Cash:</span> {fmt(r.cash)} | <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>Card:</span> {fmt(r.card)} | <span style={{ color: 'var(--primary)', fontWeight: 600 }}>UPI:</span> {fmt(r.upi)}
                     {r.wallet > 0 && <> | <span style={{ color: '#d97706', fontWeight: 600 }}>Wallet:</span> {fmt(r.wallet)}</>}
+                    {r.online > 0 && <> | <span style={{ color: '#8b5cf6', fontWeight: 600 }}>Online:</span> {fmt(r.online)}</>}
+                    {r.other > 0 && <> | <span style={{ color: '#64748b', fontWeight: 600 }}>Other:</span> {fmt(r.other)}</>}
                   </Td>
                 </tr>
               ))}
@@ -800,6 +815,8 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
                 <TdSummary bold>
                   Cash: {fmt(totals.cash)} | Card: {fmt(totals.card)} | UPI: {fmt(totals.upi)}
                   {totals.wallet > 0 && <> | Wallet: {fmt(totals.wallet)}</>}
+                  {totals.online > 0 && <> | Online: {fmt(totals.online)}</>}
+                  {totals.other > 0 && <> | Other: {fmt(totals.other)}</>}
                 </TdSummary>
               </tr>
             </tbody>
@@ -1670,12 +1687,17 @@ const SalesAccrualReport = ({ orders, settings }) => {
       }
     }
 
+    arr = arr.filter(o => {
+      const s = (o.status || '').toLowerCase();
+      return s !== 'voided' && s !== 'cancelled';
+    });
+
     if (paymentTypeFilter !== 'All') {
       arr = arr.filter(o => {
         if (paymentTypeFilter === 'Split') {
           return (o.paymentMethod || '').toLowerCase().startsWith('split') || (o.paymentSplits?.length > 1) || (o.timestamps?.paymentSplits?.length > 1);
         }
-        if ((o.paymentMethod || 'N/A') === paymentTypeFilter) return true;
+        if ((o.paymentMethod || '').toLowerCase() === paymentTypeFilter.toLowerCase()) return true;
         const splits = o.paymentSplits || o.timestamps?.paymentSplits;
         if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase() === paymentTypeFilter.toLowerCase())) {
           return true;

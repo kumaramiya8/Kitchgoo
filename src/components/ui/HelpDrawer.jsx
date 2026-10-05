@@ -180,13 +180,15 @@ const HelpDrawer = ({ isOpen, onClose }) => {
           const amt = parseFloat(sp.amount || 0);
           if (pm.includes('cash')) paymentMethodsAll.cash += amt;
           else if (pm.includes('card')) paymentMethodsAll.card += amt;
-          else paymentMethodsAll.upi += amt;
+          else if (pm.includes('upi')) paymentMethodsAll.upi += amt;
+          else paymentMethodsAll.other = (paymentMethodsAll.other || 0) + amt;
         });
       } else {
         const pm = (o.paymentMethod || 'Cash').toLowerCase();
         if (pm.includes('cash')) paymentMethodsAll.cash += (o.total || 0);
         else if (pm.includes('card')) paymentMethodsAll.card += (o.total || 0);
-        else paymentMethodsAll.upi += (o.total || 0);
+        else if (pm.includes('upi')) paymentMethodsAll.upi += (o.total || 0);
+        else paymentMethodsAll.other = (paymentMethodsAll.other || 0) + (o.total || 0);
       }
 
       // 4. Order types overall
@@ -235,16 +237,18 @@ const HelpDrawer = ({ isOpen, onClose }) => {
             const amt = parseFloat(sp.amount || 0);
             if (method.includes('cash')) acc.cash += amt;
             else if (method.includes('card')) acc.card += amt;
-            else acc.upi += amt;
+            else if (method.includes('upi')) acc.upi += amt;
+            else acc.other = (acc.other || 0) + amt;
           });
         } else {
           const method = (o.paymentMethod || 'Cash').toLowerCase();
           if (method.includes('cash')) acc.cash += (o.total || 0);
           else if (method.includes('card')) acc.card += (o.total || 0);
-          else acc.upi += (o.total || 0);
+          else if (method.includes('upi')) acc.upi += (o.total || 0);
+          else acc.other = (acc.other || 0) + (o.total || 0);
         }
         return acc;
-      }, { cash: 0, card: 0, upi: 0 }),
+      }, { cash: 0, card: 0, upi: 0, other: 0 }),
       monthlySales,
       paymentMethodsAll,
       orderTypesAll,
