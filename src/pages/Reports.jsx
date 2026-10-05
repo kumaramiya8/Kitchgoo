@@ -378,14 +378,9 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
 
   const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
-  const todayOrders = useMemo(() => {
-    const today = localDayStr(new Date());
-    return orders.filter(o => o.createdAt && localDayStr(o.createdAt) === today);
-  }, [orders]);
-
-  const liveGross = useMemo(() => todayOrders.reduce((s, o) => s + (o.total || 0), 0), [todayOrders]);
-  const liveTax = useMemo(() => todayOrders.reduce((s, o) => s + (o.tax || 0) + (o.serviceCharge || 0), 0), [todayOrders]);
-  const liveNet = liveGross - liveTax;
+  const periodGross = useMemo(() => filtered.reduce((s, o) => s + (o.total || 0), 0), [filtered]);
+  const periodTax = useMemo(() => filtered.reduce((s, o) => s + (o.tax || 0) + (o.serviceCharge || 0), 0), [filtered]);
+  const periodNet = periodGross - periodTax;
 
   const yesterdayGross = useMemo(() => {
     const y = new Date(); y.setDate(y.getDate() - 1);
@@ -393,8 +388,23 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
     return orders.filter(o => o.createdAt && localDayStr(o.createdAt) === yd).reduce((s, o) => s + (o.total || 0), 0);
   }, [orders]);
 
-  const trendPct = yesterdayGross > 0 ? ((liveGross - yesterdayGross) / yesterdayGross * 100) : 0;
-  const trendUp = trendPct >= 0;
+  const twoDaysAgoGross = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 2);
+    const dd = localDayStr(d);
+    return orders.filter(o => o.createdAt && localDayStr(o.createdAt) === dd).reduce((s, o) => s + (o.total || 0), 0);
+  }, [orders]);
+
+  const trendInfo = useMemo(() => {
+    if (range === 'Today') {
+      const pct = yesterdayGross > 0 ? ((periodGross - yesterdayGross) / yesterdayGross * 100) : 0;
+      return { pct, up: pct >= 0, label: `${pct > 0 ? '+' : ''}${pct.toFixed(1)}% vs yesterday` };
+    }
+    if (range === 'Yesterday') {
+      const pct = twoDaysAgoGross > 0 ? ((periodGross - twoDaysAgoGross) / twoDaysAgoGross * 100) : 0;
+      return { pct, up: pct >= 0, label: `${pct > 0 ? '+' : ''}${pct.toFixed(1)}% vs previous day` };
+    }
+    return { pct: null, up: true, label: `Tax & fees: ${fmt(periodTax)}` };
+  }, [range, periodGross, yesterdayGross, twoDaysAgoGross, periodTax]);
 
   const orderCount = filtered.length;
   const avgCheck = orderCount > 0 ? filtered.reduce((s, o) => s + (o.total || 0), 0) / orderCount : 0;
@@ -435,22 +445,29 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
   const totalTables = (floorPlans?.tables || []).length || 20;
   const activeTables = useMemo(() => {
     const activeIds = new Set();
-    todayOrders.forEach(o => { if (o.tableId && !o.closedAt) activeIds.add(o.tableId); });
+    filtered.forEach(o => {
+      if (o.tableId || o.tableName || (o.orderType && o.orderType.toLowerCase() === 'dine-in')) {
+        activeIds.add(String(o.tableId || o.tableName || o.id));
+      }
+    });
     return activeIds.size;
-  }, [todayOrders]);
+  }, [filtered]);
   const occupancyRate = totalTables > 0 ? (activeTables / totalTables * 100) : 0;
 
   const handleExport = () => {
     const rows = [
       'Metric,Value',
-      `Gross Sales,${liveGross.toFixed(2)}`,
-      `Net Sales,${liveNet.toFixed(2)}`,
+      `Period,${range}${range === 'Custom' ? ` (${dateFrom || 'start'} to ${dateTo || 'end'})` : ''}`,
+      `Gross Sales,${periodGross.toFixed(2)}`,
+      `Net Sales,${periodNet.toFixed(2)}`,
+      `Tax & Surcharge,${periodTax.toFixed(2)}`,
       `Order Count,${orderCount}`,
       `Avg Check,${avgCheck.toFixed(2)}`,
       `Voids/Comps,${voidsComps.toFixed(2)}`,
+      `Active Tables,${activeTables} of ${totalTables}`,
       `Occupancy Rate %,${occupancyRate.toFixed(1)}`,
     ];
-    downloadCSV('dashboard_summary.csv', rows);
+    downloadCSV(`dashboard_summary_${range.toLowerCase().replace(/\s+/g, '_')}.csv`, rows);
   };
 
   return (
@@ -464,16 +481,18 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
         <div className="card" style={{ padding: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-            <span style={{ fontSize: '0.73rem', fontWeight: 600, color: 'var(--text-muted)' }}>Live Sales</span>
+            <span style={{ fontSize: '0.73rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+              {range === 'Today' ? 'Live Sales' : 'Total Sales'}
+            </span>
             <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(30, 94, 74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <IndianRupee size={16} color="var(--primary)" />
             </div>
           </div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1.1 }}>{fmt(liveGross)}</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>Net: {fmt(liveNet)}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: '0.73rem', fontWeight: 700, color: trendUp ? 'var(--success)' : 'var(--danger)' }}>
-            {trendUp ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-            {trendPct > 0 ? '+' : ''}{trendPct.toFixed(1)}% vs yesterday
+          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1.1 }}>{fmt(periodGross)}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>Net: {fmt(periodNet)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, fontSize: '0.73rem', fontWeight: 700, color: trendInfo.pct !== null ? (trendInfo.up ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)' }}>
+            {trendInfo.pct !== null && (trendInfo.up ? <TrendingUp size={13} /> : <TrendingDown size={13} />)}
+            {trendInfo.label}
           </div>
         </div>
 
@@ -503,6 +522,9 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
 
         <div className="card" style={{ padding: 18, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <GaugeChart value={occupancyRate} max={100} label="Table Occupancy" color={occupancyRate > 80 ? '#ef4444' : occupancyRate > 50 ? '#f59e0b' : '#22c55e'} size={100} />
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4, textAlign: 'center' }}>
+            {activeTables} of {totalTables} tables active
+          </div>
         </div>
       </div>
 
