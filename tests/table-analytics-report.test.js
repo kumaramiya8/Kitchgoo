@@ -188,7 +188,43 @@ function computeTableAnalytics({
     };
   });
 
-  return { tableAnalytics, enrichedOrders };
+  // Filter tables by section, capacity, search
+  let filteredTableAnalytics = tableAnalytics;
+  if (sectionFilter !== 'All') {
+    filteredTableAnalytics = filteredTableAnalytics.filter(t => t.section === sectionFilter);
+  }
+  if (capacityFilter !== 'All') {
+    const cap = parseInt(capacityFilter);
+    if (capacityFilter === '8+') {
+      filteredTableAnalytics = filteredTableAnalytics.filter(t => t.seatCapacity >= 8);
+    } else if (!isNaN(cap)) {
+      filteredTableAnalytics = filteredTableAnalytics.filter(t => t.seatCapacity === cap);
+    }
+  }
+  if (searchQuery.trim()) {
+    const q = searchQuery.trim().toLowerCase();
+    filteredTableAnalytics = filteredTableAnalytics.filter(t =>
+      t.displayName.toLowerCase().includes(q) ||
+      (t.section && t.section.toLowerCase().includes(q))
+    );
+  }
+
+  // Summary KPIs for the Filtered Selection
+  const totalTables = filteredTableAnalytics.length;
+  const activeTables = filteredTableAnalytics.filter(t => t.turns > 0);
+  const tableOccupancyPct = totalTables > 0 ? (activeTables.length / totalTables * 100) : 0;
+  const totalRevenue = filteredTableAnalytics.reduce((s, t) => s + t.totalRevenue, 0);
+  const totalTurns = filteredTableAnalytics.reduce((s, t) => s + t.turns, 0);
+
+  const floorSummary = {
+    totalTables,
+    activeTableCount: activeTables.length,
+    tableOccupancyPct,
+    totalRevenue,
+    totalTurns,
+  };
+
+  return { tableAnalytics, filteredTableAnalytics, floorSummary, enrichedOrders };
 }
 
 describe('Table Analytics & Occupancy Report', () => {
@@ -347,5 +383,106 @@ describe('Table Analytics & Occupancy Report', () => {
 
     expect(t3.turns).toBe(1);
     expect(t3.totalRevenue).toBe(700);
+  });
+
+  it('updates table occupancy rate and summary metrics when section filter is changed', () => {
+    // 2 tables in Main Dining (Table 1, Table 2)
+    // 1 table in Patio (Table 3)
+    // 1 table in Bar (Table 4)
+    // Orders on Table 1 and Table 3
+    const orders = [
+      { id: 'o-1', tableId: '1', orderType: 'dine-in', total: 1000, createdAt: nowIso },
+      { id: 'o-3', tableId: '3', orderType: 'dine-in', total: 1500, createdAt: nowIso },
+    ];
+
+    // All sections: 2 active out of 4 tables -> 50%
+    const all = computeTableAnalytics({
+      posTables: mockTables,
+      orders,
+      sectionFilter: 'All',
+    });
+    expect(all.floorSummary.totalTables).toBe(4);
+    expect(all.floorSummary.activeTableCount).toBe(2);
+    expect(all.floorSummary.tableOccupancyPct).toBe(50);
+    expect(all.floorSummary.totalRevenue).toBe(2500);
+
+    // Filter by Patio: only Table 3 -> 1 active out of 1 table -> 100%
+    const patio = computeTableAnalytics({
+      posTables: mockTables,
+      orders,
+      sectionFilter: 'Patio',
+    });
+    expect(patio.floorSummary.totalTables).toBe(1);
+    expect(patio.floorSummary.activeTableCount).toBe(1);
+    expect(patio.floorSummary.tableOccupancyPct).toBe(100);
+    expect(patio.floorSummary.totalRevenue).toBe(1500);
+
+    // Filter by Bar: only Table 4 -> 0 active out of 1 table -> 0%
+    const bar = computeTableAnalytics({
+      posTables: mockTables,
+      orders,
+      sectionFilter: 'Bar',
+    });
+    expect(bar.floorSummary.totalTables).toBe(1);
+    expect(bar.floorSummary.activeTableCount).toBe(0);
+    expect(bar.floorSummary.tableOccupancyPct).toBe(0);
+    expect(bar.floorSummary.totalRevenue).toBe(0);
+  });
+
+  it('updates table occupancy rate and summary metrics when capacity filter is changed', () => {
+    // Orders on Table 2 (2 seats) and Table 3 (6 seats)
+    const orders = [
+      { id: 'o-2', tableId: '2', orderType: 'dine-in', total: 800, createdAt: nowIso },
+      { id: 'o-3', tableId: '3', orderType: 'dine-in', total: 1200, createdAt: nowIso },
+    ];
+
+    // Filter by 2-tops: only Table 2 (2 seats) -> 1 active of 1 table -> 100%
+    const twoTops = computeTableAnalytics({
+      posTables: mockTables,
+      orders,
+      capacityFilter: '2',
+    });
+    expect(twoTops.floorSummary.totalTables).toBe(1);
+    expect(twoTops.floorSummary.activeTableCount).toBe(1);
+    expect(twoTops.floorSummary.tableOccupancyPct).toBe(100);
+
+    // Filter by 4-tops: Table 1 and Table 4 -> 0 active of 2 tables -> 0%
+    const fourTops = computeTableAnalytics({
+      posTables: mockTables,
+      orders,
+      capacityFilter: '4',
+    });
+    expect(fourTops.floorSummary.totalTables).toBe(2);
+    expect(fourTops.floorSummary.activeTableCount).toBe(0);
+    expect(fourTops.floorSummary.tableOccupancyPct).toBe(0);
+  });
+
+  it('updates table occupancy when date range filter is changed', () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayIso = yesterday.toISOString();
+
+    const orders = [
+      { id: 'today-1', tableId: '1', orderType: 'dine-in', total: 900, createdAt: nowIso },
+      { id: 'yesterday-1', tableId: '2', orderType: 'dine-in', total: 1100, createdAt: yesterdayIso },
+    ];
+
+    const todayReport = computeTableAnalytics({
+      posTables: mockTables,
+      orders,
+      range: 'Today',
+    });
+    expect(todayReport.floorSummary.activeTableCount).toBe(1);
+    expect(todayReport.floorSummary.tableOccupancyPct).toBe(25);
+    expect(todayReport.floorSummary.totalRevenue).toBe(900);
+
+    const yesterdayReport = computeTableAnalytics({
+      posTables: mockTables,
+      orders,
+      range: 'Yesterday',
+    });
+    expect(yesterdayReport.floorSummary.activeTableCount).toBe(1);
+    expect(yesterdayReport.floorSummary.tableOccupancyPct).toBe(25);
+    expect(yesterdayReport.floorSummary.totalRevenue).toBe(1100);
   });
 });

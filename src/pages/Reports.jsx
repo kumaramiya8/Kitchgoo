@@ -370,7 +370,7 @@ const GaugeChart = ({ value, max = 100, label, color = '#1e5e4a', size = 110 }) 
 // TAB 1 -- OVERVIEW DASHBOARD
 // =================================================================
 
-const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
+const DashboardTab = ({ orders, inventory, staff, floorPlans, posTables }) => {
   const [range, setRange]       = useState('Today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -442,12 +442,21 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans }) => {
     }));
   }, [filtered]);
 
-  const totalTables = (floorPlans?.tables || []).length || 20;
+  const totalTables = useMemo(() => {
+    if (posTables && posTables.length > 0) return posTables.length;
+    if (floorPlans?.tables && floorPlans.tables.length > 0) return floorPlans.tables.length;
+    return 20;
+  }, [posTables, floorPlans]);
+
   const activeTables = useMemo(() => {
     const activeIds = new Set();
     filtered.forEach(o => {
-      if (o.tableId || o.tableName || (o.orderType && o.orderType.toLowerCase() === 'dine-in')) {
-        activeIds.add(String(o.tableId || o.tableName || o.id));
+      const tid = o.tableId !== undefined && o.tableId !== null ? String(o.tableId).trim() : '';
+      const tname = o.tableName ? String(o.tableName).trim() : '';
+      if (tid || tname) {
+        activeIds.add(tid || tname);
+      } else if (o.orderType && o.orderType.toLowerCase() === 'dine-in' && o.tokenNumber) {
+        activeIds.add(`token_${o.tokenNumber}`);
       }
     });
     return activeIds.size;
@@ -3056,15 +3065,47 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
     });
   }, [tableList, enrichedOrders, totalOperatingMs, totalOperatingHours]);
 
-  // Overall Floor Summary KPIs
+  // Filtered & Sorted Table Analytics for main grid (responds to Section, Capacity, and Search filters)
+  const filteredTableAnalytics = useMemo(() => {
+    let result = tableAnalytics;
+
+    if (sectionFilter !== 'All') {
+      result = result.filter(t => t.section === sectionFilter);
+    }
+
+    if (capacityFilter !== 'All') {
+      const cap = parseInt(capacityFilter);
+      if (capacityFilter === '8+') {
+        result = result.filter(t => t.seatCapacity >= 8);
+      } else if (!isNaN(cap)) {
+        result = result.filter(t => t.seatCapacity === cap);
+      }
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(t =>
+        t.displayName.toLowerCase().includes(q) ||
+        (t.section && t.section.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [tableAnalytics, sectionFilter, capacityFilter, searchQuery]);
+
+  const sortedTableAnalytics = useMemo(() => {
+    return sortData(filteredTableAnalytics, sortField, sortDirection);
+  }, [filteredTableAnalytics, sortField, sortDirection]);
+
+  // Summary KPIs for the Filtered Selection (updates dynamically when ANY filter changes)
   const floorSummary = useMemo(() => {
-    const totalTables = tableAnalytics.length;
-    const activeTables = tableAnalytics.filter(t => t.turns > 0);
-    const totalCapacity = tableAnalytics.reduce((s, t) => s + t.seatCapacity, 0);
-    const totalTurns = tableAnalytics.reduce((s, t) => s + t.turns, 0);
-    const totalRevenue = tableAnalytics.reduce((s, t) => s + t.totalRevenue, 0);
-    const totalCovers = tableAnalytics.reduce((s, t) => s + t.totalCovers, 0);
-    const totalOccupiedMs = tableAnalytics.reduce((s, t) => s + t.totalOccupiedMs, 0);
+    const totalTables = filteredTableAnalytics.length;
+    const activeTables = filteredTableAnalytics.filter(t => t.turns > 0);
+    const totalCapacity = filteredTableAnalytics.reduce((s, t) => s + t.seatCapacity, 0);
+    const totalTurns = filteredTableAnalytics.reduce((s, t) => s + t.turns, 0);
+    const totalRevenue = filteredTableAnalytics.reduce((s, t) => s + t.totalRevenue, 0);
+    const totalCovers = filteredTableAnalytics.reduce((s, t) => s + t.totalCovers, 0);
+    const totalOccupiedMs = filteredTableAnalytics.reduce((s, t) => s + t.totalOccupiedMs, 0);
     const totalOccupiedHours = totalOccupiedMs / (3600 * 1000);
 
     const avgTurnTimeMs = totalTurns > 0 ? (totalOccupiedMs / totalTurns) : null;
@@ -3074,17 +3115,17 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
     const floorAvailableSeatHours = totalCapacity * totalOperatingHours;
     const floorRevPash = floorAvailableSeatHours > 0 ? (totalRevenue / floorAvailableSeatHours) : 0;
 
-    const floorMaxOccupiedMs = totalTables * totalOperatingMs;
-    const overallOccupancyPct = floorMaxOccupiedMs > 0 ? Math.min(100, (totalOccupiedMs / floorMaxOccupiedMs) * 100) : 0;
+    // Table Occupancy %: proportion of selected tables that had active parties
+    const tableOccupancyPct = totalTables > 0 ? Math.min(100, (activeTables.length / totalTables) * 100) : 0;
 
     const avgSeatEff = activeTables.length > 0
       ? activeTables.reduce((s, t) => s + t.seatUtilizationPct, 0) / activeTables.length
       : 0;
 
-    const sortedByRev = [...tableAnalytics].sort((a, b) => b.totalRevenue - a.totalRevenue);
+    const sortedByRev = [...filteredTableAnalytics].sort((a, b) => b.totalRevenue - a.totalRevenue);
     const topRevTable = sortedByRev[0]?.totalRevenue > 0 ? sortedByRev[0] : null;
 
-    const sortedByTurns = [...tableAnalytics].sort((a, b) => b.turns - a.turns);
+    const sortedByTurns = [...filteredTableAnalytics].sort((a, b) => b.turns - a.turns);
     const topTurnTable = sortedByTurns[0]?.turns > 0 ? sortedByTurns[0] : null;
 
     const activeWithTurnTime = activeTables.filter(t => t.avgTurnTimeMs !== null && t.turns >= 2);
@@ -3104,14 +3145,14 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
       avgCheck,
       avgSpendPerCover,
       floorRevPash,
-      overallOccupancyPct,
+      tableOccupancyPct,
       avgSeatEff,
       topRevTable,
       topTurnTable,
       fastestTurnTable,
       totalSections: sectionOptions.filter(s => s !== 'All').length,
     };
-  }, [tableAnalytics, totalOperatingHours, totalOperatingMs, sectionOptions]);
+  }, [filteredTableAnalytics, totalOperatingHours, sectionOptions]);
 
   // Section Breakdown
   const sectionBreakdown = useMemo(() => {
@@ -3218,37 +3259,6 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
       intensityPct: Math.round((h.occupiedTables.size / maxTables) * 100),
     }));
   }, [enrichedOrders]);
-
-  // Filtered & Sorted Table Analytics for main grid
-  const filteredTableAnalytics = useMemo(() => {
-    let result = tableAnalytics;
-
-    if (sectionFilter !== 'All') {
-      result = result.filter(t => t.section === sectionFilter);
-    }
-
-    if (capacityFilter !== 'All') {
-      const cap = parseInt(capacityFilter);
-      if (capacityFilter === '8+') {
-        result = result.filter(t => t.seatCapacity >= 8);
-      } else if (!isNaN(cap)) {
-        result = result.filter(t => t.seatCapacity === cap);
-      }
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      result = result.filter(t =>
-        t.displayName.toLowerCase().includes(q) ||
-        (t.section && t.section.toLowerCase().includes(q))
-      );
-    }
-
-    return result;
-  }, [tableAnalytics, sectionFilter, capacityFilter, searchQuery]);
-
-  const sortedTableAnalytics = useMemo(() => {
-    return sortData(filteredTableAnalytics, sortField, sortDirection);
   }, [filteredTableAnalytics, sortField, sortDirection]);
 
   // CSV Export for Table Analytics
@@ -3391,9 +3401,9 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
           icon={Timer}
         />
         <StatCard
-          label="Floor Occupancy Rate"
-          value={fmtPct(floorSummary.overallOccupancyPct)}
-          sub={`${floorSummary.activeTableCount} of ${floorSummary.totalTables} tables active`}
+          label={sectionFilter !== 'All' ? `${sectionFilter} Occupancy` : (capacityFilter !== 'All' ? `${capacityFilter}-Top Occupancy` : "Table Occupancy Rate")}
+          value={fmtPct(floorSummary.tableOccupancyPct)}
+          sub={`${floorSummary.activeTableCount} of ${floorSummary.totalTables} tables active (${fmtDuration(floorSummary.totalOccupiedMs)} in use)`}
           color="#22c55e"
           icon={TableProperties}
         />
@@ -3580,7 +3590,7 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
                 <TdSummary right bold>{floorSummary.totalTurns}</TdSummary>
                 <TdSummary right bold>{fmtDuration(floorSummary.totalOccupiedMs)}</TdSummary>
                 <TdSummary right bold>{fmtDuration(floorSummary.avgTurnTimeMs)}</TdSummary>
-                <TdSummary right bold>{fmtPct(floorSummary.overallOccupancyPct)}</TdSummary>
+                <TdSummary right bold>{fmtPct(floorSummary.tableOccupancyPct)}</TdSummary>
                 <TdSummary right bold>{fmt(floorSummary.totalRevenue)}</TdSummary>
                 <TdSummary right bold>{fmt(floorSummary.avgCheck)}</TdSummary>
                 <TdSummary right bold>{floorSummary.totalCovers}</TdSummary>
@@ -4216,7 +4226,7 @@ const Reports = () => {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'dashboard'        && <DashboardTab orders={orders} inventory={inventory} staff={staff} floorPlans={floorPlans} />}
+      {activeTab === 'dashboard'        && <DashboardTab orders={orders} inventory={inventory} staff={staff} floorPlans={floorPlans} posTables={posTables} />}
       {activeTab === 'sales_invoicing'  && <SalesInvoicingTab orders={orders} />}
       {activeTab === 'tax_compliance'   && <TaxComplianceTab orders={orders} />}
       {activeTab === 'inventory_mgmt'   && <InventoryMgmtTab inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}
