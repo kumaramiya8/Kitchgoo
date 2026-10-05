@@ -6,7 +6,8 @@ import {
   Users, Filter, Search, ShoppingBag, CreditCard, IndianRupee,
   Clock, CheckCircle, AlertTriangle, XCircle, FileText, Zap,
   Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
-  Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck
+  Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck,
+  TableProperties, Armchair, Eye, Layers
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
@@ -44,6 +45,16 @@ const fmtMinSec = (ms) => {
   const sec = totalSec % 60;
   if (min === 0) return `${sec}s`;
   return `${min}m ${sec}s`;
+};
+
+const fmtDuration = (ms) => {
+  if (ms === null || ms === undefined || isNaN(ms) || ms <= 0) return '—';
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 1) return '< 1m';
+  const hrs = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hrs === 0) return `${mins}m`;
+  return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
 };
 
 const formatHour = (h) => {
@@ -2683,6 +2694,1129 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
 };
 
 // =================================================================
+// TAB 7 -- TABLE ANALYTICS & OCCUPANCY
+// =================================================================
+
+const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTickets = [], staff = [] }) => {
+  const [range, setRange]                 = useState('Today');
+  const [dateFrom, setDateFrom]           = useState('');
+  const [dateTo, setDateTo]               = useState('');
+  const [sectionFilter, setSectionFilter] = useState('All');
+  const [capacityFilter, setCapacityFilter] = useState('All');
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [selectedTableModal, setSelectedTableModal] = useState(null);
+  const [showAllTables, setShowAllTables] = useState(false);
+
+  useHistoricalOrders(range, dateFrom);
+
+  const { sortField, sortDirection, handleSort } = useSort('totalRevenue', 'desc');
+
+  // Filter orders by range
+  const filteredOrders = useMemo(() => {
+    return filterByRange(orders, range, dateFrom, dateTo);
+  }, [orders, range, dateFrom, dateTo]);
+
+  // Index KDS tickets for fast timing resolution
+  const kdsIndex = useMemo(() => {
+    const byOrder = new Map();
+    const byTable = new Map();
+    const byToken = new Map();
+
+    (kdsTickets || []).forEach(ticket => {
+      if (ticket.orderId) {
+        if (!byOrder.has(ticket.orderId)) byOrder.set(ticket.orderId, []);
+        byOrder.get(ticket.orderId).push(ticket);
+      }
+      if (ticket.billNo) {
+        if (!byOrder.has(ticket.billNo)) byOrder.set(ticket.billNo, []);
+        byOrder.get(ticket.billNo).push(ticket);
+      }
+      if (ticket.tableId !== undefined && ticket.tableId !== null) {
+        const rawTid = String(ticket.tableId).trim();
+        const bareTid = rawTid.replace(/^T-?|^tab_/i, '');
+        [rawTid, bareTid, `T-${bareTid}`, `tab_${bareTid}`].forEach(k => {
+          if (!byTable.has(k)) byTable.set(k, []);
+          byTable.get(k).push(ticket);
+        });
+      }
+      if (ticket.tokenNumber !== undefined && ticket.tokenNumber !== null) {
+        const tok = String(ticket.tokenNumber).trim();
+        if (!byToken.has(tok)) byToken.set(tok, []);
+        byToken.get(tok).push(ticket);
+      }
+    });
+
+    return { byOrder, byTable, byToken };
+  }, [kdsTickets]);
+
+  // Enrich dine-in / table orders with timing and items
+  const enrichedOrders = useMemo(() => {
+    return (filteredOrders || []).filter(o => {
+      if (!o) return false;
+      const type = (o.orderType || '').toLowerCase();
+      return Boolean(o.tableId || o.tableName || type === 'dine-in');
+    }).map(o => {
+      const orderPaidIso = o.paidAt || o.closedAt || o.settledAt || o.timestamps?.paid || (o.status === 'paid' ? o.createdAt : null);
+      const orderPaidTime = orderPaidIso ? new Date(orderPaidIso).getTime() : null;
+
+      // Match tickets
+      let matchedTickets = [];
+      if (kdsIndex.byOrder.has(o.id)) {
+        matchedTickets = kdsIndex.byOrder.get(o.id);
+      } else if (o.billNo && kdsIndex.byOrder.has(o.billNo)) {
+        matchedTickets = kdsIndex.byOrder.get(o.billNo);
+      } else if (o.kdsTicketId || (Array.isArray(o.kdsTicketIds) && o.kdsTicketIds.length > 0)) {
+        const targetIds = new Set(Array.isArray(o.kdsTicketIds) ? o.kdsTicketIds : [o.kdsTicketId]);
+        matchedTickets = (kdsTickets || []).filter(t => targetIds.has(t.id));
+      }
+
+      if (matchedTickets.length === 0) {
+        let candidates = [];
+        if (o.tableId !== undefined && o.tableId !== null) {
+          candidates = kdsIndex.byTable.get(String(o.tableId)) || [];
+        } else if (o.tokenNumber) {
+          candidates = kdsIndex.byToken.get(String(o.tokenNumber)) || [];
+        }
+
+        if (candidates.length > 0) {
+          const refTime = orderPaidTime || (o.createdAt ? new Date(o.createdAt).getTime() : Date.now());
+          const validCandidates = candidates.filter(t => {
+            const ticketTime = new Date(t.firedAt || t.createdAt).getTime();
+            return ticketTime <= refTime + 5 * 60 * 1000 && ticketTime >= refTime - 6 * 60 * 60 * 1000;
+          });
+          validCandidates.sort((a, b) => new Date(b.firedAt || b.createdAt) - new Date(a.firedAt || a.createdAt));
+          matchedTickets = validCandidates;
+        }
+      }
+
+      // Resolve food bumped
+      let foodBumpedTime = null;
+      if (matchedTickets.length > 0) {
+        const bumpTimes = [];
+        matchedTickets.forEach(t => {
+          if (t.bumpedAt) bumpTimes.push(new Date(t.bumpedAt).getTime());
+          else if (t.completedAt) bumpTimes.push(new Date(t.completedAt).getTime());
+          else {
+            const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+            if (itemBumps.length > 0) bumpTimes.push(Math.max(...itemBumps));
+            else if (t.status === 'completed' && t.updatedAt) bumpTimes.push(new Date(t.updatedAt).getTime());
+          }
+        });
+        if (bumpTimes.length > 0) foodBumpedTime = Math.max(...bumpTimes);
+      }
+      if (!foodBumpedTime && o.timestamps?.foodBumped) {
+        foodBumpedTime = new Date(o.timestamps.foodBumped).getTime();
+      }
+      if (!foodBumpedTime && o.foodBumpedAt) {
+        foodBumpedTime = new Date(o.foodBumpedAt).getTime();
+      }
+
+      // Resolve placed time
+      let placedTime = null;
+      if (o.seatedAt) placedTime = new Date(o.seatedAt).getTime();
+      else if (o.orderPlacedAt) placedTime = new Date(o.orderPlacedAt).getTime();
+      else if (o.timestamps?.ordered) placedTime = new Date(o.timestamps.ordered).getTime();
+      else if (o.createdAt) placedTime = new Date(o.createdAt).getTime();
+
+      // Resolve duration (Turn Time)
+      let durationMs = null;
+      if (orderPaidTime && placedTime && orderPaidTime >= placedTime) {
+        durationMs = Math.max(60000, orderPaidTime - placedTime);
+      } else if (foodBumpedTime && placedTime && foodBumpedTime >= placedTime) {
+        durationMs = Math.max(60000, (foodBumpedTime - placedTime) + 15 * 60 * 1000);
+      } else if (placedTime) {
+        durationMs = Math.max(60000, Date.now() - placedTime);
+      }
+
+      // Covers
+      let covers = Number(o.guestCount || o.covers || o.guests || 0);
+      if (!covers || isNaN(covers) || covers <= 0) {
+        const itemCount = (o.items || []).reduce((s, it) => s + (it.quantity || 1), 0);
+        covers = Math.max(1, Math.min(8, Math.ceil(itemCount / 2)));
+      }
+
+      // Server
+      const server = o.serverName || (staff.find(s => s.id === o.serverId)?.name) || o.waiter || 'Staff';
+
+      return {
+        ...o,
+        placedTime,
+        foodBumpedTime,
+        paidTime: orderPaidTime,
+        durationMs,
+        covers,
+        server,
+        revenue: Number(o.total || 0),
+        billDisplay: o.billNo || (o.id ? o.id.slice(0, 8) : '—'),
+      };
+    });
+  }, [filteredOrders, kdsIndex, kdsTickets, staff]);
+
+  // Master Table Registry: merge posTables, floorPlans.tables, and dynamic tables from orders
+  const { tableList, sectionOptions } = useMemo(() => {
+    const tableMap = new Map();
+    const sectionsSet = new Set();
+
+    const addTable = (raw) => {
+      if (!raw) return;
+      const id = String(raw.id || raw.number || '').trim();
+      if (!id) return;
+
+      const num = raw.number || id;
+      const numStr = String(num).replace(/^T-?|^Table\s*/i, '').trim();
+      const key = numStr || id;
+
+      if (!tableMap.has(key)) {
+        const section = raw.section || raw.sectionName || 'Main Dining';
+        sectionsSet.add(section);
+        tableMap.set(key, {
+          id: raw.id || id,
+          number: num,
+          numStr,
+          displayName: raw.name || (String(num).toLowerCase().startsWith('table') ? num : `Table ${num}`),
+          seats: Number(raw.seats || raw.capacity || 4),
+          section,
+          shape: raw.shape || 'square',
+        });
+      }
+    };
+
+    (posTables || []).forEach(addTable);
+    ((floorPlans && floorPlans.tables) || []).forEach(addTable);
+
+    enrichedOrders.forEach(o => {
+      const rawId = o.tableId !== undefined && o.tableId !== null ? String(o.tableId).trim() : '';
+      const rawName = o.tableName ? String(o.tableName).trim() : '';
+      const candidate = rawName || rawId;
+      if (!candidate) return;
+
+      const numStr = candidate.replace(/^T-?|^Table\s*|^tab_/i, '').trim();
+      const key = numStr || candidate;
+
+      if (!tableMap.has(key)) {
+        const displayName = rawName || (numStr ? `Table ${numStr}` : `Table ${rawId}`);
+        const section = 'Main Dining';
+        sectionsSet.add(section);
+        tableMap.set(key, {
+          id: rawId || key,
+          number: numStr || key,
+          numStr,
+          displayName,
+          seats: Math.max(4, o.covers || 4),
+          section,
+          shape: 'square',
+        });
+      }
+    });
+
+    const list = Array.from(tableMap.values());
+    list.sort((a, b) => {
+      const numA = parseInt(a.numStr);
+      const numB = parseInt(b.numStr);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.displayName.localeCompare(b.displayName);
+    });
+
+    return {
+      tableList: list,
+      sectionOptions: ['All', ...Array.from(sectionsSet).sort()]
+    };
+  }, [posTables, floorPlans, enrichedOrders]);
+
+  // Match order to table
+  const matchesOrderToTable = (o, t) => {
+    if (!o || !t) return false;
+    const oTid = String(o.tableId || '').trim();
+    const oTname = String(o.tableName || '').trim().toLowerCase();
+    const tId = String(t.id || '').trim();
+    const tNum = String(t.number || '').trim();
+    const tNumStr = String(t.numStr || '').trim();
+    const tName = String(t.displayName || '').trim().toLowerCase();
+
+    if (oTid) {
+      if (oTid === tId || oTid === tNum || oTid === tNumStr || oTid === `T-${tNumStr}` || oTid === `tab_${tId}` || oTid === `tab_${tNumStr}`) {
+        return true;
+      }
+    }
+    if (oTname) {
+      if (
+        oTname === tName ||
+        oTname === `table ${tNumStr}`.toLowerCase() ||
+        oTname === `table ${tNum}`.toLowerCase() ||
+        oTname === `table ${tId}`.toLowerCase() ||
+        oTname === `t-${tNumStr}`.toLowerCase() ||
+        oTname === tNumStr.toLowerCase()
+      ) {
+        return true;
+      }
+    }
+    if (t.tokenNumber && o.tokenNumber && String(t.tokenNumber) === String(o.tokenNumber)) {
+      return true;
+    }
+    return false;
+  };
+
+  // Distinct operating days
+  const distinctDays = useMemo(() => {
+    const days = new Set((filteredOrders || []).map(o => localDayStr(o.createdAt || o.date || o.placedTime)).filter(Boolean));
+    return Math.max(1, days.size);
+  }, [filteredOrders]);
+
+  const operatingHoursPerDay = 12;
+  const totalOperatingHours = distinctDays * operatingHoursPerDay;
+  const totalOperatingMs = totalOperatingHours * 60 * 60 * 1000;
+
+  // Compute table analytics
+  const tableAnalytics = useMemo(() => {
+    return tableList.map(t => {
+      const ordersForTable = enrichedOrders.filter(o => matchesOrderToTable(o, t));
+      const turns = ordersForTable.length;
+      const totalRevenue = ordersForTable.reduce((s, o) => s + o.revenue, 0);
+      const totalCovers = ordersForTable.reduce((s, o) => s + o.covers, 0);
+      const avgPartySize = turns > 0 ? (totalCovers / turns) : 0;
+      const avgCheck = turns > 0 ? (totalRevenue / turns) : 0;
+      const avgSpendPerCover = totalCovers > 0 ? (totalRevenue / totalCovers) : 0;
+
+      const validDurations = ordersForTable.map(o => o.durationMs).filter(d => d !== null && d > 0);
+      const totalOccupiedMs = validDurations.reduce((s, d) => s + d, 0);
+      const avgTurnTimeMs = validDurations.length > 0 ? (totalOccupiedMs / validDurations.length) : null;
+
+      const occupancyRatePct = totalOperatingMs > 0 ? Math.min(100, (totalOccupiedMs / totalOperatingMs) * 100) : 0;
+      const seatCapacity = t.seats || 4;
+      const seatUtilizationPct = seatCapacity > 0 && turns > 0 ? Math.min(100, (avgPartySize / seatCapacity) * 100) : 0;
+
+      const availableSeatHours = seatCapacity * totalOperatingHours;
+      const revPash = availableSeatHours > 0 ? (totalRevenue / availableSeatHours) : 0;
+
+      let rating = 'Idle';
+      let ratingColor = '#94a3b8';
+      if (turns === 0) {
+        rating = 'Idle';
+        ratingColor = '#94a3b8';
+      } else if (totalRevenue > 4000 && turns >= 3) {
+        rating = '⭐ Star Table';
+        ratingColor = '#1e5e4a';
+      } else if (avgCheck > 1200) {
+        rating = '💎 High Spend';
+        ratingColor = '#0ea5e9';
+      } else if (avgTurnTimeMs && avgTurnTimeMs < 35 * 60 * 1000 && turns >= 2) {
+        rating = '⚡ Fast Turn';
+        ratingColor = '#22c55e';
+      } else if (avgTurnTimeMs && avgTurnTimeMs > 75 * 60 * 1000) {
+        rating = '☕ Lingering';
+        ratingColor = '#f59e0b';
+      } else if (turns === 1) {
+        rating = '⚠️ Low Turn';
+        ratingColor = '#ec4899';
+      } else {
+        rating = 'Balanced';
+        ratingColor = '#14b8a6';
+      }
+
+      return {
+        ...t,
+        orders: ordersForTable,
+        turns,
+        totalRevenue,
+        totalCovers,
+        avgPartySize,
+        avgCheck,
+        avgSpendPerCover,
+        totalOccupiedMs,
+        avgTurnTimeMs,
+        occupancyRatePct,
+        seatCapacity,
+        seatUtilizationPct,
+        revPash,
+        rating,
+        ratingColor,
+      };
+    });
+  }, [tableList, enrichedOrders, totalOperatingMs, totalOperatingHours]);
+
+  // Overall Floor Summary KPIs
+  const floorSummary = useMemo(() => {
+    const totalTables = tableAnalytics.length;
+    const activeTables = tableAnalytics.filter(t => t.turns > 0);
+    const totalCapacity = tableAnalytics.reduce((s, t) => s + t.seatCapacity, 0);
+    const totalTurns = tableAnalytics.reduce((s, t) => s + t.turns, 0);
+    const totalRevenue = tableAnalytics.reduce((s, t) => s + t.totalRevenue, 0);
+    const totalCovers = tableAnalytics.reduce((s, t) => s + t.totalCovers, 0);
+    const totalOccupiedMs = tableAnalytics.reduce((s, t) => s + t.totalOccupiedMs, 0);
+    const totalOccupiedHours = totalOccupiedMs / (3600 * 1000);
+
+    const avgTurnTimeMs = totalTurns > 0 ? (totalOccupiedMs / totalTurns) : null;
+    const avgCheck = totalTurns > 0 ? (totalRevenue / totalTurns) : 0;
+    const avgSpendPerCover = totalCovers > 0 ? (totalRevenue / totalCovers) : 0;
+
+    const floorAvailableSeatHours = totalCapacity * totalOperatingHours;
+    const floorRevPash = floorAvailableSeatHours > 0 ? (totalRevenue / floorAvailableSeatHours) : 0;
+
+    const floorMaxOccupiedMs = totalTables * totalOperatingMs;
+    const overallOccupancyPct = floorMaxOccupiedMs > 0 ? Math.min(100, (totalOccupiedMs / floorMaxOccupiedMs) * 100) : 0;
+
+    const avgSeatEff = activeTables.length > 0
+      ? activeTables.reduce((s, t) => s + t.seatUtilizationPct, 0) / activeTables.length
+      : 0;
+
+    const sortedByRev = [...tableAnalytics].sort((a, b) => b.totalRevenue - a.totalRevenue);
+    const topRevTable = sortedByRev[0]?.totalRevenue > 0 ? sortedByRev[0] : null;
+
+    const sortedByTurns = [...tableAnalytics].sort((a, b) => b.turns - a.turns);
+    const topTurnTable = sortedByTurns[0]?.turns > 0 ? sortedByTurns[0] : null;
+
+    const activeWithTurnTime = activeTables.filter(t => t.avgTurnTimeMs !== null && t.turns >= 2);
+    activeWithTurnTime.sort((a, b) => a.avgTurnTimeMs - b.avgTurnTimeMs);
+    const fastestTurnTable = activeWithTurnTime[0] || null;
+
+    return {
+      totalTables,
+      activeTableCount: activeTables.length,
+      totalCapacity,
+      totalTurns,
+      totalRevenue,
+      totalCovers,
+      totalOccupiedMs,
+      totalOccupiedHours,
+      avgTurnTimeMs,
+      avgCheck,
+      avgSpendPerCover,
+      floorRevPash,
+      overallOccupancyPct,
+      avgSeatEff,
+      topRevTable,
+      topTurnTable,
+      fastestTurnTable,
+      totalSections: sectionOptions.filter(s => s !== 'All').length,
+    };
+  }, [tableAnalytics, totalOperatingHours, totalOperatingMs, sectionOptions]);
+
+  // Section Breakdown
+  const sectionBreakdown = useMemo(() => {
+    const secMap = {};
+    tableAnalytics.forEach(t => {
+      const sec = t.section || 'Main Dining';
+      if (!secMap[sec]) {
+        secMap[sec] = {
+          section: sec,
+          tablesCount: 0,
+          totalCapacity: 0,
+          totalRevenue: 0,
+          totalTurns: 0,
+          totalCovers: 0,
+          totalOccupiedMs: 0,
+        };
+      }
+      secMap[sec].tablesCount += 1;
+      secMap[sec].totalCapacity += t.seatCapacity;
+      secMap[sec].totalRevenue += t.totalRevenue;
+      secMap[sec].totalTurns += t.turns;
+      secMap[sec].totalCovers += t.totalCovers;
+      secMap[sec].totalOccupiedMs += t.totalOccupiedMs;
+    });
+
+    return Object.values(secMap).map(s => {
+      const avgTurnTimeMs = s.totalTurns > 0 ? (s.totalOccupiedMs / s.totalTurns) : null;
+      const avgCheck = s.totalTurns > 0 ? (s.totalRevenue / s.totalTurns) : 0;
+      const sharePct = floorSummary.totalRevenue > 0 ? (s.totalRevenue / floorSummary.totalRevenue * 100) : 0;
+      const availSeatHours = s.totalCapacity * totalOperatingHours;
+      const revPash = availSeatHours > 0 ? (s.totalRevenue / availSeatHours) : 0;
+
+      return {
+        ...s,
+        avgTurnTimeMs,
+        avgCheck,
+        sharePct,
+        revPash,
+      };
+    }).sort((a, b) => b.totalRevenue - a.totalRevenue);
+  }, [tableAnalytics, floorSummary.totalRevenue, totalOperatingHours]);
+
+  // Capacity Breakdown
+  const capacityBreakdown = useMemo(() => {
+    const tiers = [
+      { label: '2-Top (1-2 Seats)', filter: s => s <= 2 },
+      { label: '4-Top (3-4 Seats)', filter: s => s > 2 && s <= 4 },
+      { label: '6-Top (5-6 Seats)', filter: s => s > 4 && s <= 6 },
+      { label: '8+ Top (7+ Seats)', filter: s => s > 6 },
+    ];
+
+    return tiers.map(tier => {
+      const matched = tableAnalytics.filter(t => tier.filter(t.seatCapacity));
+      const tablesCount = matched.length;
+      const totalTurns = matched.reduce((s, t) => s + t.turns, 0);
+      const totalRevenue = matched.reduce((s, t) => s + t.totalRevenue, 0);
+      const totalCovers = matched.reduce((s, t) => s + t.totalCovers, 0);
+      const totalCapacity = matched.reduce((s, t) => s + t.seatCapacity, 0);
+      const avgPartySize = totalTurns > 0 ? (totalCovers / totalTurns) : 0;
+      const avgCheck = totalTurns > 0 ? (totalRevenue / totalTurns) : 0;
+      const nominalCapacity = tablesCount > 0 ? totalCapacity / tablesCount : 4;
+      const seatEffPct = nominalCapacity > 0 && totalTurns > 0 ? Math.min(100, (avgPartySize / nominalCapacity) * 100) : 0;
+
+      return {
+        label: tier.label,
+        tablesCount,
+        totalTurns,
+        totalRevenue,
+        avgPartySize,
+        avgCheck,
+        seatEffPct,
+      };
+    }).filter(tier => tier.tablesCount > 0);
+  }, [tableAnalytics]);
+
+  // Hourly Occupancy Timeline
+  const hourlyOccupancy = useMemo(() => {
+    const hours = Array.from({ length: 24 }, (_, i) => ({
+      hour: i,
+      label: formatHour(i),
+      orderCount: 0,
+      occupiedTables: new Set(),
+      revenue: 0,
+    }));
+
+    enrichedOrders.forEach(o => {
+      if (o.placedTime) {
+        const startH = new Date(o.placedTime).getHours();
+        const endH = o.paidTime ? new Date(o.paidTime).getHours() : startH;
+
+        for (let h = startH; h <= Math.min(23, Math.max(startH, endH)); h++) {
+          hours[h].occupiedTables.add(o.tableId || o.tableName || o.id);
+        }
+        hours[startH].orderCount += 1;
+        hours[startH].revenue += o.revenue;
+      }
+    });
+
+    const maxTables = Math.max(...hours.map(h => h.occupiedTables.size), 1);
+
+    return hours.map(h => ({
+      ...h,
+      tablesActive: h.occupiedTables.size,
+      intensityPct: Math.round((h.occupiedTables.size / maxTables) * 100),
+    }));
+  }, [enrichedOrders]);
+
+  // Filtered & Sorted Table Analytics for main grid
+  const filteredTableAnalytics = useMemo(() => {
+    let result = tableAnalytics;
+
+    if (sectionFilter !== 'All') {
+      result = result.filter(t => t.section === sectionFilter);
+    }
+
+    if (capacityFilter !== 'All') {
+      const cap = parseInt(capacityFilter);
+      if (capacityFilter === '8+') {
+        result = result.filter(t => t.seatCapacity >= 8);
+      } else if (!isNaN(cap)) {
+        result = result.filter(t => t.seatCapacity === cap);
+      }
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(t =>
+        t.displayName.toLowerCase().includes(q) ||
+        (t.section && t.section.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [tableAnalytics, sectionFilter, capacityFilter, searchQuery]);
+
+  const sortedTableAnalytics = useMemo(() => {
+    return sortData(filteredTableAnalytics, sortField, sortDirection);
+  }, [filteredTableAnalytics, sortField, sortDirection]);
+
+  // CSV Export for Table Analytics
+  const handleExportCSV = () => {
+    const headers = [
+      'Table Name',
+      'Section',
+      'Capacity (Seats)',
+      'Total Turns',
+      'Total Occupied Duration',
+      'Avg Turn Time (Mins)',
+      'Occupancy Rate %',
+      'Total Revenue (INR)',
+      'Avg Check per Turn (INR)',
+      'Total Covers (Guests)',
+      'Avg Spend per Cover (INR)',
+      'Seat Utilization %',
+      'RevPASH (INR/Seat-Hour)',
+      'Performance Status'
+    ];
+
+    const rows = sortedTableAnalytics.map(t => [
+      `"${t.displayName}"`,
+      `"${t.section}"`,
+      t.seatCapacity,
+      t.turns,
+      `"${fmtDuration(t.totalOccupiedMs)}"`,
+      t.avgTurnTimeMs ? Math.round(t.avgTurnTimeMs / 60000) : 0,
+      t.occupancyRatePct.toFixed(1),
+      t.totalRevenue.toFixed(2),
+      t.avgCheck.toFixed(2),
+      t.totalCovers,
+      t.avgSpendPerCover.toFixed(2),
+      t.seatUtilizationPct.toFixed(1),
+      t.revPash.toFixed(2),
+      `"${t.rating}"`
+    ].join(','));
+
+    downloadCSV(`table_analytics_${range.toLowerCase().replace(/\s+/g, '_')}.csv`, [headers.join(','), ...rows]);
+  };
+
+  // CSV Export for individual table sessions
+  const handleExportTableSessionsCSV = (table) => {
+    if (!table || !table.orders || table.orders.length === 0) return;
+    const headers = [
+      'Order ID / Bill #',
+      'Table',
+      'Seated / Placed At',
+      'Food Bumped At',
+      'Paid At',
+      'Duration (Mins)',
+      'Covers / Guests',
+      'Server',
+      'Payment Method',
+      'Total Amount (INR)',
+      'Status'
+    ];
+
+    const rows = table.orders.map(o => [
+      `"${o.billDisplay}"`,
+      `"${table.displayName}"`,
+      `"${fmtDateTime(o.placedTime)}"`,
+      `"${o.foodBumpedTime ? fmtDateTime(o.foodBumpedTime) : '—'}"`,
+      `"${o.paidTime ? fmtDateTime(o.paidTime) : '—'}"`,
+      o.durationMs ? Math.round(o.durationMs / 60000) : 0,
+      o.covers,
+      `"${o.server}"`,
+      `"${o.paymentMethod || '—'}"`,
+      o.revenue.toFixed(2),
+      `"${o.status}"`
+    ].join(','));
+
+    downloadCSV(`${table.displayName.toLowerCase().replace(/\s+/g, '_')}_sessions.csv`, [headers.join(','), ...rows]);
+  };
+
+  const displayedTables = showAllTables ? sortedTableAnalytics : sortedTableAnalytics.slice(0, 50);
+
+  return (
+    <div>
+      {/* Filter Bar */}
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Section:</span>
+        <Select value={sectionFilter} onChange={setSectionFilter}>
+          {sectionOptions.map(sec => (
+            <option key={sec} value={sec}>{sec === 'All' ? 'All Sections' : sec}</option>
+          ))}
+        </Select>
+
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Size:</span>
+        <Select value={capacityFilter} onChange={setCapacityFilter}>
+          <option value="All">All Capacities</option>
+          <option value="2">2-Tops (1-2 Seats)</option>
+          <option value="4">4-Tops (3-4 Seats)</option>
+          <option value="6">6-Tops (5-6 Seats)</option>
+          <option value="8+">8+ Tops (Large)</option>
+        </Select>
+
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <Search size={13} color="var(--text-muted)" style={{ position: 'absolute', left: 8 }} />
+          <input
+            type="text"
+            placeholder="Search table or area..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              padding: '5px 10px 5px 28px',
+              borderRadius: 8,
+              border: '1px solid var(--border-subtle)',
+              fontSize: '0.78rem',
+              outline: 'none',
+              background: 'white',
+              width: 150,
+            }}
+          />
+        </div>
+
+        <div style={{ marginLeft: 'auto' }}>
+          <ExportBtn onClick={handleExportCSV} />
+        </div>
+      </FilterBar>
+
+      {/* Top Level Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <StatCard
+          label="Total Dine-In Revenue"
+          value={fmt(floorSummary.totalRevenue)}
+          sub={`${floorSummary.totalTurns} total parties seated`}
+          color="#1e5e4a"
+          icon={IndianRupee}
+        />
+        <StatCard
+          label="Avg Table Turn Time"
+          value={fmtDuration(floorSummary.avgTurnTimeMs)}
+          sub={`${floorSummary.totalOccupiedHours.toFixed(1)} hrs occupied`}
+          color="#0ea5e9"
+          icon={Timer}
+        />
+        <StatCard
+          label="Floor Occupancy Rate"
+          value={fmtPct(floorSummary.overallOccupancyPct)}
+          sub={`${floorSummary.activeTableCount} of ${floorSummary.totalTables} tables active`}
+          color="#22c55e"
+          icon={TableProperties}
+        />
+        <StatCard
+          label="Floor RevPASH"
+          value={`₹${Math.round(floorSummary.floorRevPash)} / hr`}
+          sub={`Avg check ${fmt(floorSummary.avgCheck)}`}
+          color="#f59e0b"
+          icon={TrendingUp}
+        />
+      </div>
+
+      {/* Highlights Bar */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16,
+        padding: '12px 16px', background: 'var(--card-bg)', borderRadius: 12, border: '1px solid var(--border)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(30, 94, 74, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Award size={16} color="#1e5e4a" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>Top Revenue Table</div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {floorSummary.topRevTable ? `${floorSummary.topRevTable.displayName} (${fmt(floorSummary.topRevTable.totalRevenue)})` : '—'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(14, 165, 233, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Clock size={16} color="#0ea5e9" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>Most Turned Table</div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {floorSummary.topTurnTable ? `${floorSummary.topTurnTable.displayName} (${floorSummary.topTurnTable.turns} turns)` : '—'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(34, 197, 94, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Zap size={16} color="#22c55e" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>Fastest Turnover</div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {floorSummary.fastestTurnTable ? `${floorSummary.fastestTurnTable.displayName} (${fmtDuration(floorSummary.fastestTurnTable.avgTurnTimeMs)})` : '—'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Users size={16} color="#f59e0b" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Covers (Guests)</div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {floorSummary.totalCovers > 0 ? `${floorSummary.totalCovers} guests (${fmt(floorSummary.avgSpendPerCover)}/guest)` : '—'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Table-by-Table Data Grid */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <SectionTitle style={{ marginBottom: 2 }}>Table Performance &amp; Utilization Matrix</SectionTitle>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              Showing {displayedTables.length} of {tableAnalytics.length} tables · Click any row or &quot;View Sessions&quot; for complete guest timeline
+            </span>
+          </div>
+          {sortedTableAnalytics.length > 50 && (
+            <button
+              onClick={() => setShowAllTables(prev => !prev)}
+              style={{
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)',
+                fontWeight: 600,
+              }}
+            >
+              {showAllTables ? 'Show First 50' : `Show All (${sortedTableAnalytics.length})`}
+            </button>
+          )}
+        </div>
+
+        {displayedTables.length === 0 ? <Empty text="No tables matched the current filters." /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th sortField={sortField} currentField="displayName" sortDirection={sortDirection} onSort={handleSort}>Table</Th>
+                <Th sortField={sortField} currentField="section" sortDirection={sortDirection} onSort={handleSort}>Section</Th>
+                <Th right sortField={sortField} currentField="seatCapacity" sortDirection={sortDirection} onSort={handleSort}>Seats</Th>
+                <Th right sortField={sortField} currentField="turns" sortDirection={sortDirection} onSort={handleSort}>Turns</Th>
+                <Th right sortField={sortField} currentField="totalOccupiedMs" sortDirection={sortDirection} onSort={handleSort}>Occupied Time</Th>
+                <Th right sortField={sortField} currentField="avgTurnTimeMs" sortDirection={sortDirection} onSort={handleSort}>Avg Turn</Th>
+                <Th right sortField={sortField} currentField="occupancyRatePct" sortDirection={sortDirection} onSort={handleSort}>Occupancy %</Th>
+                <Th right sortField={sortField} currentField="totalRevenue" sortDirection={sortDirection} onSort={handleSort}>Total Sales</Th>
+                <Th right sortField={sortField} currentField="avgCheck" sortDirection={sortDirection} onSort={handleSort}>Avg Check</Th>
+                <Th right sortField={sortField} currentField="totalCovers" sortDirection={sortDirection} onSort={handleSort}>Covers</Th>
+                <Th right sortField={sortField} currentField="avgSpendPerCover" sortDirection={sortDirection} onSort={handleSort}>Spend/Guest</Th>
+                <Th right sortField={sortField} currentField="seatUtilizationPct" sortDirection={sortDirection} onSort={handleSort}>Seat Eff. %</Th>
+                <Th right sortField={sortField} currentField="revPash" sortDirection={sortDirection} onSort={handleSort}>RevPASH</Th>
+                <Th>Status</Th>
+                <Th right>Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedTables.map(t => (
+                <tr
+                  key={t.id}
+                  onClick={() => setSelectedTableModal(t)}
+                  style={{ cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.015)'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <Td bold>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Armchair size={13} color="var(--primary)" />
+                      {t.displayName}
+                    </div>
+                  </Td>
+                  <Td muted>{t.section}</Td>
+                  <Td right>{t.seatCapacity}</Td>
+                  <Td right bold style={{ color: t.turns > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                    {t.turns}
+                  </Td>
+                  <Td right muted>{fmtDuration(t.totalOccupiedMs)}</Td>
+                  <Td right bold style={{ color: t.avgTurnTimeMs ? '#1e5e4a' : 'var(--text-muted)' }}>
+                    {fmtDuration(t.avgTurnTimeMs)}
+                  </Td>
+                  <Td right>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', minWidth: 80 }}>
+                      <div style={{ width: 36, height: 6, borderRadius: 3, background: 'rgba(226,232,240,0.6)', overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${Math.min(100, t.occupancyRatePct)}%`, height: '100%',
+                          background: t.occupancyRatePct > 50 ? '#1e5e4a' : (t.occupancyRatePct > 20 ? '#0ea5e9' : '#94a3b8'),
+                          borderRadius: 3
+                        }} />
+                      </div>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{fmtPct(t.occupancyRatePct)}</span>
+                    </div>
+                  </Td>
+                  <Td right bold>{fmt(t.totalRevenue)}</Td>
+                  <Td right>{fmt(t.avgCheck)}</Td>
+                  <Td right muted>{t.totalCovers}</Td>
+                  <Td right>{fmt(t.avgSpendPerCover)}</Td>
+                  <Td right muted title="Avg Party Size vs Table Capacity">
+                    {fmtPct(t.seatUtilizationPct)}
+                  </Td>
+                  <Td right bold style={{ color: '#0ea5e9' }}>
+                    ₹{Math.round(t.revPash)}
+                  </Td>
+                  <Td>
+                    <Badge label={t.rating} color={t.ratingColor} />
+                  </Td>
+                  <Td right>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTableModal(t);
+                      }}
+                      className="btn btn-secondary"
+                      style={{
+                        padding: '3px 8px', fontSize: '0.7rem', display: 'inline-flex',
+                        alignItems: 'center', gap: 4, borderRadius: 6
+                      }}
+                    >
+                      <Eye size={11} />
+                      Sessions ({t.turns})
+                    </button>
+                  </Td>
+                </tr>
+              ))}
+
+              {/* Summary Totals Row */}
+              <tr>
+                <TdSummary bold>Total Floor ({floorSummary.totalTables} Tables)</TdSummary>
+                <TdSummary muted>{floorSummary.totalSections} Sections</TdSummary>
+                <TdSummary right bold>{floorSummary.totalCapacity} Seats</TdSummary>
+                <TdSummary right bold>{floorSummary.totalTurns}</TdSummary>
+                <TdSummary right bold>{fmtDuration(floorSummary.totalOccupiedMs)}</TdSummary>
+                <TdSummary right bold>{fmtDuration(floorSummary.avgTurnTimeMs)}</TdSummary>
+                <TdSummary right bold>{fmtPct(floorSummary.overallOccupancyPct)}</TdSummary>
+                <TdSummary right bold>{fmt(floorSummary.totalRevenue)}</TdSummary>
+                <TdSummary right bold>{fmt(floorSummary.avgCheck)}</TdSummary>
+                <TdSummary right bold>{floorSummary.totalCovers}</TdSummary>
+                <TdSummary right bold>{fmt(floorSummary.avgSpendPerCover)}</TdSummary>
+                <TdSummary right bold>{fmtPct(floorSummary.avgSeatEff)}</TdSummary>
+                <TdSummary right bold>₹{Math.round(floorSummary.floorRevPash)}</TdSummary>
+                <TdSummary />
+                <TdSummary />
+              </tr>
+            </tbody>
+          </TableWrap>
+        )}
+      </div>
+
+      {/* Secondary Analytical Breakdowns (Section & Capacity) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 16 }}>
+        {/* Section Performance */}
+        <div className="card">
+          <SectionTitle>Floor Area / Section Breakdown</SectionTitle>
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Section Area</Th>
+                <Th right>Tables</Th>
+                <Th right>Seats</Th>
+                <Th right>Turns</Th>
+                <Th right>Sales</Th>
+                <Th right>Share %</Th>
+                <Th right>Avg Turn</Th>
+                <Th right>RevPASH</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectionBreakdown.map(s => (
+                <tr key={s.section}>
+                  <Td bold>{s.section}</Td>
+                  <Td right muted>{s.tablesCount}</Td>
+                  <Td right muted>{s.totalCapacity}</Td>
+                  <Td right bold>{s.totalTurns}</Td>
+                  <Td right bold>{fmt(s.totalRevenue)}</Td>
+                  <Td right>{fmtPct(s.sharePct)}</Td>
+                  <Td right muted>{fmtDuration(s.avgTurnTimeMs)}</Td>
+                  <Td right bold style={{ color: '#0ea5e9' }}>₹{Math.round(s.revPash)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
+
+        {/* Table Size / Capacity Analysis */}
+        <div className="card">
+          <SectionTitle>Table Size &amp; Seating Capacity Analysis</SectionTitle>
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Table Type</Th>
+                <Th right>Tables</Th>
+                <Th right>Turns</Th>
+                <Th right>Sales</Th>
+                <Th right>Avg Check</Th>
+                <Th right>Avg Party</Th>
+                <Th right>Seat Eff. %</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {capacityBreakdown.map(c => (
+                <tr key={c.label}>
+                  <Td bold>{c.label}</Td>
+                  <Td right muted>{c.tablesCount}</Td>
+                  <Td right bold>{c.totalTurns}</Td>
+                  <Td right bold>{fmt(c.totalRevenue)}</Td>
+                  <Td right>{fmt(c.avgCheck)}</Td>
+                  <Td right muted>{c.avgPartySize.toFixed(1)} guests</Td>
+                  <Td right bold style={{ color: c.seatEffPct >= 70 ? '#1e5e4a' : '#f59e0b' }}>
+                    {fmtPct(c.seatEffPct)}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
+      </div>
+
+      {/* Hourly Table Occupancy Heatmap / Timeline */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <SectionTitle style={{ marginBottom: 0 }}>Hourly Table Occupancy &amp; Rush Distribution</SectionTitle>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            Peak table demand across 24-hour cycle
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 8, padding: '10px 0' }}>
+          {hourlyOccupancy.map(h => {
+            const ratio = h.intensityPct / 100;
+            const bg = ratio > 0.8 ? 'rgba(239,68,68,0.85)'
+                     : ratio > 0.5 ? 'rgba(245,158,11,0.8)'
+                     : ratio > 0.2 ? 'rgba(30, 94, 74,0.6)'
+                     : ratio > 0 ? 'rgba(30, 94, 74,0.18)'
+                     : 'rgba(226,232,240,0.3)';
+
+            return (
+              <div
+                key={h.hour}
+                title={`${h.label}: ${h.tablesActive} tables occupied, ${h.orderCount} orders, Sales: ${fmt(h.revenue)}`}
+                style={{
+                  aspectRatio: '1', borderRadius: 8, background: bg,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'default', transition: 'all 0.2s', border: '1px solid var(--border-subtle)'
+                }}
+              >
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: ratio > 0.4 ? 'white' : 'var(--text-secondary)' }}>
+                  {h.label}
+                </span>
+                {h.tablesActive > 0 && (
+                  <span style={{ fontSize: '0.52rem', opacity: 0.9, color: ratio > 0.4 ? 'white' : 'var(--text-muted)' }}>
+                    {h.tablesActive} tbls
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(226,232,240,0.3)' }} /> Idle</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(30, 94, 74,0.18)' }} /> Low Active</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(30, 94, 74,0.6)' }} /> Moderate</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(245,158,11,0.8)' }} /> Busy Rush</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(239,68,68,0.85)' }} /> Peak Rush</span>
+        </div>
+      </div>
+
+      {/* Table Session History Drill-down Modal */}
+      {selectedTableModal && (
+        <Modal
+          open={Boolean(selectedTableModal)}
+          onClose={() => setSelectedTableModal(null)}
+          title={`${selectedTableModal.displayName} — Session & Order History`}
+          wide
+        >
+          <div>
+            {/* Modal Subheader */}
+            <div style={{
+              display: 'flex', gap: 16, alignItems: 'center', padding: '10px 14px',
+              background: 'rgba(248,250,252,0.9)', borderRadius: 10, border: '1px solid var(--border-subtle)',
+              marginBottom: 16, flexWrap: 'wrap'
+            }}>
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Section: </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>{selectedTableModal.section}</span>
+              </div>
+              <div style={{ width: 1, height: 14, background: 'var(--border-subtle)' }} />
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Capacity: </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>{selectedTableModal.seatCapacity} Seats</span>
+              </div>
+              <div style={{ width: 1, height: 14, background: 'var(--border-subtle)' }} />
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Total Turns: </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)' }}>{selectedTableModal.turns}</span>
+              </div>
+              <div style={{ width: 1, height: 14, background: 'var(--border-subtle)' }} />
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Total Revenue: </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e5e4a' }}>{fmt(selectedTableModal.totalRevenue)}</span>
+              </div>
+              <div style={{ width: 1, height: 14, background: 'var(--border-subtle)' }} />
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Avg Turn Time: </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>{fmtDuration(selectedTableModal.avgTurnTimeMs)}</span>
+              </div>
+              <div style={{ marginLeft: 'auto' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleExportTableSessionsCSV(selectedTableModal)}
+                  style={{ padding: '4px 10px', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <Download size={12} /> Export Sessions
+                </button>
+              </div>
+            </div>
+
+            {/* Sessions Table */}
+            {(!selectedTableModal.orders || selectedTableModal.orders.length === 0) ? (
+              <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text-muted)' }}>
+                <Armchair size={32} strokeWidth={1} style={{ opacity: 0.3, marginBottom: 8 }} />
+                <p style={{ fontSize: '0.82rem' }}>No orders recorded for {selectedTableModal.displayName} in this period.</p>
+              </div>
+            ) : (
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th>Bill / Order #</Th>
+                    <Th>Seated / Placed</Th>
+                    <Th>Food Ready</Th>
+                    <Th>Paid / Cleared</Th>
+                    <Th right>Turn Time</Th>
+                    <Th right>Covers</Th>
+                    <Th>Server</Th>
+                    <Th>Items Summary</Th>
+                    <Th right>Total</Th>
+                    <Th>Payment</Th>
+                    <Th>Status</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedTableModal.orders.map(o => {
+                    const dur = o.durationMs;
+                    let durColor = '#1e5e4a';
+                    if (dur) {
+                      const mins = dur / 60000;
+                      if (mins > 90) durColor = '#ec4899';
+                      else if (mins > 60) durColor = '#f59e0b';
+                      else if (mins > 30) durColor = '#0ea5e9';
+                      else durColor = '#22c55e';
+                    }
+
+                    const itemsPreview = (o.items || [])
+                      .map(it => `${it.name || it.itemName || 'Item'}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`)
+                      .slice(0, 2)
+                      .join(', ');
+                    const extraItems = (o.items || []).length > 2 ? ` +${(o.items || []).length - 2} more` : '';
+
+                    return (
+                      <tr key={o.id || o.billNo}>
+                        <Td bold>{o.billDisplay}</Td>
+                        <Td style={{ fontSize: '0.72rem' }}>{fmtDateTime(o.placedTime)}</Td>
+                        <Td style={{ fontSize: '0.72rem' }}>{o.foodBumpedTime ? fmtTime(o.foodBumpedTime) : '—'}</Td>
+                        <Td style={{ fontSize: '0.72rem' }}>{o.paidTime ? fmtTime(o.paidTime) : '—'}</Td>
+                        <Td right bold style={{ color: durColor }}>
+                          {fmtDuration(dur)}
+                        </Td>
+                        <Td right muted>{o.covers}</Td>
+                        <Td muted>{o.server}</Td>
+                        <Td style={{ fontSize: '0.72rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }} title={itemsPreview + extraItems}>
+                          {itemsPreview ? `${itemsPreview}${extraItems}` : '—'}
+                        </Td>
+                        <Td right bold>{fmt(o.revenue)}</Td>
+                        <Td muted style={{ fontSize: '0.72rem' }}>{o.paymentMethod || '—'}</Td>
+                        <Td>
+                          <Badge
+                            label={o.status || 'paid'}
+                            color={o.status === 'paid' ? '#1e5e4a' : (o.status === 'cancelled' ? '#ef4444' : '#f59e0b')}
+                          />
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </TableWrap>
+            )}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+// =================================================================
 // TAB 8 -- LABOR & STAFFING REPORT (Retained from original layout)
 // =================================================================
 
@@ -3007,6 +4141,7 @@ const TABS = [
   { id: 'tax_compliance',    label: 'Tax & Compliance',     icon: Receipt },
   { id: 'inventory_mgmt',    label: 'Inventory Mgmt',       icon: Boxes },
   { id: 'menu_mgmt',         label: 'Menu Management',      icon: Utensils },
+  { id: 'table_analytics',   label: 'Table Analytics',      icon: TableProperties },
   { id: 'operational_eff',   label: 'Operational Efficiency', icon: Clock },
   { id: 'speed',             label: 'Speed of Service',     icon: Zap },
   { id: 'labor',             label: 'Labor & Staffing',     icon: Users },
@@ -3015,7 +4150,7 @@ const TABS = [
 ];
 
 const Reports = () => {
-  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, attendance, registerClosures } = useApp();
+  const { orders, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, posTables, attendance, registerClosures } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   
@@ -3064,6 +4199,7 @@ const Reports = () => {
       {activeTab === 'tax_compliance'   && <TaxComplianceTab orders={orders} />}
       {activeTab === 'inventory_mgmt'   && <InventoryMgmtTab inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}
       {activeTab === 'menu_mgmt'        && <MenuManagementTab orders={orders} menu={menu} />}
+      {activeTab === 'table_analytics'  && <TableAnalyticsTab orders={orders} floorPlans={floorPlans} posTables={posTables} kdsTickets={kdsTickets} staff={staff} />}
       {activeTab === 'operational_eff'  && <OperationalEfficiencyTab orders={orders} />}
       {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} />}
       {activeTab === 'labor'            && <LaborReport orders={orders} staff={staff} />}
