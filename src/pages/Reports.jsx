@@ -140,6 +140,68 @@ function useHistoricalOrders(range, dateFrom) {
   }, [range, dateFrom, loadOlderOrders]);
 }
 
+// ─── Payment Split & Filter Helpers ─────────────────────────
+
+export function getOrderPaymentSplits(order) {
+  if (!order) return null;
+  const rawSplits = order.paymentSplits || order.timestamps?.paymentSplits;
+  if (Array.isArray(rawSplits) && rawSplits.length > 0) return rawSplits;
+  const pm = order.paymentMethod || '';
+  if (typeof pm === 'string' && pm.toLowerCase().startsWith('split')) {
+    const match = pm.match(/\(([^)]+)\)/);
+    if (match) {
+      const parts = match[1].split(',');
+      const parsed = parts.map(part => {
+        const [method, amtStr] = part.split(':');
+        const cleanAmt = parseFloat((amtStr || '').replace(/[^0-9.]/g, '')) || 0;
+        return { method: (method || '').trim(), amount: cleanAmt };
+      }).filter(sp => sp.amount > 0);
+      if (parsed.length > 0) return parsed;
+    }
+  }
+  return null;
+}
+
+export function orderMatchesPaymentType(order, filter) {
+  if (!order || !filter || filter === 'All') return true;
+  const pm = (order.paymentMethod || '').toLowerCase();
+  const splits = getOrderPaymentSplits(order);
+  const target = filter.toLowerCase();
+
+  if (target === 'split') {
+    return pm.startsWith('split') || (Array.isArray(splits) && splits.length > 1);
+  }
+  if (pm === target) return true;
+  if (Array.isArray(splits) && splits.length > 0) {
+    return splits.some(s => {
+      const sm = (s.method || '').toLowerCase();
+      return sm === target || sm.includes(target);
+    });
+  }
+  return false;
+}
+
+export function getOrderPaymentAmount(order, method) {
+  if (!order) return 0;
+  const total = parseFloat(order.total || 0);
+  if (!method || method === 'All') return total;
+  const target = method.toLowerCase();
+  const splits = getOrderPaymentSplits(order);
+  if (Array.isArray(splits) && splits.length > 0) {
+    return splits
+      .filter(s => {
+        const sm = (s.method || '').toLowerCase();
+        return sm === target || sm.includes(target);
+      })
+      .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+  }
+  const pm = (order.paymentMethod || '').toLowerCase();
+  if (pm === target || pm.includes(target)) {
+    return total;
+  }
+  return 0;
+}
+
 // ─── Shared UI pieces ───────────────────────────────────────
 
 const StatCard = ({ label, value, sub, color = '#1e5e4a', icon: Icon }) => (
@@ -686,7 +748,7 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
 
       day.gross += grossSales;
 
-      const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+      const splits = getOrderPaymentSplits(o);
       if (Array.isArray(splits) && splits.length > 0) {
         splits.forEach(sp => {
           const pm = (sp.method || '').toLowerCase();
@@ -699,13 +761,13 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
           else day.other = (day.other || 0) + amt;
         });
       } else {
-        const pMethod = (o.paymentMethod || 'Cash').toLowerCase();
+        const pMethod = (o.paymentMethod || '').toLowerCase();
         if (pMethod.includes('cash')) day.cash += totalAmount;
         else if (pMethod.includes('card')) day.card += totalAmount;
         else if (pMethod.includes('upi')) day.upi += totalAmount;
         else if (pMethod.includes('wallet')) day.wallet = (day.wallet || 0) + totalAmount;
         else if (pMethod.includes('online')) day.online = (day.online || 0) + totalAmount;
-        else day.other = (day.other || 0) + totalAmount;
+        else if (pMethod) day.other = (day.other || 0) + totalAmount;
       }
     });
 
@@ -860,17 +922,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       }
     }
     if (paymentTypeFilter !== 'All') {
-      arr = arr.filter(o => {
-        if (paymentTypeFilter === 'Split') {
-          return (o.paymentMethod || '').toLowerCase().startsWith('split') || (o.paymentSplits?.length > 1) || (o.timestamps?.paymentSplits?.length > 1);
-        }
-        if ((o.paymentMethod || '').toLowerCase() === paymentTypeFilter.toLowerCase()) return true;
-        const splits = o.paymentSplits || o.timestamps?.paymentSplits;
-        if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase() === paymentTypeFilter.toLowerCase())) {
-          return true;
-        }
-        return false;
-      });
+      arr = arr.filter(o => orderMatchesPaymentType(o, paymentTypeFilter));
     }
     if (cashierFilter !== 'All') {
       arr = arr.filter(o => o.serverName === cashierFilter || o.serverId === cashierFilter);
@@ -891,7 +943,12 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       const s = (o.status || '').toLowerCase();
       return s !== 'voided' && s !== 'cancelled';
     });
-    const totalAmount = validOrders.reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
+    const totalAmount = validOrders.reduce((sum, o) => {
+      if (paymentTypeFilter !== 'All' && paymentTypeFilter !== 'Split') {
+        return sum + getOrderPaymentAmount(o, paymentTypeFilter);
+      }
+      return sum + (parseFloat(o.total) || 0);
+    }, 0);
     const count = validOrders.length;
     const voidedCount = sortedInvoices.length - count;
     return {
@@ -899,7 +956,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       count,
       voidedCount
     };
-  }, [sortedInvoices]);
+  }, [sortedInvoices, paymentTypeFilter]);
 
   const cashiers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
 
@@ -910,7 +967,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       if (o.paymentMethod && !standard.map(s => s.toLowerCase()).includes(o.paymentMethod.toLowerCase())) {
         extra.add(o.paymentMethod);
       }
-      const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+      const splits = getOrderPaymentSplits(o);
       if (Array.isArray(splits)) {
         splits.forEach(s => {
           if (s.method && !standard.map(std => std.toLowerCase()).includes(s.method.toLowerCase())) {
@@ -1057,7 +1114,18 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                     <Td bold>{o.billNo || o.id?.slice(0, 8)}</Td>
                     <Td>{fmtDateTime(o.createdAt)}</Td>
                     <Td><Badge label={o.orderType || (o.tableId ? 'Dine-in' : 'Takeout')} color="#1e5e4a" /></Td>
-                    <Td right bold>{fmt(o.total || 0)}</Td>
+                    <Td right bold>
+                      {paymentTypeFilter !== 'All' && paymentTypeFilter !== 'Split' && getOrderPaymentSplits(o) ? (
+                        <div>
+                          <div>{fmt(o.total || 0)}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 600 }}>
+                            ({paymentTypeFilter}: {fmt(getOrderPaymentAmount(o, paymentTypeFilter))})
+                          </div>
+                        </div>
+                      ) : (
+                        fmt(o.total || 0)
+                      )}
+                    </Td>
                     <Td><Badge label={o.paymentMethod || '—'} color="#6366f1" /></Td>
                     <Td><Badge label={status} color={statusColor} /></Td>
                     <Td muted>{o.serverName || '—'}</Td>
@@ -1072,7 +1140,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
               })}
               <tr>
                 <TdSummary colSpan={3} bold>
-                  TOTAL ({totals.count} {totals.count === 1 ? 'Invoice' : 'Invoices'}{totals.voidedCount > 0 ? ` • ${totals.voidedCount} voided excluded` : ''})
+                  TOTAL ({totals.count} {totals.count === 1 ? 'Invoice' : 'Invoices'}{totals.voidedCount > 0 ? ` • ${totals.voidedCount} voided excluded` : ''}{paymentTypeFilter !== 'All' && paymentTypeFilter !== 'Split' ? ` • ${paymentTypeFilter} Total` : ''})
                 </TdSummary>
                 <TdSummary right bold>{fmt(totals.totalAmount)}</TdSummary>
                 <TdSummary colSpan={4} />
@@ -1203,7 +1271,7 @@ const RegisterClosuresReport = () => {
             const total = o.total || 0;
             const tip = o.tip || 0;
             
-            const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+            const splits = getOrderPaymentSplits(o);
             if (Array.isArray(splits) && splits.length > 0) {
               splits.forEach(sp => {
                 const m = (sp.method || '').toLowerCase();
@@ -1693,17 +1761,7 @@ const SalesAccrualReport = ({ orders, settings }) => {
     });
 
     if (paymentTypeFilter !== 'All') {
-      arr = arr.filter(o => {
-        if (paymentTypeFilter === 'Split') {
-          return (o.paymentMethod || '').toLowerCase().startsWith('split') || (o.paymentSplits?.length > 1) || (o.timestamps?.paymentSplits?.length > 1);
-        }
-        if ((o.paymentMethod || '').toLowerCase() === paymentTypeFilter.toLowerCase()) return true;
-        const splits = o.paymentSplits || o.timestamps?.paymentSplits;
-        if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase() === paymentTypeFilter.toLowerCase())) {
-          return true;
-        }
-        return false;
-      });
+      arr = arr.filter(o => orderMatchesPaymentType(o, paymentTypeFilter));
     }
 
     const itemized = [];
@@ -1718,24 +1776,37 @@ const SalesAccrualReport = ({ orders, settings }) => {
         ? o.items.reduce((sum, i) => sum + (parseFloat(i.price || 0) * (i.qty || 1)), 0)
         : parseFloat(o.subtotal || o.total || 0);
 
-      (o.items || []).forEach(item => {
+      let methodRatio = 1;
+      if (paymentTypeFilter !== 'All' && paymentTypeFilter !== 'Split') {
+        const orderTotal = parseFloat(o.total || 0);
+        const methodAmt = getOrderPaymentAmount(o, paymentTypeFilter);
+        if (orderTotal > 0) {
+          methodRatio = Math.min(1, methodAmt / orderTotal);
+        }
+      }
+
+      const itemList = (o.items && o.items.length > 0)
+        ? o.items
+        : [{ name: 'Order #' + (o.billNo || o.id?.slice(0, 8)), price: itemsTotal, qty: 1 }];
+
+      itemList.forEach(item => {
         const itemQty = item.qty || 1;
         const itemRaw = parseFloat(item.price || 0) * itemQty;
         
         // Apportionment ratio
         const ratio = itemsTotal > 0 ? (itemRaw / itemsTotal) : 0;
         
-        const apportionedDiscount = ratio * orderDiscount;
-        const apportionedTax = ratio * orderTax;
+        const apportionedDiscount = ratio * orderDiscount * methodRatio;
+        const apportionedTax = ratio * orderTax * methodRatio;
         
         let salesExcTax = 0;
         let salesIncTax = 0;
 
         if (orderPricesIncludeGst) {
-          salesIncTax = itemRaw - apportionedDiscount;
+          salesIncTax = (itemRaw * methodRatio) - apportionedDiscount;
           salesExcTax = salesIncTax - apportionedTax;
         } else {
-          salesExcTax = itemRaw - apportionedDiscount;
+          salesExcTax = (itemRaw * methodRatio) - apportionedDiscount;
           salesIncTax = salesExcTax + apportionedTax;
         }
 

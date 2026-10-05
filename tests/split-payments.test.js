@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { getOrderPaymentSplits, orderMatchesPaymentType, getOrderPaymentAmount } from '../src/pages/Reports.jsx';
 
 describe('Split Payments & Report Aggregation', () => {
   it('correctly allocates partial amounts and validates balance', () => {
@@ -47,12 +48,19 @@ describe('Split Payments & Report Aggregation', () => {
         paymentMethod: 'Card',
         paymentSplits: null,
         createdAt: '2026-09-24T13:00:00.000Z'
+      },
+      {
+        id: 'ord_3_open',
+        total: 300,
+        paymentMethod: null,
+        status: 'open',
+        createdAt: '2026-09-24T14:00:00.000Z'
       }
     ];
 
     const totals = { cash: 0, card: 0, upi: 0 };
     orders.forEach(o => {
-      const splits = o.paymentSplits || o.timestamps?.paymentSplits;
+      const splits = getOrderPaymentSplits(o);
       if (Array.isArray(splits) && splits.length > 0) {
         splits.forEach(sp => {
           const pm = (sp.method || '').toLowerCase();
@@ -62,10 +70,10 @@ describe('Split Payments & Report Aggregation', () => {
           else totals.upi += amt;
         });
       } else {
-        const pm = (o.paymentMethod || 'Cash').toLowerCase();
+        const pm = (o.paymentMethod || '').toLowerCase();
         if (pm.includes('cash')) totals.cash += o.total;
         else if (pm.includes('card')) totals.card += o.total;
-        else totals.upi += o.total;
+        else if (pm.includes('upi')) totals.upi += o.total;
       }
     });
 
@@ -85,21 +93,100 @@ describe('Split Payments & Report Aggregation', () => {
       ]
     };
 
-    const matchesCashFilter = (filter, o) => {
-      if (filter === 'Split') {
-        return (o.paymentMethod || '').toLowerCase().startsWith('split') || (o.paymentSplits?.length > 1);
-      }
-      if ((o.paymentMethod || 'N/A') === filter) return true;
-      const splits = o.paymentSplits;
-      if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase() === filter.toLowerCase())) {
-        return true;
-      }
-      return false;
+    expect(orderMatchesPaymentType(order, 'Cash')).toBe(true);
+    expect(orderMatchesPaymentType(order, 'UPI')).toBe(true);
+    expect(orderMatchesPaymentType(order, 'Card')).toBe(false);
+    expect(orderMatchesPaymentType(order, 'Split')).toBe(true);
+  });
+
+  it('correctly parses string Split labels and isolates cash payment amounts', () => {
+    const stringSplitOrder = {
+      id: 'ord_str_split',
+      total: 1000,
+      paymentMethod: 'Split (Cash: ₹350, UPI: ₹650)',
+      paymentSplits: null
     };
 
-    expect(matchesCashFilter('Cash', order)).toBe(true);
-    expect(matchesCashFilter('UPI', order)).toBe(true);
-    expect(matchesCashFilter('Card', order)).toBe(false);
-    expect(matchesCashFilter('Split', order)).toBe(true);
+    const splits = getOrderPaymentSplits(stringSplitOrder);
+    expect(splits).toEqual([
+      { method: 'Cash', amount: 350 },
+      { method: 'UPI', amount: 650 }
+    ]);
+
+    expect(getOrderPaymentAmount(stringSplitOrder, 'Cash')).toBe(350);
+    expect(getOrderPaymentAmount(stringSplitOrder, 'UPI')).toBe(650);
+    expect(getOrderPaymentAmount(stringSplitOrder, 'Card')).toBe(0);
+    expect(getOrderPaymentAmount(stringSplitOrder, 'All')).toBe(1000);
+  });
+
+  it('ensures Cash calculations match across Daily Sales Summary, Invoice Register, and Accrual reports', () => {
+    const orders = [
+      {
+        id: 'ord_cash',
+        total: 500,
+        paymentMethod: 'Cash',
+        status: 'Closed'
+      },
+      {
+        id: 'ord_split',
+        total: 1000,
+        paymentMethod: 'Split (Cash: ₹400, UPI: ₹600)',
+        paymentSplits: [
+          { method: 'Cash', amount: 400 },
+          { method: 'UPI', amount: 600 }
+        ],
+        status: 'Closed'
+      },
+      {
+        id: 'ord_upi',
+        total: 700,
+        paymentMethod: 'UPI',
+        status: 'Closed'
+      },
+      {
+        id: 'ord_open_table',
+        total: 800,
+        paymentMethod: null,
+        status: 'open'
+      }
+    ];
+
+    // 1. Daily Sales Summary cash calculation
+    let dailySalesCash = 0;
+    orders.forEach(o => {
+      if ((o.status || '').toLowerCase() === 'voided') return;
+      const splits = getOrderPaymentSplits(o);
+      if (Array.isArray(splits) && splits.length > 0) {
+        splits.forEach(sp => {
+          if ((sp.method || '').toLowerCase().includes('cash')) dailySalesCash += parseFloat(sp.amount || 0);
+        });
+      } else {
+        const pm = (o.paymentMethod || '').toLowerCase();
+        if (pm.includes('cash')) dailySalesCash += parseFloat(o.total || 0);
+      }
+    });
+
+    // 2. Detailed Invoice Register with Cash filter
+    const invoiceRegisterCashOrders = orders.filter(o => orderMatchesPaymentType(o, 'Cash'));
+    const invoiceRegisterCashTotal = invoiceRegisterCashOrders.reduce((sum, o) => {
+      return sum + getOrderPaymentAmount(o, 'Cash');
+    }, 0);
+
+    // 3. Sales Accrual with Cash filter
+    const accrualCashOrders = orders.filter(o => orderMatchesPaymentType(o, 'Cash'));
+    const accrualCollectedCash = accrualCashOrders.reduce((sum, o) => {
+      const isClosed = o.status === 'Closed' || o.status === 'Completed' || o.status === 'paid';
+      if (!isClosed) return sum;
+      const total = parseFloat(o.total || 0);
+      const cashAmt = getOrderPaymentAmount(o, 'Cash');
+      const ratio = total > 0 ? (cashAmt / total) : 0;
+      return sum + (total * ratio);
+    }, 0);
+
+    // All three must equal 500 (full cash order) + 400 (split cash portion) = 900
+    expect(dailySalesCash).toBe(900);
+    expect(invoiceRegisterCashTotal).toBe(900);
+    expect(accrualCollectedCash).toBe(900);
   });
 });
+

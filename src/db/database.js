@@ -830,13 +830,17 @@ export function getOrdersByDate(dateStr) {
 
 export function getTodayStats() {
   const today = todayLocalStr();
-  const todayOrders = getOrdersByDate(today);
-  const gross = todayOrders.reduce((s, o) => s + o.total, 0);
+  const allTodayOrders = getOrdersByDate(today);
+  const todayOrders = allTodayOrders.filter(o => {
+    const s = (o.status || '').toLowerCase();
+    return s !== 'voided' && s !== 'cancelled';
+  });
+  const gross = todayOrders.reduce((s, o) => s + (parseFloat(o.total) || 0), 0);
   const orderCount = todayOrders.length;
   const avg = orderCount > 0 ? gross / orderCount : 0;
-  const tips = todayOrders.reduce((s, o) => s + (o.tip || 0), 0);
-  const comps = todayOrders.reduce((s, o) => s + (o.comp || 0), 0);
-  const discounts = todayOrders.reduce((s, o) => s + (o.discount || 0), 0);
+  const tips = todayOrders.reduce((s, o) => s + (parseFloat(o.tip) || 0), 0);
+  const comps = todayOrders.reduce((s, o) => s + (parseFloat(o.comp) || 0), 0);
+  const discounts = todayOrders.reduce((s, o) => s + (parseFloat(o.discount) || 0), 0);
   return { gross, orderCount, avg, tips, comps, discounts, orders: todayOrders };
 }
 
