@@ -8,7 +8,7 @@ import {
   Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
   Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck,
   TableProperties, Armchair, Eye, Layers, History, ShieldCheck,
-  Building2, FileSpreadsheet
+  Building2, FileSpreadsheet, Flame
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
@@ -3251,25 +3251,34 @@ const OperationalEfficiencyTab = ({ orders }) => {
 // TAB 7 -- SPEED OF SERVICE (Retained from original layout)
 // =================================================================
 
-const SpeedOfService = ({ orders, kdsTickets = [] }) => {
-  const [range, setRange]       = useState('Today');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo]     = useState('');
-  const [showAll, setShowAll]   = useState(false);
+const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
+  const [activeSpeedTab, setActiveSpeedTab] = useState('invoices'); // 'invoices' | 'tickets' | 'items'
+  const [range, setRange]                   = useState('Today');
+  const [dateFrom, setDateFrom]             = useState('');
+  const [dateTo, setDateTo]                 = useState('');
+  const [searchQuery, setSearchQuery]       = useState('');
+  const [showAll, setShowAll]               = useState(false);
+  const [itemViewMode, setItemViewMode]     = useState('summary'); // 'summary' | 'log'
+
   useHistoricalOrders(range, dateFrom);
 
-  const { sortField, sortDirection, handleSort } = useSort('orderPlaced', 'desc');
+  // Sorting hooks for each sub-report
+  const invoiceSort = useSort('orderPlaced', 'desc');
+  const ticketSort  = useSort('firedAt', 'desc');
+  const itemSort    = useSort('avgPrepMs', 'desc');
+  const itemLogSort = useSort('bumpedAt', 'desc');
 
+  // Filter orders and KDS tickets by selected period range
   const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
+  const filteredTickets = useMemo(() => filterByRange(kdsTickets, range, dateFrom, dateTo, 'firedAt'), [kdsTickets, range, dateFrom, dateTo]);
 
+  // ── 1. INVOICE-LEVEL SPEED DATA ─────────────────────────────
   const serviceData = useMemo(() => {
-    // Index KDS tickets by possible keys for fast and accurate lookup
     const ticketsByOrderId = new Map();
     const ticketsByTableId = new Map();
     const ticketsByToken = new Map();
 
     (kdsTickets || []).forEach(ticket => {
-      // 1. Direct orderId / billNo
       if (ticket.orderId) {
         if (!ticketsByOrderId.has(ticket.orderId)) ticketsByOrderId.set(ticket.orderId, []);
         ticketsByOrderId.get(ticket.orderId).push(ticket);
@@ -3278,7 +3287,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         if (!ticketsByOrderId.has(ticket.billNo)) ticketsByOrderId.set(ticket.billNo, []);
         ticketsByOrderId.get(ticket.billNo).push(ticket);
       }
-      // 2. Table ID (normalized to string and bare number)
       if (ticket.tableId !== undefined && ticket.tableId !== null) {
         const rawTid = String(ticket.tableId).trim();
         const bareTid = rawTid.replace(/^T-?|^tab_/i, '');
@@ -3287,7 +3295,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
           ticketsByTableId.get(k).push(ticket);
         });
       }
-      // 3. Token number
       if (ticket.tokenNumber !== undefined && ticket.tokenNumber !== null) {
         const tok = String(ticket.tokenNumber).trim();
         if (!ticketsByToken.has(tok)) ticketsByToken.set(tok, []);
@@ -3296,18 +3303,13 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
     });
 
     return filteredOrders.map(o => {
-      // Find matching tickets
-      // Resolve order creation timestamp (always prioritize actual order creation time: createdAt)
       const orderCreationIso = o.createdAt || o.date || o.timestamps?.ordered || o.orderPlacedAt || null;
       const orderCreatedTime = orderCreationIso ? new Date(orderCreationIso).getTime() : Date.now();
 
-      // Resolve checkPaid / payment time
       const orderPaidIso = o.paidAt || o.closedAt || o.settledAt || o.timestamps?.paid || (o.status === 'paid' ? o.createdAt : null);
       const orderPaidTime = orderPaidIso ? new Date(orderPaidIso).getTime() : orderCreatedTime;
       const checkPaid = orderPaidIso ? new Date(orderPaidIso).getTime() : null;
 
-      // Session validator: ticket must belong to this dining session
-      // (within realistic 4-hour window of order creation/payment, rejecting stale cross-day tickets)
       const isTicketInSession = (t) => {
         const tTime = new Date(t.firedAt || t.createdAt).getTime();
         if (!tTime || isNaN(tTime)) return false;
@@ -3317,8 +3319,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
       };
 
       let matchedTickets = [];
-
-      // Check direct matches (strictly within session)
       if (ticketsByOrderId.has(o.id)) {
         matchedTickets = (ticketsByOrderId.get(o.id) || []).filter(isTicketInSession);
       } else if (o.billNo && ticketsByOrderId.has(o.billNo)) {
@@ -3328,7 +3328,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         matchedTickets = (kdsTickets || []).filter(t => targetIds.has(t.id) && isTicketInSession(t));
       }
 
-      // Check table / token matches if not matched directly
       if (matchedTickets.length === 0) {
         let candidates = [];
         if (o.tableId !== undefined && o.tableId !== null) {
@@ -3345,7 +3344,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         }
       }
 
-      // Resolve ticketPrinted
       let ticketPrintedTime = null;
       if (matchedTickets.length > 0) {
         const ticketTimes = matchedTickets.map(t => new Date(t.firedAt || t.createdAt).getTime()).filter(Boolean);
@@ -3360,7 +3358,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) ticketPrintedTime = t;
       }
 
-      // Resolve foodBumped
       let foodBumpedTime = null;
       if (matchedTickets.length > 0) {
         const bumpTimes = [];
@@ -3384,15 +3381,12 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) foodBumpedTime = t;
       }
 
-      // Discard anomalous bump times (bumped > 3 hours after firing is an abandoned ticket cleanup)
       if (foodBumpedTime && ticketPrintedTime && (foodBumpedTime - ticketPrintedTime > 3 * 60 * 60 * 1000)) {
         foodBumpedTime = null;
       }
 
-      // Resolve orderPlaced: ALWAYS use the order's actual creation time (createdAt)
       let orderPlacedTime = orderCreatedTime;
 
-      // Only accept orderPlacedAt or timestamps.ordered if within realistic same-session dining window
       if (o.orderPlacedAt) {
         const t = new Date(o.orderPlacedAt).getTime();
         if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
@@ -3401,7 +3395,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
       }
 
-      // If a valid ticket was printed earlier in this same session, dining turnaround begins when ticket was fired
       if (ticketPrintedTime && (!orderPlacedTime || orderPlacedTime >= checkPaid || orderPlacedTime > ticketPrintedTime)) {
         orderPlacedTime = ticketPrintedTime;
       }
@@ -3409,7 +3402,6 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         ticketPrintedTime = orderPlacedTime;
       }
 
-      // Ensure valid timeline progression
       const orderToTicket = (ticketPrintedTime && orderPlacedTime && ticketPrintedTime >= orderPlacedTime)
         ? ticketPrintedTime - orderPlacedTime
         : 0;
@@ -3450,11 +3442,20 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
     }).filter(d => d.orderPlaced || d.checkPaid);
   }, [filteredOrders, kdsTickets]);
 
-  const sortedServiceData = useMemo(() => {
-    return sortData(serviceData, sortField, sortDirection);
-  }, [serviceData, sortField, sortDirection]);
+  const filteredServiceData = useMemo(() => {
+    if (!searchQuery.trim()) return serviceData;
+    const q = searchQuery.toLowerCase();
+    return serviceData.filter(d =>
+      String(d.id || '').toLowerCase().includes(q) ||
+      String(d.table || '').toLowerCase().includes(q)
+    );
+  }, [serviceData, searchQuery]);
 
-  const averages = useMemo(() => {
+  const sortedServiceData = useMemo(() => {
+    return sortData(filteredServiceData, invoiceSort.sortField, invoiceSort.sortDirection);
+  }, [filteredServiceData, invoiceSort.sortField, invoiceSort.sortDirection]);
+
+  const invoiceAverages = useMemo(() => {
     const valid = (arr) => arr.filter(v => v !== null && v !== undefined && !isNaN(v) && v >= 0);
     const avg = (arr) => { const v = valid(arr); return v.length > 0 ? v.reduce((s, x) => s + x, 0) / v.length : null; };
     return {
@@ -3465,104 +3466,658 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
     };
   }, [serviceData]);
 
+  // ── 2. KDS TICKET-LEVEL SPEED DATA ──────────────────────────
+  const ticketSpeedData = useMemo(() => {
+    return (filteredTickets || []).map(t => {
+      const firedIso = t.firedAt || t.createdAt;
+      const firedMs = firedIso ? new Date(firedIso).getTime() : null;
+
+      let bumpedMs = null;
+      if (t.bumpedAt) bumpedMs = new Date(t.bumpedAt).getTime();
+      else if (t.completedAt) bumpedMs = new Date(t.completedAt).getTime();
+      else {
+        const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+        if (itemBumps.length > 0) bumpedMs = Math.max(...itemBumps);
+        else if (t.status === 'completed' && t.updatedAt) bumpedMs = new Date(t.updatedAt).getTime();
+      }
+
+      let prepMs = null;
+      let isBumpAnomaly = false;
+      if (firedMs && bumpedMs && bumpedMs >= firedMs) {
+        const raw = bumpedMs - firedMs;
+        if (raw <= 3 * 60 * 60 * 1000) {
+          prepMs = raw;
+        } else {
+          isBumpAnomaly = true;
+        }
+      }
+
+      const tableDisplay = t.tableName
+        ? t.tableName
+        : (t.tableId ? (String(t.tableId).startsWith('T-') ? t.tableId : `T-${t.tableId}`) : (t.tokenNumber ? `Token #${t.tokenNumber}` : (t.orderType === 'takeout' ? 'Takeout' : (t.orderType === 'delivery' ? 'Delivery' : 'Direct'))));
+
+      const itemsSummary = (t.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—';
+      const itemsCount = (t.items || []).reduce((s, i) => s + (i.qty || 1), 0);
+      const status = bumpedMs ? 'completed' : (t.status || 'active');
+
+      return {
+        id: t.orderId || (t.id ? t.id.slice(0, 8) : '—'),
+        ticketId: t.id,
+        table: tableDisplay,
+        orderType: t.orderType || 'dine-in',
+        itemsSummary,
+        itemsCount,
+        firedAt: firedMs,
+        bumpedAt: bumpedMs,
+        prepMs,
+        status,
+        isBumpAnomaly,
+      };
+    });
+  }, [filteredTickets]);
+
+  const filteredTicketData = useMemo(() => {
+    if (!searchQuery.trim()) return ticketSpeedData;
+    const q = searchQuery.toLowerCase();
+    return ticketSpeedData.filter(t =>
+      String(t.id || '').toLowerCase().includes(q) ||
+      String(t.table || '').toLowerCase().includes(q) ||
+      String(t.itemsSummary || '').toLowerCase().includes(q) ||
+      String(t.orderType || '').toLowerCase().includes(q)
+    );
+  }, [ticketSpeedData, searchQuery]);
+
+  const sortedTicketData = useMemo(() => {
+    return sortData(filteredTicketData, ticketSort.sortField, ticketSort.sortDirection);
+  }, [filteredTicketData, ticketSort.sortField, ticketSort.sortDirection]);
+
+  const ticketStats = useMemo(() => {
+    const total = ticketSpeedData.length;
+    const bumped = ticketSpeedData.filter(t => t.prepMs !== null);
+    const avgPrep = bumped.length > 0 ? bumped.reduce((s, t) => s + t.prepMs, 0) / bumped.length : null;
+    const fastest = bumped.length > 0 ? Math.min(...bumped.map(t => t.prepMs)) : null;
+    const under15m = bumped.length > 0 ? Math.round((bumped.filter(t => t.prepMs <= 15 * 60 * 1000).length / bumped.length) * 100) : 0;
+    return { total, bumpedCount: bumped.length, avgPrep, fastest, under15m };
+  }, [ticketSpeedData]);
+
+  // ── 3. MENU ITEM-LEVEL PREPARATION DATA ─────────────────────
+  const itemPrepData = useMemo(() => {
+    const itemMap = new Map();
+    const itemLogs = [];
+
+    (filteredTickets || []).forEach(t => {
+      const ticketFired = t.firedAt || t.createdAt;
+      const firedMs = ticketFired ? new Date(ticketFired).getTime() : null;
+      if (!firedMs) return;
+
+      const ticketTable = t.tableName
+        ? t.tableName
+        : (t.tableId ? (String(t.tableId).startsWith('T-') ? t.tableId : `T-${t.tableId}`) : (t.tokenNumber ? `Token #${t.tokenNumber}` : '—'));
+
+      const ticketId = t.orderId || (t.id ? t.id.slice(0, 8) : '—');
+
+      (t.items || []).forEach((item, idx) => {
+        const itemName = (item.name || 'Unnamed Item').trim();
+        const qty = Number(item.qty || item.quantity || 1);
+
+        let itemBumpedMs = null;
+        if (item.bumpedAt) itemBumpedMs = new Date(item.bumpedAt).getTime();
+        else if (item.status === 'bumped') {
+          itemBumpedMs = t.bumpedAt ? new Date(t.bumpedAt).getTime() : (t.completedAt ? new Date(t.completedAt).getTime() : null);
+        } else if (t.status === 'completed') {
+          itemBumpedMs = t.bumpedAt ? new Date(t.bumpedAt).getTime() : (t.completedAt ? new Date(t.completedAt).getTime() : null);
+        }
+
+        let prepMs = null;
+        if (firedMs && itemBumpedMs && itemBumpedMs >= firedMs) {
+          const raw = itemBumpedMs - firedMs;
+          if (raw <= 3 * 60 * 60 * 1000) {
+            prepMs = raw;
+          }
+        }
+
+        const menuItem = (menu || []).find(m => m.name?.toLowerCase() === itemName.toLowerCase());
+        const category = menuItem?.category || item.category || 'General';
+
+        itemLogs.push({
+          id: `${t.id}-${idx}`,
+          ticketId,
+          table: ticketTable,
+          name: itemName,
+          category,
+          qty,
+          firedAt: firedMs,
+          bumpedAt: itemBumpedMs,
+          prepMs,
+          status: itemBumpedMs ? 'bumped' : (item.status || 'active'),
+        });
+
+        if (!itemMap.has(itemName)) {
+          itemMap.set(itemName, {
+            name: itemName,
+            category,
+            totalQty: 0,
+            bumpedQty: 0,
+            ticketCount: 0,
+            prepTimes: [],
+          });
+        }
+
+        const entry = itemMap.get(itemName);
+        entry.totalQty += qty;
+        entry.ticketCount += 1;
+        if (prepMs !== null) {
+          entry.bumpedQty += qty;
+          entry.prepTimes.push(prepMs);
+        }
+      });
+    });
+
+    const aggregated = Array.from(itemMap.values()).map(e => {
+      const valid = e.prepTimes;
+      const avgPrepMs = valid.length > 0 ? valid.reduce((s, x) => s + x, 0) / valid.length : null;
+      const minPrepMs = valid.length > 0 ? Math.min(...valid) : null;
+      const maxPrepMs = valid.length > 0 ? Math.max(...valid) : null;
+
+      return {
+        name: e.name,
+        category: e.category,
+        totalQty: e.totalQty,
+        bumpedQty: e.bumpedQty,
+        ticketCount: e.ticketCount,
+        avgPrepMs,
+        minPrepMs,
+        maxPrepMs,
+      };
+    });
+
+    return { aggregated, itemLogs };
+  }, [filteredTickets, menu]);
+
+  const filteredAggregatedItems = useMemo(() => {
+    if (!searchQuery.trim()) return itemPrepData.aggregated;
+    const q = searchQuery.toLowerCase();
+    return itemPrepData.aggregated.filter(it =>
+      it.name.toLowerCase().includes(q) ||
+      it.category.toLowerCase().includes(q)
+    );
+  }, [itemPrepData.aggregated, searchQuery]);
+
+  const sortedAggregatedItems = useMemo(() => {
+    return sortData(filteredAggregatedItems, itemSort.sortField, itemSort.sortDirection);
+  }, [filteredAggregatedItems, itemSort.sortField, itemSort.sortDirection]);
+
+  const filteredItemLogs = useMemo(() => {
+    if (!searchQuery.trim()) return itemPrepData.itemLogs;
+    const q = searchQuery.toLowerCase();
+    return itemPrepData.itemLogs.filter(it =>
+      it.name.toLowerCase().includes(q) ||
+      it.table.toLowerCase().includes(q) ||
+      it.ticketId.toLowerCase().includes(q) ||
+      it.category.toLowerCase().includes(q)
+    );
+  }, [itemPrepData.itemLogs, searchQuery]);
+
+  const sortedItemLogs = useMemo(() => {
+    return sortData(filteredItemLogs, itemLogSort.sortField, itemLogSort.sortDirection);
+  }, [filteredItemLogs, itemLogSort.sortField, itemLogSort.sortDirection]);
+
+  const itemStats = useMemo(() => {
+    const totalBumped = itemPrepData.aggregated.reduce((s, it) => s + it.bumpedQty, 0);
+    const withTimes = itemPrepData.aggregated.filter(it => it.avgPrepMs !== null);
+    const allPrep = itemPrepData.itemLogs.map(it => it.prepMs).filter(p => p !== null);
+    const overallAvg = allPrep.length > 0 ? allPrep.reduce((s, x) => s + x, 0) / allPrep.length : null;
+
+    let fastest = null;
+    let slowest = null;
+    if (withTimes.length > 0) {
+      const sortedByAvg = [...withTimes].sort((a, b) => a.avgPrepMs - b.avgPrepMs);
+      fastest = sortedByAvg[0];
+      slowest = sortedByAvg[sortedByAvg.length - 1];
+    }
+    return { totalBumped, overallAvg, fastest, slowest };
+  }, [itemPrepData]);
+
+  // ── CSV EXPORT ──────────────────────────────────────────────
   const handleExport = () => {
-    const rows = [
-      'Order ID,Table,Order Placed,Ticket Printed,Food Bumped,Check Paid,Total Time (s)',
-      ...sortedServiceData.map(d =>
-        `"${d.id}","${d.table}","${fmtDateTime(d.orderPlaced)}","${fmtDateTime(d.ticketPrinted)}","${d.foodBumped ? fmtDateTime(d.foodBumped) : ''}","${d.checkPaid ? fmtDateTime(d.checkPaid) : ''}",${d.totalTime ? Math.round(d.totalTime / 1000) : ''}`
-      ),
-    ];
-    downloadCSV('speed_of_service.csv', rows);
+    if (activeSpeedTab === 'invoices') {
+      const rows = [
+        'Order ID,Table,Order Placed,Ticket Printed,Food Bumped,Check Paid,Total Time (s)',
+        ...sortedServiceData.map(d =>
+          `"${d.id}","${d.table}","${fmtDateTime(d.orderPlaced)}","${fmtDateTime(d.ticketPrinted)}","${d.foodBumped ? fmtDateTime(d.foodBumped) : ''}","${d.checkPaid ? fmtDateTime(d.checkPaid) : ''}",${d.totalTime ? Math.round(d.totalTime / 1000) : ''}`
+        ),
+      ];
+      downloadCSV('speed_of_service_invoices.csv', rows);
+    } else if (activeSpeedTab === 'tickets') {
+      const rows = [
+        'KOT ID,Table,Order Type,Items,Fired At,Bumped At,Prep Time (s),Status',
+        ...sortedTicketData.map(t =>
+          `"${t.id}","${t.table}","${t.orderType}","${t.itemsSummary.replace(/"/g, '""')}","${fmtDateTime(t.firedAt)}","${t.bumpedAt ? fmtDateTime(t.bumpedAt) : ''}",${t.prepMs ? Math.round(t.prepMs / 1000) : ''},"${t.status}"`
+        ),
+      ];
+      downloadCSV('kds_ticket_speed.csv', rows);
+    } else if (itemViewMode === 'summary') {
+      const rows = [
+        'Menu Item,Category,Qty Prepared,Orders,Avg Prep Time (s),Min Prep Time (s),Max Prep Time (s)',
+        ...sortedAggregatedItems.map(it =>
+          `"${it.name}","${it.category}",${it.bumpedQty},${it.ticketCount},${it.avgPrepMs ? Math.round(it.avgPrepMs / 1000) : ''},${it.minPrepMs ? Math.round(it.minPrepMs / 1000) : ''},${it.maxPrepMs ? Math.round(it.maxPrepMs / 1000) : ''}`
+        ),
+      ];
+      downloadCSV('menu_item_prep_averages.csv', rows);
+    } else {
+      const rows = [
+        'Menu Item,Category,KOT ID,Table,Qty,Fired At,Bumped At,Prep Time (s),Status',
+        ...sortedItemLogs.map(it =>
+          `"${it.name}","${it.category}","${it.ticketId}","${it.table}",${it.qty},"${fmtDateTime(it.firedAt)}","${it.bumpedAt ? fmtDateTime(it.bumpedAt) : ''}",${it.prepMs ? Math.round(it.prepMs / 1000) : ''},"${it.status}"`
+        ),
+      ];
+      downloadCSV('menu_item_bump_log.csv', rows);
+    }
   };
 
-  const displayedRows = showAll ? sortedServiceData : sortedServiceData.slice(0, 50);
+  const displayedInvoices = showAll ? sortedServiceData : sortedServiceData.slice(0, 50);
+  const displayedTickets = showAll ? sortedTicketData : sortedTicketData.slice(0, 50);
+  const displayedItems = showAll ? sortedAggregatedItems : sortedAggregatedItems.slice(0, 50);
+  const displayedItemLogs = showAll ? sortedItemLogs : sortedItemLogs.slice(0, 50);
 
   return (
     <div>
+      {/* Sub-tab Selector */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className={`btn ${activeSpeedTab === 'invoices' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveSpeedTab('invoices')}
+          style={{ fontSize: '0.8rem', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <Clock size={15} /> Order Speed (Invoices)
+        </button>
+        <button
+          type="button"
+          className={`btn ${activeSpeedTab === 'tickets' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveSpeedTab('tickets')}
+          style={{ fontSize: '0.8rem', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <Utensils size={15} /> KDS Ticket Speed (KOT)
+        </button>
+        <button
+          type="button"
+          className={`btn ${activeSpeedTab === 'items' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveSpeedTab('items')}
+          style={{ fontSize: '0.8rem', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <Flame size={15} /> Menu Item Prep Time
+        </button>
+      </div>
+
+      {/* Filter & Search Bar */}
       <FilterBar>
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
         <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
-        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+
+        <div style={{ position: 'relative', minWidth: 200, maxWidth: 280 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            placeholder={
+              activeSpeedTab === 'invoices' ? "Filter Invoice / Table..." :
+              activeSpeedTab === 'tickets' ? "Filter KOT / Table / Item..." :
+              "Filter Dish / Category..."
+            }
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="form-control"
+            style={{ paddingLeft: 30, fontSize: '0.76rem', height: 32, borderRadius: 8 }}
+          />
+        </div>
+
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          {activeSpeedTab === 'items' && (
+            <div style={{ display: 'flex', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 2 }}>
+              <button
+                type="button"
+                onClick={() => setItemViewMode('summary')}
+                style={{
+                  border: 'none',
+                  background: itemViewMode === 'summary' ? 'var(--primary)' : 'transparent',
+                  color: itemViewMode === 'summary' ? '#fff' : 'var(--text-secondary)',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Dish Averages
+              </button>
+              <button
+                type="button"
+                onClick={() => setItemViewMode('log')}
+                style={{
+                  border: 'none',
+                  background: itemViewMode === 'log' ? 'var(--primary)' : 'transparent',
+                  color: itemViewMode === 'log' ? '#fff' : 'var(--text-secondary)',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Item Bump Log
+              </button>
+            </div>
+          )}
+          <ExportBtn onClick={handleExport} />
+        </div>
       </FilterBar>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Avg Order-to-Ticket" value={fmtMinSec(averages.orderToTicket)} color="#1e5e4a" icon={Timer} />
-        <StatCard label="Avg Kitchen Time" value={fmtMinSec(averages.ticketToFood)} color="#f59e0b" icon={Utensils} />
-        <StatCard label="Avg Food-to-Paid" value={fmtMinSec(averages.foodToPaid)} color="#0ea5e9" icon={CreditCard} />
-        <StatCard label="Avg Total Time" value={fmtMinSec(averages.totalTime)} color="#22c55e" icon={Clock} />
-      </div>
+      {/* ── 1. VIEW: INVOICES SPEED REPORT ────────────────────────── */}
+      {activeSpeedTab === 'invoices' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+            <StatCard label="Avg Order-to-Ticket" value={fmtMinSec(invoiceAverages.orderToTicket)} color="#1e5e4a" icon={Timer} />
+            <StatCard label="Avg Kitchen Time" value={fmtMinSec(invoiceAverages.ticketToFood)} color="#f59e0b" icon={Utensils} />
+            <StatCard label="Avg Food-to-Paid" value={fmtMinSec(invoiceAverages.foodToPaid)} color="#0ea5e9" icon={CreditCard} />
+            <StatCard label="Avg Total Turnaround" value={fmtMinSec(invoiceAverages.totalTime)} color="#22c55e" icon={Clock} />
+          </div>
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <SectionTitle style={{ marginBottom: 0 }}>Order Speed Timeline ({sortedServiceData.length} orders)</SectionTitle>
-          {sortedServiceData.length > 50 && (
-            <button
-              onClick={() => setShowAll(prev => !prev)}
-              style={{
-                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)',
-                fontWeight: 600,
-              }}
-            >
-              {showAll ? 'Show First 50' : `Show All (${sortedServiceData.length})`}
-            </button>
-          )}
-        </div>
-        {sortedServiceData.length === 0 ? <Empty /> : (
-          <TableWrap>
-            <thead>
-              <tr>
-                <Th sortField={sortField} currentField="id" sortDirection={sortDirection} onSort={handleSort}>Order ID</Th>
-                <Th sortField={sortField} currentField="table" sortDirection={sortDirection} onSort={handleSort}>Table</Th>
-                <Th sortField={sortField} currentField="orderPlaced" sortDirection={sortDirection} onSort={handleSort}>Order Placed</Th>
-                <Th sortField={sortField} currentField="ticketPrinted" sortDirection={sortDirection} onSort={handleSort}>Ticket Printed</Th>
-                <Th sortField={sortField} currentField="foodBumped" sortDirection={sortDirection} onSort={handleSort}>Food Bumped</Th>
-                <Th sortField={sortField} currentField="checkPaid" sortDirection={sortDirection} onSort={handleSort}>Check Paid</Th>
-                <Th right sortField={sortField} currentField="totalTime" sortDirection={sortDirection} onSort={handleSort}>Total Time</Th>
-                <Th>Timeline</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedRows.map(d => {
-                const maxTime = (averages.totalTime && averages.totalTime > 0) ? averages.totalTime * 2 : 600000;
-                const phases = [];
-                if (d.orderToTicket > 0) {
-                  phases.push({ pct: Math.min((d.orderToTicket / maxTime) * 100, 33), duration: d.orderToTicket, color: '#1e5e4a', label: 'Queue' });
-                }
-                if (d.ticketToFood > 0) {
-                  phases.push({ pct: Math.min((d.ticketToFood / maxTime) * 100, 50), duration: d.ticketToFood, color: '#f59e0b', label: 'Kitchen' });
-                }
-                if (d.foodToPaid > 0) {
-                  phases.push({ pct: Math.min((d.foodToPaid / maxTime) * 100, 50), duration: d.foodToPaid, color: '#0ea5e9', label: 'Service' });
-                }
-                if (phases.length === 0 && d.totalTime !== null && d.totalTime > 0) {
-                  phases.push({ pct: Math.min((d.totalTime / maxTime) * 100, 100), duration: d.totalTime, color: '#22c55e', label: 'Turnaround' });
-                }
-
-                return (
-                  <tr key={d.orderId}>
-                    <Td bold>{d.id}</Td>
-                    <Td muted>{d.table}</Td>
-                    <Td style={{ fontSize: '0.73rem' }}>{fmtTime(d.orderPlaced)}</Td>
-                    <Td style={{ fontSize: '0.73rem' }}>{d.ticketPrinted ? fmtTime(d.ticketPrinted) : '—'}</Td>
-                    <Td style={{ fontSize: '0.73rem' }}>{d.foodBumped ? fmtTime(d.foodBumped) : '—'}</Td>
-                    <Td style={{ fontSize: '0.73rem' }}>{d.checkPaid ? fmtTime(d.checkPaid) : '—'}</Td>
-                    <Td right bold>{fmtMinSec(d.totalTime)}</Td>
-                    <Td>
-                      <div style={{ display: 'flex', height: 12, borderRadius: 4, overflow: 'hidden', minWidth: 100, background: 'rgba(226,232,240,0.3)' }}>
-                        {phases.map((p, i) => (
-                          <div key={i} title={`${p.label}: ${fmtMinSec(p.duration || (p.pct * maxTime / 100))}`}
-                            style={{ width: `${Math.max(p.pct, 4)}%`, height: '100%', background: p.color, transition: 'width 0.4s' }} />
-                        ))}
-                      </div>
-                    </Td>
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <SectionTitle style={{ marginBottom: 0 }}>
+                Order Speed Timeline ({sortedServiceData.length} invoices)
+              </SectionTitle>
+              {sortedServiceData.length > 50 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(prev => !prev)}
+                  style={{
+                    background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {showAll ? 'Show First 50' : `Show All (${sortedServiceData.length})`}
+                </button>
+              )}
+            </div>
+            {sortedServiceData.length === 0 ? <Empty /> : (
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th sortField={invoiceSort.sortField} currentField="id" sortDirection={invoiceSort.sortDirection} onSort={invoiceSort.handleSort}>Order ID</Th>
+                    <Th sortField={invoiceSort.sortField} currentField="table" sortDirection={invoiceSort.sortDirection} onSort={invoiceSort.handleSort}>Table</Th>
+                    <Th sortField={invoiceSort.sortField} currentField="orderPlaced" sortDirection={invoiceSort.sortDirection} onSort={invoiceSort.handleSort}>Order Placed</Th>
+                    <Th sortField={invoiceSort.sortField} currentField="ticketPrinted" sortDirection={invoiceSort.sortDirection} onSort={invoiceSort.handleSort}>Ticket Printed</Th>
+                    <Th sortField={invoiceSort.sortField} currentField="foodBumped" sortDirection={invoiceSort.sortDirection} onSort={invoiceSort.handleSort}>Food Bumped</Th>
+                    <Th sortField={invoiceSort.sortField} currentField="checkPaid" sortDirection={invoiceSort.sortDirection} onSort={invoiceSort.handleSort}>Check Paid</Th>
+                    <Th right sortField={invoiceSort.sortField} currentField="totalTime" sortDirection={invoiceSort.sortDirection} onSort={invoiceSort.handleSort}>Total Time</Th>
+                    <Th>Timeline</Th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </TableWrap>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {displayedInvoices.map(d => {
+                    const maxTime = (invoiceAverages.totalTime && invoiceAverages.totalTime > 0) ? invoiceAverages.totalTime * 2 : 600000;
+                    const phases = [];
+                    if (d.orderToTicket > 0) {
+                      phases.push({ pct: Math.min((d.orderToTicket / maxTime) * 100, 33), duration: d.orderToTicket, color: '#1e5e4a', label: 'Queue' });
+                    }
+                    if (d.ticketToFood > 0) {
+                      phases.push({ pct: Math.min((d.ticketToFood / maxTime) * 100, 50), duration: d.ticketToFood, color: '#f59e0b', label: 'Kitchen' });
+                    }
+                    if (d.foodToPaid > 0) {
+                      phases.push({ pct: Math.min((d.foodToPaid / maxTime) * 100, 50), duration: d.foodToPaid, color: '#0ea5e9', label: 'Service' });
+                    }
+                    if (phases.length === 0 && d.totalTime !== null && d.totalTime > 0) {
+                      phases.push({ pct: Math.min((d.totalTime / maxTime) * 100, 100), duration: d.totalTime, color: '#22c55e', label: 'Turnaround' });
+                    }
+
+                    return (
+                      <tr key={d.orderId}>
+                        <Td bold>{d.id}</Td>
+                        <Td muted>{d.table}</Td>
+                        <Td style={{ fontSize: '0.73rem' }}>{fmtTime(d.orderPlaced)}</Td>
+                        <Td style={{ fontSize: '0.73rem' }}>{d.ticketPrinted ? fmtTime(d.ticketPrinted) : '—'}</Td>
+                        <Td style={{ fontSize: '0.73rem' }}>{d.foodBumped ? fmtTime(d.foodBumped) : '—'}</Td>
+                        <Td style={{ fontSize: '0.73rem' }}>{d.checkPaid ? fmtTime(d.checkPaid) : '—'}</Td>
+                        <Td right bold>{fmtMinSec(d.totalTime)}</Td>
+                        <Td>
+                          <div style={{ display: 'flex', height: 12, borderRadius: 4, overflow: 'hidden', minWidth: 100, background: 'rgba(226,232,240,0.3)' }}>
+                            {phases.map((p, i) => (
+                              <div key={i} title={`${p.label}: ${fmtMinSec(p.duration || (p.pct * maxTime / 100))}`}
+                                style={{ width: `${Math.max(p.pct, 4)}%`, height: '100%', background: p.color, transition: 'width 0.4s' }} />
+                            ))}
+                          </div>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </TableWrap>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── 2. VIEW: KDS TICKET SPEED REPORT ──────────────────────── */}
+      {activeSpeedTab === 'tickets' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+            <StatCard label="Total KOTs / Tickets" value={ticketStats.total} color="#1e5e4a" icon={FileText} />
+            <StatCard label="Avg Ticket Cook Time" value={fmtMinSec(ticketStats.avgPrep)} color="#f59e0b" icon={Utensils} />
+            <StatCard label="Fastest Ticket Prep" value={fmtMinSec(ticketStats.fastest)} color="#0ea5e9" icon={Zap} />
+            <StatCard label="< 15m Compliance" value={`${ticketStats.under15m}%`} color="#22c55e" icon={CheckCircle} />
+          </div>
+
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <SectionTitle style={{ marginBottom: 0 }}>
+                KDS Ticket Speed ({sortedTicketData.length} kitchen tickets)
+              </SectionTitle>
+              {sortedTicketData.length > 50 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(prev => !prev)}
+                  style={{
+                    background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {showAll ? 'Show First 50' : `Show All (${sortedTicketData.length})`}
+                </button>
+              )}
+            </div>
+            {sortedTicketData.length === 0 ? <Empty /> : (
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th sortField={ticketSort.sortField} currentField="id" sortDirection={ticketSort.sortDirection} onSort={ticketSort.handleSort}>KOT / Ticket #</Th>
+                    <Th sortField={ticketSort.sortField} currentField="table" sortDirection={ticketSort.sortDirection} onSort={ticketSort.handleSort}>Table / Tab</Th>
+                    <Th sortField={ticketSort.sortField} currentField="orderType" sortDirection={ticketSort.sortDirection} onSort={ticketSort.handleSort}>Order Type</Th>
+                    <Th>Items Ordered</Th>
+                    <Th sortField={ticketSort.sortField} currentField="firedAt" sortDirection={ticketSort.sortDirection} onSort={ticketSort.handleSort}>Fired At</Th>
+                    <Th sortField={ticketSort.sortField} currentField="bumpedAt" sortDirection={ticketSort.sortDirection} onSort={ticketSort.handleSort}>Bumped At</Th>
+                    <Th right sortField={ticketSort.sortField} currentField="prepMs" sortDirection={ticketSort.sortDirection} onSort={ticketSort.handleSort}>Cook Duration</Th>
+                    <Th>Status</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedTickets.map(t => (
+                    <tr key={t.ticketId}>
+                      <Td bold>{t.id}</Td>
+                      <Td muted>{t.table}</Td>
+                      <Td>
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                          background: t.orderType === 'dine-in' ? 'rgba(30,94,74,0.1)' : 'rgba(59,130,246,0.1)',
+                          color: t.orderType === 'dine-in' ? 'var(--primary)' : '#0284c7',
+                          textTransform: 'capitalize',
+                        }}>
+                          {t.orderType}
+                        </span>
+                      </Td>
+                      <Td style={{ maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={t.itemsSummary}>
+                        {t.itemsSummary}
+                      </Td>
+                      <Td style={{ fontSize: '0.73rem' }}>{fmtTime(t.firedAt)}</Td>
+                      <Td style={{ fontSize: '0.73rem' }}>{t.bumpedAt ? fmtTime(t.bumpedAt) : '—'}</Td>
+                      <Td right bold style={{ color: t.prepMs && t.prepMs > 15 * 60 * 1000 ? '#e11d48' : 'inherit' }}>
+                        {fmtMinSec(t.prepMs)}
+                      </Td>
+                      <Td>
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                          background: t.status === 'completed' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                          color: t.status === 'completed' ? '#16a34a' : '#d97706',
+                        }}>
+                          {t.status === 'completed' ? 'Bumped' : 'In Kitchen'}
+                        </span>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableWrap>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── 3. VIEW: MENU ITEM PREP TIME REPORT ───────────────────── */}
+      {activeSpeedTab === 'items' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+            <StatCard label="Total Items Prepared" value={itemStats.totalBumped} color="#1e5e4a" icon={Package} />
+            <StatCard label="Overall Avg Prep Time" value={fmtMinSec(itemStats.overallAvg)} color="#f59e0b" icon={Timer} />
+            <StatCard
+              label="Fastest Menu Item"
+              value={itemStats.fastest ? `${itemStats.fastest.name} (${fmtMinSec(itemStats.fastest.avgPrepMs)})` : '—'}
+              color="#0ea5e9"
+              icon={Zap}
+            />
+            <StatCard
+              label="Slowest Menu Item"
+              value={itemStats.slowest ? `${itemStats.slowest.name} (${fmtMinSec(itemStats.slowest.avgPrepMs)})` : '—'}
+              color="#ef4444"
+              icon={Clock}
+            />
+          </div>
+
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <SectionTitle style={{ marginBottom: 0 }}>
+                {itemViewMode === 'summary'
+                  ? `Menu Item Preparation Averages (${sortedAggregatedItems.length} dishes)`
+                  : `Individual Item Bump Log (${sortedItemLogs.length} item preparations)`}
+              </SectionTitle>
+              {(itemViewMode === 'summary' ? sortedAggregatedItems.length : sortedItemLogs.length) > 50 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(prev => !prev)}
+                  style={{
+                    background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--primary)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {showAll ? 'Show First 50' : `Show All`}
+                </button>
+              )}
+            </div>
+
+            {itemViewMode === 'summary' ? (
+              sortedAggregatedItems.length === 0 ? <Empty /> : (
+                <TableWrap>
+                  <thead>
+                    <tr>
+                      <Th sortField={itemSort.sortField} currentField="name" sortDirection={itemSort.sortDirection} onSort={itemSort.handleSort}>Menu Item</Th>
+                      <Th sortField={itemSort.sortField} currentField="category" sortDirection={itemSort.sortDirection} onSort={itemSort.handleSort}>Category</Th>
+                      <Th right sortField={itemSort.sortField} currentField="bumpedQty" sortDirection={itemSort.sortDirection} onSort={itemSort.handleSort}>Qty Prepared</Th>
+                      <Th right sortField={itemSort.sortField} currentField="ticketCount" sortDirection={itemSort.sortDirection} onSort={itemSort.handleSort}>Times Ordered</Th>
+                      <Th right sortField={itemSort.sortField} currentField="avgPrepMs" sortDirection={itemSort.sortDirection} onSort={itemSort.handleSort}>Avg Prep Time</Th>
+                      <Th right sortField={itemSort.sortField} currentField="minPrepMs" sortDirection={itemSort.sortDirection} onSort={itemSort.handleSort}>Fastest Prep</Th>
+                      <Th right sortField={itemSort.sortField} currentField="maxPrepMs" sortDirection={itemSort.sortDirection} onSort={itemSort.handleSort}>Slowest Prep</Th>
+                      <Th>Speed Rating</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedItems.map(it => {
+                      const avgSec = it.avgPrepMs ? it.avgPrepMs / 1000 : null;
+                      const speedTag = avgSec === null ? { text: 'In Prep', bg: 'rgba(245,158,11,0.15)', col: '#d97706' }
+                        : avgSec < 300 ? { text: 'Fast (< 5m)', bg: 'rgba(34,197,94,0.15)', col: '#16a34a' }
+                        : avgSec < 720 ? { text: 'Standard', bg: 'rgba(59,130,246,0.15)', col: '#0284c7' }
+                        : { text: 'High Prep (> 12m)', bg: 'rgba(239,68,68,0.15)', col: '#e11d48' };
+
+                      return (
+                        <tr key={it.name}>
+                          <Td bold>{it.name}</Td>
+                          <Td muted>{it.category}</Td>
+                          <Td right bold>{it.bumpedQty}</Td>
+                          <Td right muted>{it.ticketCount}</Td>
+                          <Td right bold style={{ color: it.avgPrepMs && it.avgPrepMs > 12 * 60 * 1000 ? '#e11d48' : 'inherit' }}>
+                            {fmtMinSec(it.avgPrepMs)}
+                          </Td>
+                          <Td right style={{ fontSize: '0.78rem' }}>{fmtMinSec(it.minPrepMs)}</Td>
+                          <Td right style={{ fontSize: '0.78rem' }}>{fmtMinSec(it.maxPrepMs)}</Td>
+                          <Td>
+                            <span style={{
+                              fontSize: '0.72rem', fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                              background: speedTag.bg, color: speedTag.col,
+                            }}>
+                              {speedTag.text}
+                            </span>
+                          </Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </TableWrap>
+              )
+            ) : (
+              sortedItemLogs.length === 0 ? <Empty /> : (
+                <TableWrap>
+                  <thead>
+                    <tr>
+                      <Th sortField={itemLogSort.sortField} currentField="name" sortDirection={itemLogSort.sortDirection} onSort={itemLogSort.handleSort}>Menu Item</Th>
+                      <Th sortField={itemLogSort.sortField} currentField="ticketId" sortDirection={itemLogSort.sortDirection} onSort={itemLogSort.handleSort}>KOT #</Th>
+                      <Th sortField={itemLogSort.sortField} currentField="table" sortDirection={itemLogSort.sortDirection} onSort={itemLogSort.handleSort}>Table</Th>
+                      <Th right sortField={itemLogSort.sortField} currentField="qty" sortDirection={itemLogSort.sortDirection} onSort={itemLogSort.handleSort}>Qty</Th>
+                      <Th sortField={itemLogSort.sortField} currentField="firedAt" sortDirection={itemLogSort.sortDirection} onSort={itemLogSort.handleSort}>Fired At</Th>
+                      <Th sortField={itemLogSort.sortField} currentField="bumpedAt" sortDirection={itemLogSort.sortDirection} onSort={itemLogSort.handleSort}>Bumped At</Th>
+                      <Th right sortField={itemLogSort.sortField} currentField="prepMs" sortDirection={itemLogSort.sortDirection} onSort={itemLogSort.handleSort}>Prep Time</Th>
+                      <Th>Status</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedItemLogs.map(log => (
+                      <tr key={log.id}>
+                        <Td bold>{log.name}</Td>
+                        <Td muted>{log.ticketId}</Td>
+                        <Td muted>{log.table}</Td>
+                        <Td right bold>{log.qty}</Td>
+                        <Td style={{ fontSize: '0.73rem' }}>{fmtTime(log.firedAt)}</Td>
+                        <Td style={{ fontSize: '0.73rem' }}>{log.bumpedAt ? fmtTime(log.bumpedAt) : '—'}</Td>
+                        <Td right bold style={{ color: log.prepMs && log.prepMs > 15 * 60 * 1000 ? '#e11d48' : 'inherit' }}>
+                          {fmtMinSec(log.prepMs)}
+                        </Td>
+                        <Td>
+                          <span style={{
+                            fontSize: '0.72rem', fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                            background: log.status === 'bumped' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                            color: log.status === 'bumped' ? '#16a34a' : '#d97706',
+                          }}>
+                            {log.status === 'bumped' ? 'Bumped' : 'In Prep'}
+                          </span>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              )
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -5082,7 +5637,7 @@ const Reports = () => {
       {activeTab === 'menu_mgmt'        && <MenuManagementTab orders={orders} menu={menu} />}
       {activeTab === 'table_analytics'  && <TableAnalyticsTab orders={orders} floorPlans={floorPlans} posTables={posTables} kdsTickets={kdsTickets} staff={staff} />}
       {activeTab === 'operational_eff'  && <OperationalEfficiencyTab orders={orders} />}
-      {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} />}
+      {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} menu={menu} />}
       {activeTab === 'labor'            && <LaborReport orders={orders} staff={staff} />}
       {activeTab === 'attendance'       && <AttendanceReportTab staff={staff} attendance={attendance} />}
       {activeTab === 'register_closure' && <RegisterClosuresReport />}

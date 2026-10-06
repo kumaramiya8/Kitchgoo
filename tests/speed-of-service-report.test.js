@@ -521,4 +521,247 @@ describe('Speed of Service Report & Period Filter', () => {
       expect(data[0].ticketToFood).toBeNull();
     });
   });
+
+  describe('KDS Ticket-Level Speed of Service', () => {
+    it('accurately calculates individual ticket cook duration for each KOT', () => {
+      // User scenario:
+      // Round 1: Table 1, 2 Tea, bumped after 3 minutes (180,000 ms)
+      // Round 2: Table 1, 1 Pasta, bumped after 5 minutes (300,000 ms)
+      const tickets = [
+        {
+          id: 'kot_1',
+          orderId: 'T1-1001',
+          tableId: 1,
+          firedAt: '2026-10-06T10:00:00.000Z',
+          bumpedAt: '2026-10-06T10:03:00.000Z',
+          status: 'completed',
+          items: [{ name: 'Tea', qty: 2, status: 'bumped', bumpedAt: '2026-10-06T10:03:00.000Z' }],
+        },
+        {
+          id: 'kot_2',
+          orderId: 'T1-1002',
+          tableId: 1,
+          firedAt: '2026-10-06T10:10:00.000Z',
+          bumpedAt: '2026-10-06T10:15:00.000Z',
+          status: 'completed',
+          items: [{ name: 'Pasta', qty: 1, status: 'bumped', bumpedAt: '2026-10-06T10:15:00.000Z' }],
+        },
+      ];
+
+      const results = processTicketSpeedData(tickets);
+      expect(results).toHaveLength(2);
+
+      // Ticket 1: 3m 0s
+      expect(results[0].id).toBe('T1-1001');
+      expect(results[0].prepMs).toBe(3 * 60 * 1000);
+      expect(fmtMinSec(results[0].prepMs)).toBe('3m 0s');
+      expect(results[0].itemsSummary).toBe('Tea x2');
+
+      // Ticket 2: 5m 0s
+      expect(results[1].id).toBe('T1-1002');
+      expect(results[1].prepMs).toBe(5 * 60 * 1000);
+      expect(fmtMinSec(results[1].prepMs)).toBe('5m 0s');
+      expect(results[1].itemsSummary).toBe('Pasta');
+    });
+
+    it('flags unbumped active tickets with null prep time', () => {
+      const tickets = [
+        {
+          id: 'kot_active',
+          orderId: 'T2-2001',
+          tableId: 2,
+          firedAt: '2026-10-06T10:00:00.000Z',
+          status: 'active',
+          items: [{ name: 'Burger', qty: 1, status: 'active' }],
+        },
+      ];
+
+      const results = processTicketSpeedData(tickets);
+      expect(results).toHaveLength(1);
+      expect(results[0].prepMs).toBeNull();
+      expect(results[0].status).toBe('active');
+    });
+  });
+
+  describe('Menu Item Preparation Time Report', () => {
+    it('aggregates preparation duration by menu item and computes averages, min, and max', () => {
+      const menu = [
+        { name: 'Tea', category: 'Beverages' },
+        { name: 'Pasta', category: 'Main Course' },
+      ];
+
+      const tickets = [
+        {
+          id: 'kot_1',
+          orderId: 'T1-1001',
+          firedAt: '2026-10-06T10:00:00.000Z',
+          bumpedAt: '2026-10-06T10:03:00.000Z', // 3 minutes
+          status: 'completed',
+          items: [{ name: 'Tea', qty: 2, status: 'bumped', bumpedAt: '2026-10-06T10:03:00.000Z' }],
+        },
+        {
+          id: 'kot_2',
+          orderId: 'T1-1002',
+          firedAt: '2026-10-06T10:10:00.000Z',
+          bumpedAt: '2026-10-06T10:15:00.000Z', // 5 minutes
+          status: 'completed',
+          items: [{ name: 'Pasta', qty: 1, status: 'bumped', bumpedAt: '2026-10-06T10:15:00.000Z' }],
+        },
+        {
+          id: 'kot_3',
+          orderId: 'T2-1003',
+          firedAt: '2026-10-06T10:20:00.000Z',
+          bumpedAt: '2026-10-06T10:25:00.000Z', // 5 minutes for Tea
+          status: 'completed',
+          items: [{ name: 'Tea', qty: 1, status: 'bumped', bumpedAt: '2026-10-06T10:25:00.000Z' }],
+        },
+      ];
+
+      const { aggregated, itemLogs } = processItemPrepData(tickets, menu);
+
+      // Check item logs
+      expect(itemLogs).toHaveLength(3);
+
+      // Check aggregated metrics
+      const tea = aggregated.find(i => i.name === 'Tea');
+      expect(tea).toBeDefined();
+      expect(tea.category).toBe('Beverages');
+      expect(tea.totalQty).toBe(3); // 2 + 1
+      expect(tea.bumpedQty).toBe(3);
+      expect(tea.ticketCount).toBe(2);
+      // Average prep for Tea: (3m + 5m) / 2 = 4m (240,000 ms)
+      expect(tea.avgPrepMs).toBe(4 * 60 * 1000);
+      expect(fmtMinSec(tea.avgPrepMs)).toBe('4m 0s');
+      expect(tea.minPrepMs).toBe(3 * 60 * 1000);
+      expect(tea.maxPrepMs).toBe(5 * 60 * 1000);
+
+      const pasta = aggregated.find(i => i.name === 'Pasta');
+      expect(pasta).toBeDefined();
+      expect(pasta.category).toBe('Main Course');
+      expect(pasta.totalQty).toBe(1);
+      expect(pasta.avgPrepMs).toBe(5 * 60 * 1000);
+      expect(fmtMinSec(pasta.avgPrepMs)).toBe('5m 0s');
+    });
+  });
 });
+
+function processTicketSpeedData(kdsTickets = []) {
+  return (kdsTickets || []).map(t => {
+    const firedIso = t.firedAt || t.createdAt;
+    const firedMs = firedIso ? new Date(firedIso).getTime() : null;
+
+    let bumpedMs = null;
+    if (t.bumpedAt) bumpedMs = new Date(t.bumpedAt).getTime();
+    else if (t.completedAt) bumpedMs = new Date(t.completedAt).getTime();
+    else {
+      const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+      if (itemBumps.length > 0) bumpedMs = Math.max(...itemBumps);
+      else if (t.status === 'completed' && t.updatedAt) bumpedMs = new Date(t.updatedAt).getTime();
+    }
+
+    let prepMs = null;
+    if (firedMs && bumpedMs && bumpedMs >= firedMs) {
+      const raw = bumpedMs - firedMs;
+      if (raw <= 3 * 60 * 60 * 1000) prepMs = raw;
+    }
+
+    const itemsSummary = (t.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—';
+    const itemsCount = (t.items || []).reduce((s, i) => s + (i.qty || 1), 0);
+    const status = bumpedMs ? 'completed' : (t.status || 'active');
+
+    return {
+      id: t.orderId || (t.id ? t.id.slice(0, 8) : '—'),
+      ticketId: t.id,
+      table: t.tableName || (t.tableId ? `T-${t.tableId}` : (t.tokenNumber ? `Token #${t.tokenNumber}` : '—')),
+      itemsSummary,
+      itemsCount,
+      firedAt: firedMs,
+      bumpedAt: bumpedMs,
+      prepMs,
+      status,
+    };
+  });
+}
+
+function processItemPrepData(kdsTickets = [], menu = []) {
+  const itemMap = new Map();
+  const itemLogs = [];
+
+  (kdsTickets || []).forEach(t => {
+    const ticketFired = t.firedAt || t.createdAt;
+    const firedMs = ticketFired ? new Date(ticketFired).getTime() : null;
+    if (!firedMs) return;
+
+    (t.items || []).forEach((item, idx) => {
+      const itemName = (item.name || 'Unnamed Item').trim();
+      const qty = Number(item.qty || item.quantity || 1);
+
+      let itemBumpedMs = null;
+      if (item.bumpedAt) itemBumpedMs = new Date(item.bumpedAt).getTime();
+      else if (item.status === 'bumped') {
+        itemBumpedMs = t.bumpedAt ? new Date(t.bumpedAt).getTime() : (t.completedAt ? new Date(t.completedAt).getTime() : null);
+      } else if (t.status === 'completed') {
+        itemBumpedMs = t.bumpedAt ? new Date(t.bumpedAt).getTime() : (t.completedAt ? new Date(t.completedAt).getTime() : null);
+      }
+
+      let prepMs = null;
+      if (firedMs && itemBumpedMs && itemBumpedMs >= firedMs) {
+        const raw = itemBumpedMs - firedMs;
+        if (raw <= 3 * 60 * 60 * 1000) prepMs = raw;
+      }
+
+      const menuItem = (menu || []).find(m => m.name?.toLowerCase() === itemName.toLowerCase());
+      const category = menuItem?.category || item.category || 'General';
+
+      itemLogs.push({
+        id: `${t.id}-${idx}`,
+        ticketId: t.orderId || t.id,
+        name: itemName,
+        category,
+        qty,
+        firedAt: firedMs,
+        bumpedAt: itemBumpedMs,
+        prepMs,
+        status: itemBumpedMs ? 'bumped' : (item.status || 'active'),
+      });
+
+      if (!itemMap.has(itemName)) {
+        itemMap.set(itemName, {
+          name: itemName,
+          category,
+          totalQty: 0,
+          bumpedQty: 0,
+          ticketCount: 0,
+          prepTimes: [],
+        });
+      }
+
+      const entry = itemMap.get(itemName);
+      entry.totalQty += qty;
+      entry.ticketCount += 1;
+      if (prepMs !== null) {
+        entry.bumpedQty += qty;
+        entry.prepTimes.push(prepMs);
+      }
+    });
+  });
+
+  const aggregated = Array.from(itemMap.values()).map(e => {
+    const valid = e.prepTimes;
+    const avgPrepMs = valid.length > 0 ? valid.reduce((s, x) => s + x, 0) / valid.length : null;
+    const minPrepMs = valid.length > 0 ? Math.min(...valid) : null;
+    const maxPrepMs = valid.length > 0 ? Math.max(...valid) : null;
+    return {
+      name: e.name,
+      category: e.category,
+      totalQty: e.totalQty,
+      bumpedQty: e.bumpedQty,
+      ticketCount: e.ticketCount,
+      avgPrepMs,
+      minPrepMs,
+      maxPrepMs,
+    };
+  });
+
+  return { aggregated, itemLogs };
+}
