@@ -9,7 +9,7 @@ import {
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
   GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check, Eye,
-  Sparkles, Trash2, AlertCircle, Edit3, Edit2
+  Sparkles, Trash2, AlertCircle, Edit3, Edit2, Loader2
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -2520,6 +2520,8 @@ const PaymentModal = ({
   cart, cartTotal, tax, gstRate, pricesIncludeGst = true, grandTotal, serviceCharge, autoGratuity,
   discount, activeTable, unassignedTab, currentGuest, onConfirm, onClose, settings, packagingCharge = 0
 }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [isSplit, setIsSplit] = useState(false);
   const [tipAmount, setTipAmount] = useState('');
   const [cashTendered, setCashTendered] = useState('');
@@ -2643,23 +2645,34 @@ const PaymentModal = ({
     return allHaveAmount && Math.abs(remainingToPay) <= 0.01;
   }, [isSplit, splitRows, remainingToPay]);
 
-  const handleSettle = () => {
-    if (!isSplit) {
-      onConfirm(paymentMethod, tipValue, finalTotal, null);
-    } else {
-      if (!isSplitValid) return;
-      const validSplits = splitRows.map(r => ({
-        method: r.method,
-        amount: Math.round((parseFloat(r.amount) || 0) * 100) / 100,
-        cashTendered: r.method === 'Cash' && r.cashTendered ? parseFloat(r.cashTendered) : undefined
-      }));
-      const methodLabel = `Split (${validSplits.map(s => `${s.method}: ₹${s.amount.toFixed(0)}`).join(', ')})`;
-      onConfirm(methodLabel, tipValue, finalTotal, validSplits);
+  const handleSettle = async () => {
+    if (isSubmittingRef.current || isSubmitting) return;
+    if (isSplit && !isSplitValid) return;
+
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+
+    try {
+      if (!isSplit) {
+        await onConfirm(paymentMethod, tipValue, finalTotal, null);
+      } else {
+        const validSplits = splitRows.map(r => ({
+          method: r.method,
+          amount: Math.round((parseFloat(r.amount) || 0) * 100) / 100,
+          cashTendered: r.method === 'Cash' && r.cashTendered ? parseFloat(r.cashTendered) : undefined
+        }));
+        const methodLabel = `Split (${validSplits.map(s => `${s.method}: ₹${s.amount.toFixed(0)}`).join(', ')})`;
+        await onConfirm(methodLabel, tipValue, finalTotal, validSplits);
+      }
+    } catch (err) {
+      console.error('[POS] Payment settle failed:', err);
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <Modal title="Settle Bill" onClose={onClose} wide>
+    <Modal title="Settle Bill" onClose={isSubmitting ? undefined : onClose} wide>
       <div className="modal-body">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {/* Left: Summary */}
@@ -3008,22 +3021,31 @@ const PaymentModal = ({
       </div>
 
       <div className="modal-footer">
-        <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
         <button
           className="btn btn-success"
-          disabled={isSplit && !isSplitValid}
+          disabled={isSubmitting || (isSplit && !isSplitValid)}
           onClick={handleSettle}
-          style={{ minWidth: 200 }}
+          style={{ minWidth: 200, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
         >
-          {shouldAutoPrint ? <Printer size={15} /> : <Check size={15} />}
-          {!isSplit
-            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}${shouldAutoPrint ? ' & Print' : ''}`
-            : isSplitValid
-            ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)${shouldAutoPrint ? ' & Print' : ''}`
-            : remainingToPay > 0
-            ? `Allocate Remaining ₹${remainingToPay.toFixed(2)}`
-            : `Over-allocated by ₹${(-remainingToPay).toFixed(2)}`
-          }
+          {isSubmitting ? (
+            <>
+              <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>Processing Payment...</span>
+            </>
+          ) : (
+            <>
+              {shouldAutoPrint ? <Printer size={15} /> : <Check size={15} />}
+              {!isSplit
+                ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}${shouldAutoPrint ? ' & Print' : ''}`
+                : isSplitValid
+                ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)${shouldAutoPrint ? ' & Print' : ''}`
+                : remainingToPay > 0
+                ? `Allocate Remaining ₹${remainingToPay.toFixed(2)}`
+                : `Over-allocated by ₹${(-remainingToPay).toFixed(2)}`
+              }
+            </>
+          )}
         </button>
       </div>
     </Modal>
@@ -4547,6 +4569,7 @@ const POS = () => {
 
   // Table status the settle flow should restore if payment is cancelled
   const prePayStatusRef = useRef(null);
+  const isPaymentProcessingRef = useRef(false);
 
   // Tables with a confirmed reservation coming up (next 2h, 30min grace) show
   // as 'reserved' while they sit available — display-only, never persisted.
@@ -6127,225 +6150,238 @@ const POS = () => {
 
   // ── Payment ───────────────────────────────────────────────
   const handleConfirmPayment = async (paymentMethod, tipValue, finalTotal, paymentSplits = null) => {
-    if (cart.length === 0) return;
+    if (isPaymentProcessingRef.current || cart.length === 0) return;
+    isPaymentProcessingRef.current = true;
 
-    // Find any KDS tickets associated with this table or tab
-    const relatedTickets = (kdsTickets || []).filter(t => {
-      if (activeTable && (
-        String(t.tableId) === String(activeTable.id) ||
-        t.tableId === `T-${activeTable.id}` ||
-        t.tableId === `T${activeTable.id}` ||
-        String(t.tableId) === `tab_${activeTable.id}`
-      )) return true;
-      if (unassignedTab && (
-        String(t.tableId) === `tab_${unassignedTab.id}` ||
-        (unassignedTab.tokenNumber && String(t.tokenNumber) === String(unassignedTab.tokenNumber)) ||
-        String(t.tableId) === `token_${unassignedTab.tokenNumber}`
-      )) return true;
-      return false;
-    });
+    try {
+      // Find any KDS tickets associated with this table or tab
+      const relatedTickets = (kdsTickets || []).filter(t => {
+        if (activeTable && (
+          String(t.tableId) === String(activeTable.id) ||
+          t.tableId === `T-${activeTable.id}` ||
+          t.tableId === `T${activeTable.id}` ||
+          String(t.tableId) === `tab_${activeTable.id}`
+        )) return true;
+        if (unassignedTab && (
+          String(t.tableId) === `tab_${unassignedTab.id}` ||
+          (unassignedTab.tokenNumber && String(t.tokenNumber) === String(unassignedTab.tokenNumber)) ||
+          String(t.tableId) === `token_${unassignedTab.tokenNumber}`
+        )) return true;
+        return false;
+      });
 
-    const ticketTimes = relatedTickets.map(t => new Date(t.firedAt || t.createdAt).getTime()).filter(Boolean);
-    const firstTicketPrinted = ticketTimes.length > 0 ? new Date(Math.min(...ticketTimes)).toISOString() : null;
+      const ticketTimes = relatedTickets.map(t => new Date(t.firedAt || t.createdAt).getTime()).filter(Boolean);
+      const firstTicketPrinted = ticketTimes.length > 0 ? new Date(Math.min(...ticketTimes)).toISOString() : null;
 
-    const bumpTimes = [];
-    relatedTickets.forEach(t => {
-      if (t.bumpedAt) bumpTimes.push(new Date(t.bumpedAt).getTime());
-      else if (t.completedAt) bumpTimes.push(new Date(t.completedAt).getTime());
-      else {
-        const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
-        if (itemBumps.length > 0) bumpTimes.push(Math.max(...itemBumps));
-      }
-    });
-    const latestFoodBumped = bumpTimes.length > 0 ? new Date(Math.max(...bumpTimes)).toISOString() : null;
-
-    const orderPlacedTime = activeTable?.seatedAt || unassignedTab?.createdAt || firstTicketPrinted || new Date().toISOString();
-
-    const extra = {
-      orderType,
-      customerName: activeTable?.guestName || unassignedTab?.guestName || customerName,
-      customerPhone: customerPhone || unassignedTab?.guestPhone || '',
-      tokenNumber: unassignedTab?.tokenNumber || null,
-      pickupTime: orderType === 'takeout' ? pickupTime : undefined,
-      deliveryAddress: orderType === 'delivery' ? deliveryAddress : undefined,
-      driverInstructions: orderType === 'delivery' ? driverInstructions : undefined,
-      deliveryChannel: orderType === 'delivery' ? deliveryChannel : undefined,
-      deliveryStatus: orderType === 'delivery' ? 'preparing' : undefined,
-      tip: tipValue,
-      autoGratuity,
-      discount: discountAmount,
-      discountReason: discountReason || '',
-      discountAppliedAt: discountAmount > 0 ? new Date().toISOString() : null,
-      discountAppliedBy: discountAmount > 0 ? (user?.name || 'Staff') : null,
-      serviceCharge,
-      partySize,
-      paymentSplits,
-      orderPlacedAt: orderPlacedTime,
-      ticketPrintedAt: firstTicketPrinted,
-      foodBumpedAt: latestFoodBumped,
-      kdsTicketIds: relatedTickets.map(t => t.id),
-      history: [
-        {
-          action: 'created',
-          timestamp: orderPlacedTime,
-          by: user?.name || 'Staff',
-          description: `Order created with ${cart.reduce((s, i) => s + (i.qty || 1), 0)} items (${activeTable ? `Table ${activeTable.number || activeTable.id}` : (unassignedTab ? `Token #${unassignedTab.tokenNumber}` : 'Direct')})`,
-        },
-        ...cartAudit,
-        {
-          action: 'payment_settled',
-          timestamp: new Date().toISOString(),
-          by: user?.name || 'Cashier',
-          description: Array.isArray(paymentSplits) && paymentSplits.length > 0
-            ? `Settled via Split: ${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal).toFixed(2)})`
-            : `Settled via ${paymentMethod} for ₹${(finalTotal).toFixed(2)}`,
-          paymentMethod,
-          paymentSplits: paymentSplits || null,
+      const bumpTimes = [];
+      relatedTickets.forEach(t => {
+        if (t.bumpedAt) bumpTimes.push(new Date(t.bumpedAt).getTime());
+        else if (t.completedAt) bumpTimes.push(new Date(t.completedAt).getTime());
+        else {
+          const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+          if (itemBumps.length > 0) bumpTimes.push(Math.max(...itemBumps));
         }
-      ],
-    };
+      });
+      const latestFoodBumped = bumpTimes.length > 0 ? new Date(Math.max(...bumpTimes)).toISOString() : null;
 
-    const tableId = activeTable?.id || null;
-    const order = await placeOrder(tableId, cart, paymentMethod, extra);
+      const orderPlacedTime = activeTable?.seatedAt || unassignedTab?.createdAt || firstTicketPrinted || new Date().toISOString();
 
-    // Link tickets to this settled order in database
-    if (relatedTickets.length > 0 && order?.id) {
-      for (const t of relatedTickets) {
-        try {
-          await update('kds_tickets', t.id, {
-            orderId: order.id,
-            billNo: order.billNo,
-            settledAt: new Date().toISOString(),
+      const extra = {
+        orderType,
+        customerName: activeTable?.guestName || unassignedTab?.guestName || customerName,
+        customerPhone: customerPhone || unassignedTab?.guestPhone || '',
+        tokenNumber: unassignedTab?.tokenNumber || null,
+        pickupTime: orderType === 'takeout' ? pickupTime : undefined,
+        deliveryAddress: orderType === 'delivery' ? deliveryAddress : undefined,
+        driverInstructions: orderType === 'delivery' ? driverInstructions : undefined,
+        deliveryChannel: orderType === 'delivery' ? deliveryChannel : undefined,
+        deliveryStatus: orderType === 'delivery' ? 'preparing' : undefined,
+        tip: tipValue,
+        autoGratuity,
+        discount: discountAmount,
+        discountReason: discountReason || '',
+        discountAppliedAt: discountAmount > 0 ? new Date().toISOString() : null,
+        discountAppliedBy: discountAmount > 0 ? (user?.name || 'Staff') : null,
+        serviceCharge,
+        partySize,
+        paymentSplits,
+        orderPlacedAt: orderPlacedTime,
+        ticketPrintedAt: firstTicketPrinted,
+        foodBumpedAt: latestFoodBumped,
+        kdsTicketIds: relatedTickets.map(t => t.id),
+        history: [
+          {
+            action: 'created',
+            timestamp: orderPlacedTime,
+            by: user?.name || 'Staff',
+            description: `Order created with ${cart.reduce((s, i) => s + (i.qty || 1), 0)} items (${activeTable ? `Table ${activeTable.number || activeTable.id}` : (unassignedTab ? `Token #${unassignedTab.tokenNumber}` : 'Direct')})`,
+          },
+          ...cartAudit,
+          {
+            action: 'payment_settled',
+            timestamp: new Date().toISOString(),
+            by: user?.name || 'Cashier',
+            description: Array.isArray(paymentSplits) && paymentSplits.length > 0
+              ? `Settled via Split: ${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal).toFixed(2)})`
+              : `Settled via ${paymentMethod} for ₹${(finalTotal).toFixed(2)}`,
+            paymentMethod,
+            paymentSplits: paymentSplits || null,
+          }
+        ],
+      };
+
+      const tableId = activeTable?.id || null;
+      const currentCart = [...cart];
+      const currentActiveTable = activeTable;
+      const currentUnassignedTab = unassignedTab;
+      const currentCustomerName = customerName;
+
+      const order = await placeOrder(tableId, currentCart, paymentMethod, extra);
+
+      // Bill settled — table needs bussing before it can be reused. Tapping the
+      // table on the floor map marks it cleaned and available again.
+      if (currentActiveTable) {
+        prePayStatusRef.current = null;
+        setSavedOrders(prev => { const next = { ...prev }; delete next[currentActiveTable.id]; return next; });
+        setTables(prev => prev.map(t => String(t.id) === String(currentActiveTable.id)
+          ? { ...t, status: 'needs-bussing', guestName: null, guestId: null, seatedAt: null }
+          : t
+        ));
+      }
+
+      if (currentUnassignedTab) {
+        setSavedOrders(prev => {
+          const next = { ...prev };
+          delete next[`tab_${currentUnassignedTab.id}`];
+          if (next.__tabs_meta__) {
+            const nextMeta = { ...next.__tabs_meta__ };
+            delete nextMeta[currentUnassignedTab.id];
+            next.__tabs_meta__ = nextMeta;
+          }
+          return next;
+        });
+      }
+
+      // Reset UI state & close modal immediately so UI is instant and responsive
+      setPaymentModal(false);
+      setCart([]);
+      setUnassignedTab(null);
+      setDiscountAmount(0);
+      setDiscountReason('');
+      setCartAudit([]);
+      setFiredCourses(new Set([1]));
+      setIsHeld(false);
+      setHoldTimer(0);
+      setPartySize(1);
+      setCustomerName('');
+      setCustomerPhone('');
+      setPickupTime('');
+      setDeliveryAddress('');
+      setDriverInstructions('');
+      setDeliveryChannel('In-House');
+      setView(isTableManagementEnabled ? 'floor' : 'order');
+
+      const displayMethod = paymentSplits && paymentSplits.length > 0
+        ? `Split (${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')})`
+        : paymentMethod;
+      showSuccess(`Bill settled! ${(order?.total || finalTotal).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} via ${displayMethod}`);
+
+      // Link tickets to this settled order in database
+      if (relatedTickets.length > 0 && order?.id) {
+        for (const t of relatedTickets) {
+          try {
+            await update('kds_tickets', t.id, {
+              orderId: order.id,
+              billNo: order.billNo,
+              settledAt: new Date().toISOString(),
+            });
+          } catch (e) {
+            console.warn('[POS] Could not update ticket order link:', e);
+          }
+        }
+      }
+
+      // Update guest
+      if (currentActiveTable?.guestId) {
+        const guest = (getAll('guests') || []).find(g => g.id === currentActiveTable.guestId);
+        if (guest) {
+          update('guests', currentActiveTable.guestId, {
+            visitCount: (guest.visitCount || 0) + 1,
+            totalSpend: (guest.totalSpend || 0) + (order?.total || finalTotal),
           });
-        } catch (e) {
-          console.warn('[POS] Could not update ticket order link:', e);
         }
       }
-    }
 
-    // Update guest
-    if (activeTable?.guestId) {
-      const guest = (getAll('guests') || []).find(g => g.id === activeTable.guestId);
-      if (guest) {
-        update('guests', activeTable.guestId, {
-          visitCount: (guest.visitCount || 0) + 1,
-          totalSpend: (guest.totalSpend || 0) + (order.total || finalTotal),
-        });
+      // Update cash drawer for cash payments (either full cash or partial cash split)
+      let cashPortion = 0;
+      let hasCardPayment = false;
+      if (Array.isArray(paymentSplits) && paymentSplits.length > 0) {
+        cashPortion = paymentSplits
+          .filter(p => (p.method || '').toLowerCase() === 'cash')
+          .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+        hasCardPayment = paymentSplits.some(p => (p.method || '').toLowerCase() === 'card');
+      } else if (paymentMethod === 'Cash') {
+        cashPortion = finalTotal;
+      } else if (paymentMethod === 'Card') {
+        hasCardPayment = true;
       }
-    }
 
-    // Update cash drawer for cash payments (either full cash or partial cash split)
-    let cashPortion = 0;
-    let hasCardPayment = false;
-    if (Array.isArray(paymentSplits) && paymentSplits.length > 0) {
-      cashPortion = paymentSplits
-        .filter(p => (p.method || '').toLowerCase() === 'cash')
-        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-      hasCardPayment = paymentSplits.some(p => (p.method || '').toLowerCase() === 'card');
-    } else if (paymentMethod === 'Cash') {
-      cashPortion = finalTotal;
-    } else if (paymentMethod === 'Card') {
-      hasCardPayment = true;
-    }
-
-    if (cashPortion > 0) {
-      updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + cashPortion });
-      if (settings?.operations?.autoOpenCashDrawer !== false) {
-        addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', `Cash drawer auto-opened for cash payment of ₹${cashPortion.toFixed(2)}`);
-      }
-    } else if (hasCardPayment && settings?.workflow?.cashDrawerOnCreditSplit) {
-      addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', 'Cash drawer popped on card split payment');
-    }
-
-    // Auto-print receipt according to settings
-    const shouldAutoPrint = (
-      settings?.printer?.autoPrintBill !== false &&
-      settings?.operations?.autoPrintReceipt !== false &&
-      settings?.workflow?.autoPrintOnPayment !== false
-    );
-
-    if (shouldAutoPrint) {
-      printReceipt({
-        order: { ...order, items: cart, paymentSplits, tokenNumber: unassignedTab?.tokenNumber || order.tokenNumber },
-        settings, tableId,
-        guestName: activeTable?.guestName || unassignedTab?.guestName || customerName,
-      });
-    } else {
-      showSuccess(`Payment of ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} settled!`);
-    }
-
-    // Bill settled — table needs bussing before it can be reused. Tapping the
-    // table on the floor map marks it cleaned and available again.
-    if (activeTable) {
-      prePayStatusRef.current = null;
-      setSavedOrders(prev => { const next = { ...prev }; delete next[activeTable.id]; return next; });
-      setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
-        ? { ...t, status: 'needs-bussing', guestName: null, guestId: null, seatedAt: null }
-        : t
-      ));
-    }
-
-    if (unassignedTab) {
-      setSavedOrders(prev => {
-        const next = { ...prev };
-        delete next[`tab_${unassignedTab.id}`];
-        if (next.__tabs_meta__) {
-          const nextMeta = { ...next.__tabs_meta__ };
-          delete nextMeta[unassignedTab.id];
-          next.__tabs_meta__ = nextMeta;
+      if (cashPortion > 0) {
+        updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + cashPortion });
+        if (settings?.operations?.autoOpenCashDrawer !== false) {
+          addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', `Cash drawer auto-opened for cash payment of ₹${cashPortion.toFixed(2)}`);
         }
-        return next;
-      });
-    }
-
-    // Fire to KDS if dine-in order wasn't saved, or if it is takeout/delivery
-    const tabData = unassignedTab ? savedOrders[`tab_${unassignedTab.id}`] : null;
-    const tabFired = unassignedTab && (
-      (Array.isArray(tabData) ? tabData.length > 0 : (tabData?.firedItems?.length > 0 || unassignedTab.firedItems?.length > 0)) ||
-      (kdsTickets || []).some(t =>
-        (t.tableId === `tab_${unassignedTab.id}` || t.tableId === unassignedTab.id || (unassignedTab.tokenNumber && String(t.tokenNumber) === String(unassignedTab.tokenNumber))) &&
-        t.status !== 'cancelled'
-      )
-    );
-    const tableFired = activeTable && (savedOrders[activeTable.id]?.length > 0);
-    const wasFired = tableFired || tabFired;
-
-    if (!wasFired && isKdsEnabled) {
-      const kdsOrderId = order.id || Date.now().toString();
-      try {
-        await fireToKDS(kdsOrderId, cart, tableId, orderType, {
-          tokenNumber: unassignedTab?.tokenNumber || null,
-          guestName: unassignedTab?.guestName || customerName || null,
-        });
-        broadcastOrderCreated(tableId, kdsOrderId);
-      } catch (err) {
-        console.error('[POS] Failed to fire order to KDS:', err);
-        alert('Order billed, but it could not be sent to the Kitchen Display. Please notify the kitchen manually.');
+      } else if (hasCardPayment && settings?.workflow?.cashDrawerOnCreditSplit) {
+        addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', 'Cash drawer popped on card split payment');
       }
-    }
 
-    // Reset
-    setCart([]);
-    setUnassignedTab(null);
-    setPaymentModal(false);
-    setDiscountAmount(0);
-    setDiscountReason('');
-    setCartAudit([]);
-    setFiredCourses(new Set([1]));
-    setIsHeld(false);
-    setHoldTimer(0);
-    setPartySize(1);
-    setCustomerName('');
-    setCustomerPhone('');
-    setPickupTime('');
-    setDeliveryAddress('');
-    setDriverInstructions('');
-    setDeliveryChannel('In-House');
-    setView(isTableManagementEnabled ? 'floor' : 'order');
-    const displayMethod = paymentSplits && paymentSplits.length > 0
-      ? `Split (${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')})`
-      : paymentMethod;
-    showSuccess(`Bill settled! ${(order.total || finalTotal).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} via ${displayMethod}`);
+      // Auto-print receipt according to settings
+      const shouldAutoPrint = (
+        settings?.printer?.autoPrintBill !== false &&
+        settings?.operations?.autoPrintReceipt !== false &&
+        settings?.workflow?.autoPrintOnPayment !== false
+      );
+
+      if (shouldAutoPrint) {
+        printReceipt({
+          order: { ...order, items: currentCart, paymentSplits, tokenNumber: currentUnassignedTab?.tokenNumber || order?.tokenNumber },
+          settings, tableId,
+          guestName: currentActiveTable?.guestName || currentUnassignedTab?.guestName || currentCustomerName,
+        });
+      }
+
+      // Fire to KDS if dine-in order wasn't saved, or if it is takeout/delivery
+      const tabData = currentUnassignedTab ? savedOrders[`tab_${currentUnassignedTab.id}`] : null;
+      const tabFired = currentUnassignedTab && (
+        (Array.isArray(tabData) ? tabData.length > 0 : (tabData?.firedItems?.length > 0 || currentUnassignedTab.firedItems?.length > 0)) ||
+        (kdsTickets || []).some(t =>
+          (t.tableId === `tab_${currentUnassignedTab.id}` || t.tableId === currentUnassignedTab.id || (currentUnassignedTab.tokenNumber && String(t.tokenNumber) === String(currentUnassignedTab.tokenNumber))) &&
+          t.status !== 'cancelled'
+        )
+      );
+      const tableFired = currentActiveTable && (savedOrders[currentActiveTable.id]?.length > 0);
+      const wasFired = tableFired || tabFired;
+
+      if (!wasFired && isKdsEnabled) {
+        const kdsOrderId = order?.id || Date.now().toString();
+        try {
+          await fireToKDS(kdsOrderId, currentCart, tableId, orderType, {
+            tokenNumber: currentUnassignedTab?.tokenNumber || null,
+            guestName: currentUnassignedTab?.guestName || currentCustomerName || null,
+          });
+          broadcastOrderCreated(tableId, kdsOrderId);
+        } catch (err) {
+          console.error('[POS] Failed to fire order to KDS:', err);
+          alert('Order billed, but it could not be sent to the Kitchen Display. Please notify the kitchen manually.');
+        }
+      }
+    } catch (err) {
+      console.error('[POS] Payment confirmation error:', err);
+      alert('Payment processing failed: ' + (err.message || 'Unknown error'));
+      throw err;
+    } finally {
+      isPaymentProcessingRef.current = false;
+    }
   };
 
   // Takeout/Delivery: go straight to order view
