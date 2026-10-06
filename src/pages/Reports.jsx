@@ -3297,22 +3297,38 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
 
     return filteredOrders.map(o => {
       // Find matching tickets
+      // Resolve order creation timestamp (always prioritize actual order creation time: createdAt)
+      const orderCreationIso = o.createdAt || o.date || o.timestamps?.ordered || o.orderPlacedAt || null;
+      const orderCreatedTime = orderCreationIso ? new Date(orderCreationIso).getTime() : Date.now();
+
+      // Resolve checkPaid / payment time
+      const orderPaidIso = o.paidAt || o.closedAt || o.settledAt || o.timestamps?.paid || (o.status === 'paid' ? o.createdAt : null);
+      const orderPaidTime = orderPaidIso ? new Date(orderPaidIso).getTime() : orderCreatedTime;
+      const checkPaid = orderPaidIso ? new Date(orderPaidIso).getTime() : null;
+
+      // Session validator: ticket must belong to this dining session
+      // (within realistic 4-hour window of order creation/payment, rejecting stale cross-day tickets)
+      const isTicketInSession = (t) => {
+        const tTime = new Date(t.firedAt || t.createdAt).getTime();
+        if (!tTime || isNaN(tTime)) return false;
+        const refTime = orderPaidTime || orderCreatedTime;
+        const diffMs = refTime - tTime;
+        return diffMs >= -5 * 60 * 1000 && diffMs <= 4 * 60 * 60 * 1000;
+      };
+
       let matchedTickets = [];
 
-      // Check direct matches
+      // Check direct matches (strictly within session)
       if (ticketsByOrderId.has(o.id)) {
-        matchedTickets = ticketsByOrderId.get(o.id);
+        matchedTickets = (ticketsByOrderId.get(o.id) || []).filter(isTicketInSession);
       } else if (o.billNo && ticketsByOrderId.has(o.billNo)) {
-        matchedTickets = ticketsByOrderId.get(o.billNo);
+        matchedTickets = (ticketsByOrderId.get(o.billNo) || []).filter(isTicketInSession);
       } else if (o.kdsTicketId || (Array.isArray(o.kdsTicketIds) && o.kdsTicketIds.length > 0)) {
         const targetIds = new Set(Array.isArray(o.kdsTicketIds) ? o.kdsTicketIds : [o.kdsTicketId]);
-        matchedTickets = (kdsTickets || []).filter(t => targetIds.has(t.id));
+        matchedTickets = (kdsTickets || []).filter(t => targetIds.has(t.id) && isTicketInSession(t));
       }
 
       // Check table / token matches if not matched directly
-      const orderPaidIso = o.paidAt || o.closedAt || o.settledAt || o.timestamps?.paid || (o.status === 'paid' ? o.createdAt : null);
-      const orderPaidTime = orderPaidIso ? new Date(orderPaidIso).getTime() : (o.createdAt ? new Date(o.createdAt).getTime() : Date.now());
-
       if (matchedTickets.length === 0) {
         let candidates = [];
         if (o.tableId !== undefined && o.tableId !== null) {
@@ -3323,21 +3339,11 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         }
 
         if (candidates.length > 0) {
-          // Filter tickets created within realistic dining window before this order's payment
-          // (up to 6 hours before payment, and not more than 5 minutes after payment)
-          const validCandidates = candidates.filter(t => {
-            const ticketTime = new Date(t.firedAt || t.createdAt).getTime();
-            return ticketTime <= orderPaidTime + 5 * 60 * 1000 && ticketTime >= orderPaidTime - 6 * 60 * 60 * 1000;
-          });
-
-          // Sort by firedAt/createdAt descending (most recent first)
+          const validCandidates = candidates.filter(isTicketInSession);
           validCandidates.sort((a, b) => new Date(b.firedAt || b.createdAt) - new Date(a.firedAt || a.createdAt));
           matchedTickets = validCandidates;
         }
       }
-
-      // Resolve checkPaid
-      const checkPaid = orderPaidIso ? new Date(orderPaidIso).getTime() : null;
 
       // Resolve ticketPrinted
       let ticketPrintedTime = null;
@@ -3346,10 +3352,12 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         if (ticketTimes.length > 0) ticketPrintedTime = Math.min(...ticketTimes);
       }
       if (!ticketPrintedTime && o.timestamps?.ticketPrinted) {
-        ticketPrintedTime = new Date(o.timestamps.ticketPrinted).getTime();
+        const t = new Date(o.timestamps.ticketPrinted).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) ticketPrintedTime = t;
       }
       if (!ticketPrintedTime && o.ticketPrintedAt) {
-        ticketPrintedTime = new Date(o.ticketPrintedAt).getTime();
+        const t = new Date(o.ticketPrintedAt).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) ticketPrintedTime = t;
       }
 
       // Resolve foodBumped
@@ -3368,24 +3376,34 @@ const SpeedOfService = ({ orders, kdsTickets = [] }) => {
         if (bumpTimes.length > 0) foodBumpedTime = Math.max(...bumpTimes);
       }
       if (!foodBumpedTime && o.timestamps?.foodBumped) {
-        foodBumpedTime = new Date(o.timestamps.foodBumped).getTime();
+        const t = new Date(o.timestamps.foodBumped).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) foodBumpedTime = t;
       }
       if (!foodBumpedTime && o.foodBumpedAt) {
-        foodBumpedTime = new Date(o.foodBumpedAt).getTime();
+        const t = new Date(o.foodBumpedAt).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) foodBumpedTime = t;
       }
 
-      // Resolve orderPlaced
-      let orderPlacedTime = null;
-      if (o.orderPlacedAt) orderPlacedTime = new Date(o.orderPlacedAt).getTime();
-      else if (o.seatedAt) orderPlacedTime = new Date(o.seatedAt).getTime();
-      else if (o.timestamps?.ordered) orderPlacedTime = new Date(o.timestamps.ordered).getTime();
+      // Discard anomalous bump times (bumped > 3 hours after firing is an abandoned ticket cleanup)
+      if (foodBumpedTime && ticketPrintedTime && (foodBumpedTime - ticketPrintedTime > 3 * 60 * 60 * 1000)) {
+        foodBumpedTime = null;
+      }
 
-      // If orderPlacedTime is missing or identical to checkPaid, but we have a ticket printed earlier:
+      // Resolve orderPlaced: ALWAYS use the order's actual creation time (createdAt)
+      let orderPlacedTime = orderCreatedTime;
+
+      // Only accept orderPlacedAt or timestamps.ordered if within realistic same-session dining window
+      if (o.orderPlacedAt) {
+        const t = new Date(o.orderPlacedAt).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
+      } else if (o.timestamps?.ordered) {
+        const t = new Date(o.timestamps.ordered).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
+      }
+
+      // If a valid ticket was printed earlier in this same session, dining turnaround begins when ticket was fired
       if (ticketPrintedTime && (!orderPlacedTime || orderPlacedTime >= checkPaid || orderPlacedTime > ticketPrintedTime)) {
         orderPlacedTime = ticketPrintedTime;
-      }
-      if (!orderPlacedTime && o.createdAt) {
-        orderPlacedTime = new Date(o.createdAt).getTime();
       }
       if (!ticketPrintedTime && orderPlacedTime) {
         ticketPrintedTime = orderPlacedTime;
@@ -3667,12 +3685,19 @@ const TableAnalyticsTab = ({ orders = [], floorPlans = {}, posTables = [], kdsTi
         foodBumpedTime = new Date(o.foodBumpedAt).getTime();
       }
 
-      // Resolve placed time
-      let placedTime = null;
-      if (o.seatedAt) placedTime = new Date(o.seatedAt).getTime();
-      else if (o.orderPlacedAt) placedTime = new Date(o.orderPlacedAt).getTime();
-      else if (o.timestamps?.ordered) placedTime = new Date(o.timestamps.ordered).getTime();
-      else if (o.createdAt) placedTime = new Date(o.createdAt).getTime();
+      // Resolve placed time (guard against stale seating from days ago)
+      const orderCreatedTime = (o.createdAt ? new Date(o.createdAt).getTime() : null) || orderPaidTime || Date.now();
+      let placedTime = orderCreatedTime;
+      if (o.seatedAt) {
+        const t = new Date(o.seatedAt).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) placedTime = t;
+      } else if (o.orderPlacedAt) {
+        const t = new Date(o.orderPlacedAt).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) placedTime = t;
+      } else if (o.timestamps?.ordered) {
+        const t = new Date(o.timestamps.ordered).getTime();
+        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) placedTime = t;
+      }
 
       // Resolve duration (Turn Time)
       let durationMs = null;

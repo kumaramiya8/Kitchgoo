@@ -5375,7 +5375,16 @@ const POS = () => {
       return;
     }
     if (table.status !== 'available') {
-      setActiveTable(table);
+      let currentTable = table;
+      if (table.seatedAt) {
+        const seatedTime = new Date(table.seatedAt).getTime();
+        if (Date.now() - seatedTime > 6 * 60 * 60 * 1000) {
+          const freshSeatedAt = new Date().toISOString();
+          currentTable = { ...table, seatedAt: freshSeatedAt };
+          setTables(prev => prev.map(t => String(t.id) === String(table.id) ? { ...t, seatedAt: freshSeatedAt } : t));
+        }
+      }
+      setActiveTable(currentTable);
       const items = savedOrders[table.id] || savedOrders[String(table.id)] || [];
       setCart(items);
       setPartySize(table.partySize || 1);
@@ -6154,8 +6163,14 @@ const POS = () => {
     isPaymentProcessingRef.current = true;
 
     try {
-      // Find any KDS tickets associated with this table or tab
+      // Find any KDS tickets associated with this table or tab within the current dining session
+      const nowMs = Date.now();
+      const MAX_SESSION_MS = 4 * 60 * 60 * 1000;
       const relatedTickets = (kdsTickets || []).filter(t => {
+        const ticketTime = new Date(t.firedAt || t.createdAt).getTime();
+        // Ignore stale tickets older than 4 hours or from prior sessions
+        if (!ticketTime || Math.abs(nowMs - ticketTime) > MAX_SESSION_MS) return false;
+
         if (activeTable && (
           String(t.tableId) === String(activeTable.id) ||
           t.tableId === `T-${activeTable.id}` ||
@@ -6184,7 +6199,9 @@ const POS = () => {
       });
       const latestFoodBumped = bumpTimes.length > 0 ? new Date(Math.max(...bumpTimes)).toISOString() : null;
 
-      const orderPlacedTime = activeTable?.seatedAt || unassignedTab?.createdAt || firstTicketPrinted || new Date().toISOString();
+      // Always use actual order creation time (createdAt) for orderPlacedTime,
+      // aligning with first ticket printed if fired earlier in this same dining session
+      const orderPlacedTime = firstTicketPrinted || new Date().toISOString();
 
       const extra = {
         orderType,

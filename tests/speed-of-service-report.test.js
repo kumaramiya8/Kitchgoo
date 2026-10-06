@@ -85,18 +85,33 @@ function processServiceData(orders, kdsTickets = []) {
   });
 
   return (orders || []).map(o => {
-    let matchedTickets = [];
-    if (ticketsByOrderId.has(o.id)) {
-      matchedTickets = ticketsByOrderId.get(o.id);
-    } else if (o.billNo && ticketsByOrderId.has(o.billNo)) {
-      matchedTickets = ticketsByOrderId.get(o.billNo);
-    } else if (o.kdsTicketId || (Array.isArray(o.kdsTicketIds) && o.kdsTicketIds.length > 0)) {
-      const targetIds = new Set(Array.isArray(o.kdsTicketIds) ? o.kdsTicketIds : [o.kdsTicketId]);
-      matchedTickets = (kdsTickets || []).filter(t => targetIds.has(t.id));
-    }
+    // Resolve order creation timestamp (always prioritize actual order creation time: createdAt)
+    const orderCreationIso = o.createdAt || o.date || o.timestamps?.ordered || o.orderPlacedAt || null;
+    const orderCreatedTime = orderCreationIso ? new Date(orderCreationIso).getTime() : Date.now();
 
     const orderPaidIso = o.paidAt || o.closedAt || o.settledAt || o.timestamps?.paid || (o.status === 'paid' ? o.createdAt : null);
-    const orderPaidTime = orderPaidIso ? new Date(orderPaidIso).getTime() : (o.createdAt ? new Date(o.createdAt).getTime() : Date.now());
+    const orderPaidTime = orderPaidIso ? new Date(orderPaidIso).getTime() : orderCreatedTime;
+    const checkPaid = orderPaidIso ? new Date(orderPaidIso).getTime() : null;
+
+    // Session validator: ticket must belong to this dining session
+    // (within realistic 4-hour window of order creation/payment, rejecting stale cross-day tickets)
+    const isTicketInSession = (t) => {
+      const tTime = new Date(t.firedAt || t.createdAt).getTime();
+      if (!tTime || isNaN(tTime)) return false;
+      const refTime = orderPaidTime || orderCreatedTime;
+      const diffMs = refTime - tTime;
+      return diffMs >= -5 * 60 * 1000 && diffMs <= 4 * 60 * 60 * 1000;
+    };
+
+    let matchedTickets = [];
+    if (ticketsByOrderId.has(o.id)) {
+      matchedTickets = (ticketsByOrderId.get(o.id) || []).filter(isTicketInSession);
+    } else if (o.billNo && ticketsByOrderId.has(o.billNo)) {
+      matchedTickets = (ticketsByOrderId.get(o.billNo) || []).filter(isTicketInSession);
+    } else if (o.kdsTicketId || (Array.isArray(o.kdsTicketIds) && o.kdsTicketIds.length > 0)) {
+      const targetIds = new Set(Array.isArray(o.kdsTicketIds) ? o.kdsTicketIds : [o.kdsTicketId]);
+      matchedTickets = (kdsTickets || []).filter(t => targetIds.has(t.id) && isTicketInSession(t));
+    }
 
     if (matchedTickets.length === 0) {
       let candidates = [];
@@ -108,16 +123,11 @@ function processServiceData(orders, kdsTickets = []) {
       }
 
       if (candidates.length > 0) {
-        const validCandidates = candidates.filter(t => {
-          const ticketTime = new Date(t.firedAt || t.createdAt).getTime();
-          return ticketTime <= orderPaidTime + 5 * 60 * 1000 && ticketTime >= orderPaidTime - 6 * 60 * 60 * 1000;
-        });
+        const validCandidates = candidates.filter(isTicketInSession);
         validCandidates.sort((a, b) => new Date(b.firedAt || b.createdAt) - new Date(a.firedAt || a.createdAt));
         matchedTickets = validCandidates;
       }
     }
-
-    const checkPaid = orderPaidIso ? new Date(orderPaidIso).getTime() : null;
 
     let ticketPrintedTime = null;
     if (matchedTickets.length > 0) {
@@ -125,10 +135,12 @@ function processServiceData(orders, kdsTickets = []) {
       if (ticketTimes.length > 0) ticketPrintedTime = Math.min(...ticketTimes);
     }
     if (!ticketPrintedTime && o.timestamps?.ticketPrinted) {
-      ticketPrintedTime = new Date(o.timestamps.ticketPrinted).getTime();
+      const t = new Date(o.timestamps.ticketPrinted).getTime();
+      if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) ticketPrintedTime = t;
     }
     if (!ticketPrintedTime && o.ticketPrintedAt) {
-      ticketPrintedTime = new Date(o.ticketPrintedAt).getTime();
+      const t = new Date(o.ticketPrintedAt).getTime();
+      if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) ticketPrintedTime = t;
     }
 
     let foodBumpedTime = null;
@@ -146,22 +158,32 @@ function processServiceData(orders, kdsTickets = []) {
       if (bumpTimes.length > 0) foodBumpedTime = Math.max(...bumpTimes);
     }
     if (!foodBumpedTime && o.timestamps?.foodBumped) {
-      foodBumpedTime = new Date(o.timestamps.foodBumped).getTime();
+      const t = new Date(o.timestamps.foodBumped).getTime();
+      if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) foodBumpedTime = t;
     }
     if (!foodBumpedTime && o.foodBumpedAt) {
-      foodBumpedTime = new Date(o.foodBumpedAt).getTime();
+      const t = new Date(o.foodBumpedAt).getTime();
+      if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) foodBumpedTime = t;
     }
 
-    let orderPlacedTime = null;
-    if (o.orderPlacedAt) orderPlacedTime = new Date(o.orderPlacedAt).getTime();
-    else if (o.seatedAt) orderPlacedTime = new Date(o.seatedAt).getTime();
-    else if (o.timestamps?.ordered) orderPlacedTime = new Date(o.timestamps.ordered).getTime();
+    // Discard anomalous bump times (bumped > 3 hours after firing is an abandoned ticket cleanup)
+    if (foodBumpedTime && ticketPrintedTime && (foodBumpedTime - ticketPrintedTime > 3 * 60 * 60 * 1000)) {
+      foodBumpedTime = null;
+    }
+
+    // Resolve orderPlaced: ALWAYS use the order's actual creation time (createdAt)
+    let orderPlacedTime = orderCreatedTime;
+
+    if (o.orderPlacedAt) {
+      const t = new Date(o.orderPlacedAt).getTime();
+      if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
+    } else if (o.timestamps?.ordered) {
+      const t = new Date(o.timestamps.ordered).getTime();
+      if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
+    }
 
     if (ticketPrintedTime && (!orderPlacedTime || orderPlacedTime >= checkPaid || orderPlacedTime > ticketPrintedTime)) {
       orderPlacedTime = ticketPrintedTime;
-    }
-    if (!orderPlacedTime && o.createdAt) {
-      orderPlacedTime = new Date(o.createdAt).getTime();
     }
     if (!ticketPrintedTime && orderPlacedTime) {
       ticketPrintedTime = orderPlacedTime;
@@ -396,6 +418,107 @@ describe('Speed of Service Report & Period Filter', () => {
       // Food bump should be latest bumped item (14:48)
       expect(data[0].foodBumped).toBe(new Date('2026-10-04T14:48:00.000Z').getTime());
       expect(data[0].ticketToFood).toBe(13 * 60 * 1000);
+    });
+
+    it('ignores stale multi-day seatedAt / orderPlacedAt from days ago and uses order actual createdAt', () => {
+      // Simulates real user scenario: Order created today on Oct 6 at 16:14,
+      // but table had stale seatedAt / orderPlacedAt from Oct 2 at 18:49.
+      const orders = [
+        {
+          id: 'ord_stale_table_1',
+          billNo: 'INV-KIK6Y-1366',
+          tableId: 1,
+          status: 'paid',
+          createdAt: '2026-10-06T16:14:00.000Z', // Billed today
+          paidAt: '2026-10-06T16:14:00.000Z',
+          orderPlacedAt: '2026-10-02T18:49:00.000Z', // Stale timestamp from 4 days ago
+          seatedAt: '2026-10-02T18:49:00.000Z', // Stale table seating from 4 days ago
+        },
+      ];
+
+      // KDS ticket from Oct 2 (4 days ago)
+      const staleKdsTickets = [
+        {
+          id: 'ticket_oct2_stale',
+          tableId: 1,
+          firedAt: '2026-10-02T18:49:00.000Z',
+          bumpedAt: '2026-10-06T16:14:00.000Z', // Batch cleared 4 days later
+          status: 'completed',
+        },
+      ];
+
+      const data = processServiceData(orders, staleKdsTickets);
+      expect(data).toHaveLength(1);
+      const d = data[0];
+
+      // OrderPlaced MUST be today (o.createdAt), NOT Oct 2nd!
+      expect(d.orderPlaced).toBe(new Date('2026-10-06T16:14:00.000Z').getTime());
+      // The 4-day-old ticket must NOT be matched to today's order
+      expect(d.ticketPrinted).toBe(new Date('2026-10-06T16:14:00.000Z').getTime());
+      // Food bump from 4 days ago is disregarded
+      expect(d.foodBumped).toBeNull();
+      // Total time should NOT be 93 hours (336,305s), but 0 (< 1m)
+      expect(d.totalTime).toBe(0);
+      expect(fmtMinSec(d.totalTime)).toBe('< 1m');
+    });
+
+    it('rejects stale KDS tickets older than 4 hours from current order even if matched by ID', () => {
+      const orders = [
+        {
+          id: 'ord_today',
+          billNo: 'INV-1426',
+          tableId: 5,
+          status: 'paid',
+          createdAt: '2026-10-06T21:43:00.000Z',
+          paidAt: '2026-10-06T21:43:00.000Z',
+          kdsTicketIds: ['ticket_old_t5'],
+        },
+      ];
+
+      const staleTickets = [
+        {
+          id: 'ticket_old_t5',
+          tableId: 5,
+          firedAt: '2026-10-02T19:09:00.000Z', // 4 days ago
+          bumpedAt: '2026-10-06T21:26:00.000Z',
+        },
+      ];
+
+      const data = processServiceData(orders, staleTickets);
+      expect(data).toHaveLength(1);
+      expect(data[0].orderPlaced).toBe(new Date('2026-10-06T21:43:00.000Z').getTime());
+      expect(data[0].ticketPrinted).toBe(new Date('2026-10-06T21:43:00.000Z').getTime());
+      expect(data[0].foodBumped).toBeNull();
+      expect(data[0].totalTime).toBe(0);
+    });
+
+    it('discards anomalous bump times where cook duration exceeds 3 hours', () => {
+      const orders = [
+        {
+          id: 'ord_abandoned_bump',
+          billNo: 'INV-999',
+          tableId: 2,
+          status: 'paid',
+          createdAt: '2026-10-06T20:00:00.000Z',
+          paidAt: '2026-10-06T20:00:00.000Z',
+        },
+      ];
+
+      const kdsTickets = [
+        {
+          id: 'ticket_abandoned',
+          orderId: 'ord_abandoned_bump',
+          firedAt: '2026-10-06T18:00:00.000Z',
+          bumpedAt: '2026-10-06T23:30:00.000Z', // 5.5 hours later (abandoned ticket cleanup)
+          status: 'completed',
+        },
+      ];
+
+      const data = processServiceData(orders, kdsTickets);
+      expect(data).toHaveLength(1);
+      // Food bump is ignored because > 3 hours
+      expect(data[0].foodBumped).toBeNull();
+      expect(data[0].ticketToFood).toBeNull();
     });
   });
 });
