@@ -7,7 +7,8 @@ import {
   Clock, CheckCircle, AlertTriangle, XCircle, FileText, Zap,
   Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
   Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck,
-  TableProperties, Armchair, Eye, Layers, History
+  TableProperties, Armchair, Eye, Layers, History, ShieldCheck,
+  Building2, FileSpreadsheet
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
@@ -2045,36 +2046,133 @@ const TaxComplianceTab = ({ orders, settings }) => {
   const [dateTo, setDateTo]     = useState('');
   useHistoricalOrders(range, dateFrom);
   const [taxTypeFilter, setTaxTypeFilter] = useState('All');
+  const [viewMode, setViewMode] = useState('summary'); // 'summary' | 'invoices'
+  const [searchQuery, setSearchQuery] = useState('');
 
   const { sortField, sortDirection, handleSort } = useSort('name', 'asc');
+  const {
+    sortField: invSortField,
+    sortDirection: invSortDirection,
+    handleSort: handleInvSort
+  } = useSort('date', 'desc');
 
   const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
-  const taxData = useMemo(() => {
-    const defaultGst = settings?.billing?.gstRate ?? 5;
-    const globalPricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
+  // Exclude voided and cancelled orders from tax liability
+  const { validOrders, voidedOrders, voidedTaxAmount } = useMemo(() => {
+    const valid = [];
+    const voided = [];
+    let voidedTax = 0;
+    (filtered || []).forEach(o => {
+      const s = (o.status || '').toLowerCase();
+      const p = (o.paymentMethod || '').toLowerCase();
+      if (s === 'voided' || s === 'cancelled' || p === 'voided') {
+        voided.push(o);
+        voidedTax += parseFloat(o.tax || 0);
+      } else {
+        valid.push(o);
+      }
+    });
+    return { validOrders: valid, voidedOrders: voided, voidedTaxAmount: voidedTax };
+  }, [filtered]);
 
+  const defaultGst = parseFloat(settings?.billing?.gstRate ?? 5) || 5;
+  const globalPricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
+  const gstin = settings?.restaurant?.gstin || '';
+  const fssai = settings?.restaurant?.fssai || '';
+  const restaurantName = settings?.restaurant?.name || 'Restaurant';
+
+  // Tax Slabs & Liability Aggregation
+  const taxData = useMemo(() => {
     const slabs = {
-      'Food Tax': { rate: defaultGst, type: 'GST', name: `${defaultGst}% Food Tax` },
-      'Beverage Tax': { rate: 12, type: 'GST', name: '12% Beverage Tax' },
-      'Alcohol Tax': { rate: 18, type: 'VAT', name: '18% Alcohol Tax' },
-      'Takeout GST': { rate: defaultGst, type: 'GST', name: `${defaultGst}% Takeout GST` },
+      'Food Tax': {
+        key: 'Food Tax',
+        name: `${defaultGst}% Restaurant Food GST`,
+        rate: defaultGst,
+        type: 'GST',
+        desc: 'Standard dining & prepared food (CGST + SGST)',
+        taxable: 0,
+        cgst: 0,
+        sgst: 0,
+        vat: 0,
+        collected: 0,
+        ordersCount: 0,
+      },
+      'Takeout GST': {
+        key: 'Takeout GST',
+        name: `${defaultGst}% Takeout & Delivery GST`,
+        rate: defaultGst,
+        type: 'GST',
+        desc: 'Takeout, off-premise & delivery orders (CGST + SGST)',
+        taxable: 0,
+        cgst: 0,
+        sgst: 0,
+        vat: 0,
+        collected: 0,
+        ordersCount: 0,
+      },
+      'Beverage Tax': {
+        key: 'Beverage Tax',
+        name: '12% Beverage GST',
+        rate: 12,
+        type: 'GST',
+        desc: 'Carbonated & packaged beverages (CGST + SGST)',
+        taxable: 0,
+        cgst: 0,
+        sgst: 0,
+        vat: 0,
+        collected: 0,
+        ordersCount: 0,
+      },
+      'Alcohol Tax': {
+        key: 'Alcohol Tax',
+        name: '18% Liquor / Alcohol VAT',
+        rate: 18,
+        type: 'VAT',
+        desc: 'State VAT on alcoholic beverages & bar sales',
+        taxable: 0,
+        cgst: 0,
+        sgst: 0,
+        vat: 0,
+        collected: 0,
+        ordersCount: 0,
+      },
     };
 
-    const aggregated = {};
-    Object.keys(slabs).forEach(k => {
-      aggregated[k] = { name: slabs[k].name, rate: slabs[k].rate, type: slabs[k].type, taxable: 0, collected: 0 };
-    });
+    const slabOrderSets = {
+      'Food Tax': new Set(),
+      'Takeout GST': new Set(),
+      'Beverage Tax': new Set(),
+      'Alcohol Tax': new Set(),
+    };
 
-    filtered.forEach(o => {
-      const isTakeout = !o.tableId || o.orderType === 'Takeout' || o.orderType === 'Delivery';
+    validOrders.forEach(o => {
+      const isTakeout = !o.tableId || (o.orderType || '').toLowerCase() === 'takeout' || (o.orderType || '').toLowerCase() === 'delivery';
       const orderPricesIncludeGst = o.pricesIncludeGst !== undefined ? o.pricesIncludeGst : globalPricesIncludeGst;
+      const orderItems = o.items || [];
+      const orderDiscount = parseFloat(o.discount || o.discountAmount || 0);
 
-      (o.items || []).forEach(item => {
+      // If order has no items list (e.g. legacy/third-party), categorize via order totals
+      if (orderItems.length === 0) {
+        const orderTax = parseFloat(o.tax || 0);
+        const orderSubtotal = parseFloat(o.subtotal || 0) || (orderPricesIncludeGst ? (parseFloat(o.total || 0) - orderTax) : parseFloat(o.total || 0));
+        const targetSlab = isTakeout ? 'Takeout GST' : 'Food Tax';
+        slabs[targetSlab].taxable += orderSubtotal;
+        slabs[targetSlab].collected += orderTax;
+        slabs[targetSlab].cgst += orderTax / 2;
+        slabs[targetSlab].sgst += orderTax / 2;
+        slabOrderSets[targetSlab].add(o.id || o.billNo);
+        return;
+      }
+
+      const rawItemsSum = orderItems.reduce((sum, item) => sum + (parseFloat(item.price) || 0) * (parseFloat(item.qty || item.quantity) || 1), 0);
+      const discountRatio = (rawItemsSum > 0 && orderDiscount > 0) ? Math.max(0, 1 - (orderDiscount / rawItemsSum)) : 1;
+
+      orderItems.forEach(item => {
         const cat = (item.category || '').toLowerCase();
-        const revenue = (item.price || 0) * (item.qty || 1);
-        const isAlcohol = cat.includes('alcohol') || cat.includes('bar') || cat.includes('drink') || cat.includes('beer') || cat.includes('wine');
-        const isBev = cat.includes('beverage') || cat.includes('juice') || cat.includes('coffee') || cat.includes('tea');
+        const tg = (item.taxGroup || '').toLowerCase();
+        const isAlcohol = tg === 'alcohol' || cat.includes('alcohol') || cat.includes('bar') || cat.includes('liquor') || cat.includes('beer') || cat.includes('wine');
+        const isBev = cat.includes('beverage') || cat.includes('juice') || cat.includes('coffee') || cat.includes('tea') || cat.includes('shake');
 
         let slabKey;
         if (isAlcohol) slabKey = 'Alcohol Tax';
@@ -2082,106 +2180,517 @@ const TaxComplianceTab = ({ orders, settings }) => {
         else if (isBev) slabKey = 'Beverage Tax';
         else slabKey = 'Food Tax';
 
+        const rate = slabs[slabKey].rate;
+        const grossRevenue = (parseFloat(item.price) || 0) * (parseFloat(item.qty || item.quantity) || 1);
+        const netRevenue = grossRevenue * discountRatio;
+
         if (!item.taxExempt) {
-          const rate = slabs[slabKey].rate;
           let taxable = 0;
           let taxCollected = 0;
 
           if (orderPricesIncludeGst) {
-            taxCollected = rate > 0 ? revenue - (revenue / (1 + rate / 100)) : 0;
-            taxable = revenue - taxCollected;
+            taxCollected = rate > 0 ? netRevenue - (netRevenue / (1 + rate / 100)) : 0;
+            taxable = netRevenue - taxCollected;
           } else {
-            taxable = revenue;
+            taxable = netRevenue;
             taxCollected = taxable * (rate / 100);
           }
 
-          aggregated[slabKey].taxable += taxable;
-          aggregated[slabKey].collected += taxCollected;
+          slabs[slabKey].taxable += taxable;
+          slabs[slabKey].collected += taxCollected;
+
+          if (slabs[slabKey].type === 'GST') {
+            slabs[slabKey].cgst += taxCollected / 2;
+            slabs[slabKey].sgst += taxCollected / 2;
+          } else {
+            slabs[slabKey].vat += taxCollected;
+          }
+
+          slabOrderSets[slabKey].add(o.id || o.billNo);
         }
       });
     });
 
-    let result = Object.values(aggregated);
+    Object.keys(slabs).forEach(k => {
+      slabs[k].ordersCount = slabOrderSets[k].size;
+    });
+
+    let result = Object.values(slabs);
     if (taxTypeFilter !== 'All') {
       result = result.filter(r => r.type === taxTypeFilter);
     }
-  }, [filtered, taxTypeFilter, settings]);
+    return result;
+  }, [validOrders, taxTypeFilter, defaultGst, globalPricesIncludeGst]);
 
   const sortedTaxData = useMemo(() => {
-    return sortData(taxData, sortField, sortDirection, {
-      totalValue: t => t.taxable + t.collected
+    return sortData(taxData || [], sortField, sortDirection, {
+      totalValue: t => (t.taxable || 0) + (t.collected || 0)
     });
   }, [taxData, sortField, sortDirection]);
 
   const totals = useMemo(() => {
-    return taxData.reduce((s, r) => ({
-      taxable: s.taxable + r.taxable,
-      collected: s.collected + r.collected
-    }), { taxable: 0, collected: 0 });
+    return (taxData || []).reduce((s, r) => ({
+      taxable: s.taxable + (r.taxable || 0),
+      cgst: s.cgst + (r.cgst || 0),
+      sgst: s.sgst + (r.sgst || 0),
+      vat: s.vat + (r.vat || 0),
+      collected: s.collected + (r.collected || 0),
+      totalValue: s.totalValue + ((r.taxable || 0) + (r.collected || 0))
+    }), { taxable: 0, cgst: 0, sgst: 0, vat: 0, collected: 0, totalValue: 0 });
   }, [taxData]);
 
+  // Invoice-Level Tax Register (B2C Audit)
+  const invoiceTaxList = useMemo(() => {
+    return validOrders.map(o => {
+      const orderPricesIncludeGst = o.pricesIncludeGst !== undefined ? o.pricesIncludeGst : globalPricesIncludeGst;
+      const orderItems = o.items || [];
+      const orderDiscount = parseFloat(o.discount || o.discountAmount || 0);
+      const rawItemsSum = orderItems.reduce((sum, item) => sum + (parseFloat(item.price) || 0) * (parseFloat(item.qty || item.quantity) || 1), 0);
+      const discountRatio = (rawItemsSum > 0 && orderDiscount > 0) ? Math.max(0, 1 - (orderDiscount / rawItemsSum)) : 1;
+
+      let orderTaxable = 0;
+      let orderCgst = 0;
+      let orderSgst = 0;
+      let orderVat = 0;
+      let orderTaxCollected = 0;
+
+      if (orderItems.length === 0) {
+        orderTaxCollected = parseFloat(o.tax || 0);
+        orderTaxable = parseFloat(o.subtotal || 0) || (orderPricesIncludeGst ? (parseFloat(o.total || 0) - orderTaxCollected) : parseFloat(o.total || 0));
+        orderCgst = orderTaxCollected / 2;
+        orderSgst = orderTaxCollected / 2;
+      } else {
+        const isTakeout = !o.tableId || (o.orderType || '').toLowerCase() === 'takeout' || (o.orderType || '').toLowerCase() === 'delivery';
+        orderItems.forEach(item => {
+          if (item.taxExempt) {
+            orderTaxable += (parseFloat(item.price) || 0) * (parseFloat(item.qty || item.quantity) || 1) * discountRatio;
+            return;
+          }
+          const cat = (item.category || '').toLowerCase();
+          const tg = (item.taxGroup || '').toLowerCase();
+          const isAlcohol = tg === 'alcohol' || cat.includes('alcohol') || cat.includes('bar') || cat.includes('liquor') || cat.includes('beer') || cat.includes('wine');
+          const isBev = cat.includes('beverage') || cat.includes('juice') || cat.includes('coffee') || cat.includes('tea') || cat.includes('shake');
+
+          let rate = defaultGst;
+          let isVat = false;
+          if (isAlcohol) { rate = 18; isVat = true; }
+          else if (isTakeout) { rate = defaultGst; }
+          else if (isBev) { rate = 12; }
+          else { rate = defaultGst; }
+
+          const netRev = (parseFloat(item.price) || 0) * (parseFloat(item.qty || item.quantity) || 1) * discountRatio;
+          let taxCol = 0;
+          let taxBase = 0;
+
+          if (orderPricesIncludeGst) {
+            taxCol = rate > 0 ? netRev - (netRev / (1 + rate / 100)) : 0;
+            taxBase = netRev - taxCol;
+          } else {
+            taxBase = netRev;
+            taxCol = taxBase * (rate / 100);
+          }
+
+          orderTaxable += taxBase;
+          orderTaxCollected += taxCol;
+          if (isVat) {
+            orderVat += taxCol;
+          } else {
+            orderCgst += taxCol / 2;
+            orderSgst += taxCol / 2;
+          }
+        });
+      }
+
+      return {
+        id: o.id,
+        billNo: o.billNo || `INV-${String(o.id).slice(0, 5)}`,
+        date: o.createdAt || o.date || o.settledAt,
+        orderType: o.orderType || (o.tableId ? 'Dine-in' : 'Takeout'),
+        paymentMethod: o.paymentMethod || 'Cash',
+        itemsCount: orderItems.reduce((s, i) => s + (parseFloat(i.qty || i.quantity) || 1), 0),
+        gross: rawItemsSum || parseFloat(o.total || 0),
+        discount: orderDiscount,
+        taxable: orderTaxable,
+        cgst: orderCgst,
+        sgst: orderSgst,
+        vat: orderVat,
+        tax: orderTaxCollected,
+        total: parseFloat(o.total || (orderTaxable + orderTaxCollected)),
+      };
+    });
+  }, [validOrders, defaultGst, globalPricesIncludeGst]);
+
+  const filteredInvoices = useMemo(() => {
+    if (!searchQuery.trim()) return invoiceTaxList;
+    const q = searchQuery.toLowerCase().trim();
+    return invoiceTaxList.filter(inv =>
+      (inv.billNo || '').toLowerCase().includes(q) ||
+      (inv.orderType || '').toLowerCase().includes(q) ||
+      (inv.paymentMethod || '').toLowerCase().includes(q)
+    );
+  }, [invoiceTaxList, searchQuery]);
+
+  const sortedInvoices = useMemo(() => {
+    return sortData(filteredInvoices, invSortField, invSortDirection, {
+      date: inv => new Date(inv.date || 0).getTime()
+    });
+  }, [filteredInvoices, invSortField, invSortDirection]);
+
+  const invoiceTotals = useMemo(() => {
+    return filteredInvoices.reduce((s, inv) => ({
+      taxable: s.taxable + inv.taxable,
+      cgst: s.cgst + inv.cgst,
+      sgst: s.sgst + inv.sgst,
+      vat: s.vat + inv.vat,
+      tax: s.tax + inv.tax,
+      total: s.total + inv.total,
+    }), { taxable: 0, cgst: 0, sgst: 0, vat: 0, tax: 0, total: 0 });
+  }, [filteredInvoices]);
+
   const handleExport = () => {
-    const rows = [
-      'Tax Name/Slab,Gross Taxable Amount,Tax Amount Collected,Total Invoice Value',
-      ...sortedTaxData.map(r =>
-        `"${r.name}",${r.taxable.toFixed(2)},${r.collected.toFixed(2)},${(r.taxable + r.collected).toFixed(2)}`
-      ),
-    ];
-    downloadCSV('tax_liability_summary.csv', rows);
+    if (viewMode === 'invoices') {
+      const rows = [
+        'Invoice No,Date & Time,Order Type,Payment Method,Items Count,Gross Amount,Discount,Net Taxable,CGST,SGST,State VAT,Total Tax,Total Amount',
+        ...sortedInvoices.map(inv =>
+          `"${inv.billNo}","${fmtDateTime(inv.date)}","${inv.orderType}","${inv.paymentMethod}",${inv.itemsCount},${inv.gross.toFixed(2)},${inv.discount.toFixed(2)},${inv.taxable.toFixed(2)},${inv.cgst.toFixed(2)},${inv.sgst.toFixed(2)},${inv.vat.toFixed(2)},${inv.tax.toFixed(2)},${inv.total.toFixed(2)}`
+        ),
+        `"TOTAL","${range}","All","All",${filteredInvoices.reduce((s, i) => s + i.itemsCount, 0)},-,${filteredInvoices.reduce((s, i) => s + i.discount, 0).toFixed(2)},${invoiceTotals.taxable.toFixed(2)},${invoiceTotals.cgst.toFixed(2)},${invoiceTotals.sgst.toFixed(2)},${invoiceTotals.vat.toFixed(2)},${invoiceTotals.tax.toFixed(2)},${invoiceTotals.total.toFixed(2)}`
+      ];
+      downloadCSV(`tax_invoice_register_${range.toLowerCase().replace(/\s+/g, '_')}.csv`, rows);
+    } else {
+      const rows = [
+        'Tax Name / Slab,Tax Type,Rate %,Gross Taxable Amount,CGST (Central Tax),SGST (State Tax),State VAT (Liquor),Total Tax Collected,Total Invoiced Value,Invoices Count',
+        ...sortedTaxData.map(r =>
+          `"${r.name}","${r.type}",${r.rate}%,${r.taxable.toFixed(2)},${r.cgst.toFixed(2)},${r.sgst.toFixed(2)},${r.vat.toFixed(2)},${r.collected.toFixed(2)},${((r.taxable || 0) + (r.collected || 0)).toFixed(2)},${r.ordersCount || 0}`
+        ),
+        `"TOTAL","All",-,${totals.taxable.toFixed(2)},${totals.cgst.toFixed(2)},${totals.sgst.toFixed(2)},${totals.vat.toFixed(2)},${totals.collected.toFixed(2)},${totals.totalValue.toFixed(2)},${validOrders.length}`
+      ];
+      downloadCSV(`tax_liability_summary_${range.toLowerCase().replace(/\s+/g, '_')}.csv`, rows);
+    }
   };
 
   return (
     <div>
+      {/* ── Statutory & Business Compliance Header ── */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+        padding: '14px 18px', background: 'linear-gradient(135deg, rgba(30, 94, 74, 0.08), rgba(34, 197, 94, 0.05))',
+        border: '1px solid rgba(30, 94, 74, 0.2)', borderRadius: 14, marginBottom: 16
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 10, background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <ShieldCheck size={24} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, fontSize: '0.98rem', color: 'var(--text-primary)' }}>{restaurantName}</span>
+              <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: '0.65rem', fontWeight: 700, background: 'rgba(34, 197, 94, 0.15)', color: '#15803d' }}>
+                TAX COMPLIANCE &amp; FILING
+              </span>
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', gap: 16, marginTop: 3, flexWrap: 'wrap' }}>
+              <span>GSTIN: <strong style={{ color: gstin ? 'var(--text-primary)' : 'var(--text-muted)' }}>{gstin || 'Not configured'}</strong></span>
+              <span>FSSAI: <strong style={{ color: fssai ? 'var(--text-primary)' : 'var(--text-muted)' }}>{fssai || 'Not configured'}</strong></span>
+              <span>Billing Model: <strong style={{ color: 'var(--text-primary)' }}>{globalPricesIncludeGst ? 'Tax-Inclusive (Extracted)' : 'Tax-Exclusive (Added)'}</strong></span>
+              <span>Standard GST: <strong style={{ color: 'var(--text-primary)' }}>{defaultGst}% (CGST {(defaultGst / 2).toFixed(1)}% + SGST {(defaultGst / 2).toFixed(1)}%)</strong></span>
+            </div>
+          </div>
+        </div>
+
+        {voidedOrders.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.73rem', color: '#b45309', background: 'rgba(245, 158, 11, 0.1)', padding: '6px 12px', borderRadius: 20, border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+            <AlertTriangle size={13} color="#f59e0b" />
+            <span><strong>{voidedOrders.length} voided orders</strong> ({fmt(voidedOrders.reduce((s, o) => s + (o.total || 0), 0))}) excluded from liability</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Filter Bar & View Toggle ── */}
       <FilterBar>
         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
         <RangePicker range={range} setRange={setRange} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
         <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Tax Type:</span>
-        <Select value={taxTypeFilter} onChange={setTaxTypeFilter}>
-          <option value="All">All Taxes</option>
-          <option value="GST">GST (Goods &amp; Services Tax)</option>
-          <option value="VAT">VAT (Value Added Tax)</option>
-        </Select>
-        <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
+
+        {/* View mode toggle */}
+        <div style={{ display: 'flex', background: 'white', padding: 2, borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+          <button
+            onClick={() => setViewMode('summary')}
+            style={{
+              padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+              background: viewMode === 'summary' ? 'var(--primary)' : 'transparent',
+              color: viewMode === 'summary' ? 'white' : 'var(--text-muted)',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            <Receipt size={13} /> Slabs Summary
+          </button>
+          <button
+            onClick={() => setViewMode('invoices')}
+            style={{
+              padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+              background: viewMode === 'invoices' ? 'var(--primary)' : 'transparent',
+              color: viewMode === 'invoices' ? 'white' : 'var(--text-muted)',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            <FileSpreadsheet size={13} /> Invoice Register ({validOrders.length})
+          </button>
+        </div>
+
+        {viewMode === 'summary' && (
+          <>
+            <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Tax Type:</span>
+            <Select value={taxTypeFilter} onChange={setTaxTypeFilter}>
+              <option value="All">All Taxes</option>
+              <option value="GST">GST (Goods &amp; Services Tax)</option>
+              <option value="VAT">VAT (Value Added Tax)</option>
+            </Select>
+          </>
+        )}
+
+        <div style={{ marginLeft: 'auto' }}>
+          <ExportBtn onClick={handleExport} />
+        </div>
       </FilterBar>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-        <StatCard label="Gross Taxable Amount" value={fmt(totals.taxable)} color="#1e5e4a" icon={IndianRupee} />
-        <StatCard label="Tax Amount Collected" value={fmt(totals.collected)} color="#22c55e" icon={Receipt} />
-        <StatCard label="Total Invoice Value" value={fmt(totals.taxable + totals.collected)} color="#f59e0b" icon={TrendingUp} />
+      {/* ── KPI Stat Cards ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <StatCard
+          label="Net Taxable Turnover"
+          value={fmt(totals.taxable)}
+          sub={`${validOrders.length} settled orders`}
+          color="#1e5e4a"
+          icon={IndianRupee}
+        />
+        <StatCard
+          label="Central GST (CGST)"
+          value={fmt(totals.cgst)}
+          sub="Central tax liability"
+          color="#2563eb"
+          icon={Receipt}
+        />
+        <StatCard
+          label="State GST (SGST)"
+          value={fmt(totals.sgst)}
+          sub="State / UT tax liability"
+          color="#7c3aed"
+          icon={Receipt}
+        />
+        <StatCard
+          label="Total Tax Collected"
+          value={fmt(totals.collected)}
+          sub={totals.vat > 0 ? `GST + ${fmt(totals.vat)} VAT` : 'Output tax liability'}
+          color="#22c55e"
+          icon={Receipt}
+        />
+        <StatCard
+          label="Total Invoiced Value"
+          value={fmt(totals.totalValue)}
+          sub="Taxable + tax collected"
+          color="#f59e0b"
+          icon={TrendingUp}
+        />
       </div>
 
-      <div className="card">
-        <SectionTitle>Tax Liability Summary</SectionTitle>
-        {sortedTaxData.length === 0 ? <Empty /> : (
-          <TableWrap>
-            <thead>
-              <tr>
-                <Th sortField={sortField} currentField="name" sortDirection={sortDirection} onSort={handleSort}>Tax Name / Slab</Th>
-                <Th right sortField={sortField} currentField="taxable" sortDirection={sortDirection} onSort={handleSort}>Gross Taxable Amount</Th>
-                <Th right sortField={sortField} currentField="collected" sortDirection={sortDirection} onSort={handleSort}>Tax Amount Collected</Th>
-                <Th right sortField={sortField} currentField="totalValue" sortDirection={sortDirection} onSort={handleSort}>Total Invoice Value</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTaxData.map(t => (
-                <tr key={t.name}>
-                  <Td bold>{t.name}</Td>
-                  <Td right>{fmt(t.taxable)}</Td>
-                  <Td right bold style={{ color: 'var(--primary)' }}>{fmt(t.collected)}</Td>
-                  <Td right bold>{fmt(t.taxable + t.collected)}</Td>
+      {/* ── View 1: Tax Slabs Summary ── */}
+      {viewMode === 'summary' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <SectionTitle>Tax Liability Summary by Slabs</SectionTitle>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Period: <strong>{range}</strong>
+              </span>
+            </div>
+
+            {sortedTaxData.length === 0 ? <Empty text="No taxable transactions found for this period." /> : (
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th sortField={sortField} currentField="name" sortDirection={sortDirection} onSort={handleSort}>Tax Name / Slab</Th>
+                    <Th sortField={sortField} currentField="type" sortDirection={sortDirection} onSort={handleSort}>Type</Th>
+                    <Th right sortField={sortField} currentField="rate" sortDirection={sortDirection} onSort={handleSort}>Rate %</Th>
+                    <Th right sortField={sortField} currentField="taxable" sortDirection={sortDirection} onSort={handleSort}>Gross Taxable Amount</Th>
+                    <Th right sortField={sortField} currentField="cgst" sortDirection={sortDirection} onSort={handleSort}>CGST (Central)</Th>
+                    <Th right sortField={sortField} currentField="sgst" sortDirection={sortDirection} onSort={handleSort}>SGST (State)</Th>
+                    <Th right sortField={sortField} currentField="vat" sortDirection={sortDirection} onSort={handleSort}>State VAT</Th>
+                    <Th right sortField={sortField} currentField="collected" sortDirection={sortDirection} onSort={handleSort}>Tax Collected</Th>
+                    <Th right sortField={sortField} currentField="totalValue" sortDirection={sortDirection} onSort={handleSort}>Total Invoice Value</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTaxData.map(t => (
+                    <tr key={t.name}>
+                      <Td bold>
+                        <div>{t.name}</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.desc}</div>
+                      </Td>
+                      <Td>
+                        <Badge label={t.type} color={t.type === 'GST' ? '#2563eb' : '#f59e0b'} />
+                      </Td>
+                      <Td right bold>{t.rate}%</Td>
+                      <Td right>{fmt(t.taxable)}</Td>
+                      <Td right style={{ color: '#2563eb' }}>{t.type === 'GST' ? fmt(t.cgst) : '—'}</Td>
+                      <Td right style={{ color: '#7c3aed' }}>{t.type === 'GST' ? fmt(t.sgst) : '—'}</Td>
+                      <Td right style={{ color: '#f59e0b' }}>{t.type === 'VAT' ? fmt(t.vat) : '—'}</Td>
+                      <Td right bold style={{ color: 'var(--primary)' }}>{fmt(t.collected)}</Td>
+                      <Td right bold>{fmt((t.taxable || 0) + (t.collected || 0))}</Td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <TdSummary bold colSpan={3}>TOTAL LIABILITIES</TdSummary>
+                    <TdSummary right bold>{fmt(totals.taxable)}</TdSummary>
+                    <TdSummary right bold style={{ color: '#2563eb' }}>{fmt(totals.cgst)}</TdSummary>
+                    <TdSummary right bold style={{ color: '#7c3aed' }}>{fmt(totals.sgst)}</TdSummary>
+                    <TdSummary right bold style={{ color: '#f59e0b' }}>{fmt(totals.vat)}</TdSummary>
+                    <TdSummary right bold>{fmt(totals.collected)}</TdSummary>
+                    <TdSummary right bold>{fmt(totals.totalValue)}</TdSummary>
+                  </tr>
+                </tbody>
+              </TableWrap>
+            )}
+          </div>
+
+          {/* ── Statutory GSTR-3B Return Summary Card ── */}
+          <div className="card" style={{ background: 'var(--surface-muted, #f8fafc)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Building2 size={16} color="var(--primary)" />
+              <h4 style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                Statutory Return Breakdown (GSTR-3B Ready)
+              </h4>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              <div style={{ background: 'white', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Table 3.1(a) Outward Taxable Supplies</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--primary)', marginTop: 4 }}>{fmt(totals.taxable)}</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>Total taxable sales turnover net of discounts</div>
+              </div>
+              <div style={{ background: 'white', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Central Tax Liability (CGST)</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#2563eb', marginTop: 4 }}>{fmt(totals.cgst)}</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>50% statutory share to Central Government</div>
+              </div>
+              <div style={{ background: 'white', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>State / UT Tax Liability (SGST)</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#7c3aed', marginTop: 4 }}>{fmt(totals.sgst)}</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>50% statutory share to State Government</div>
+              </div>
+              {totals.vat > 0 && (
+                <div style={{ background: 'white', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Non-GST / State VAT (Alcohol)</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#f59e0b', marginTop: 4 }}>{fmt(totals.vat)}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>Separate liquor VAT filing with Excise Dept</div>
+                </div>
+              )}
+              <div style={{ background: 'white', padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(34, 197, 94, 0.4)', background: 'rgba(34, 197, 94, 0.04)' }}>
+                <div style={{ fontSize: '0.72rem', color: '#15803d', fontWeight: 700 }}>Total Output Tax Payable</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#15803d', marginTop: 4 }}>{fmt(totals.collected)}</div>
+                <div style={{ fontSize: '0.68rem', color: '#15803d', marginTop: 2 }}>Total tax collected for remittance</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── View 2: Invoice Tax Register (Audit Trail) ── */}
+      {viewMode === 'invoices' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <SectionTitle>Invoice-Level Tax Register</SectionTitle>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                Itemized statutory tax breakdown for every settled bill in this period.
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ position: 'relative', minWidth: 220 }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Filter by bill #, type, tender..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  style={{
+                    padding: '6px 10px 6px 30px', borderRadius: 8, border: '1px solid var(--border-subtle)',
+                    fontSize: '0.78rem', width: '100%', background: 'white', color: 'var(--text-primary)'
+                  }}
+                />
+              </div>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  style={{ padding: '4px 8px', fontSize: '0.72rem', border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {sortedInvoices.length === 0 ? <Empty text="No matching invoices found in this period." /> : (
+            <TableWrap>
+              <thead>
+                <tr>
+                  <Th sortField={invSortField} currentField="date" sortDirection={invSortDirection} onSort={handleInvSort}>Date &amp; Time</Th>
+                  <Th sortField={invSortField} currentField="billNo" sortDirection={invSortDirection} onSort={handleInvSort}>Invoice #</Th>
+                  <Th sortField={invSortField} currentField="orderType" sortDirection={invSortDirection} onSort={handleInvSort}>Type</Th>
+                  <Th sortField={invSortField} currentField="paymentMethod" sortDirection={invSortDirection} onSort={handleInvSort}>Tender</Th>
+                  <Th right sortField={invSortField} currentField="itemsCount" sortDirection={invSortDirection} onSort={handleInvSort}>Items</Th>
+                  <Th right sortField={invSortField} currentField="gross" sortDirection={invSortDirection} onSort={handleInvSort}>Gross</Th>
+                  <Th right sortField={invSortField} currentField="discount" sortDirection={invSortDirection} onSort={handleInvSort}>Disc.</Th>
+                  <Th right sortField={invSortField} currentField="taxable" sortDirection={invSortDirection} onSort={handleInvSort}>Taxable</Th>
+                  <Th right sortField={invSortField} currentField="cgst" sortDirection={invSortDirection} onSort={handleInvSort}>CGST</Th>
+                  <Th right sortField={invSortField} currentField="sgst" sortDirection={invSortDirection} onSort={handleInvSort}>SGST</Th>
+                  <Th right sortField={invSortField} currentField="vat" sortDirection={invSortDirection} onSort={handleInvSort}>VAT</Th>
+                  <Th right sortField={invSortField} currentField="tax" sortDirection={invSortDirection} onSort={handleInvSort}>Total Tax</Th>
+                  <Th right sortField={invSortField} currentField="total" sortDirection={invSortDirection} onSort={handleInvSort}>Bill Total</Th>
                 </tr>
-              ))}
-              <tr>
-                <TdSummary bold>TOTAL</TdSummary>
-                <TdSummary right bold>{fmt(totals.taxable)}</TdSummary>
-                <TdSummary right bold>{fmt(totals.collected)}</TdSummary>
-                <TdSummary right bold>{fmt(totals.taxable + totals.collected)}</TdSummary>
-              </tr>
-            </tbody>
-          </TableWrap>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {sortedInvoices.map(inv => (
+                  <tr key={inv.id || inv.billNo}>
+                    <Td muted>{fmtDateTime(inv.date)}</Td>
+                    <Td bold>{inv.billNo}</Td>
+                    <Td>
+                      <Badge
+                        label={inv.orderType}
+                        color={inv.orderType.toLowerCase().includes('dine') ? '#2563eb' : inv.orderType.toLowerCase().includes('take') ? '#f59e0b' : '#16a34a'}
+                      />
+                    </Td>
+                    <Td muted>{inv.paymentMethod}</Td>
+                    <Td right>{inv.itemsCount}</Td>
+                    <Td right muted>{fmt(inv.gross)}</Td>
+                    <Td right style={{ color: inv.discount > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                      {inv.discount > 0 ? `-${fmt(inv.discount)}` : '—'}
+                    </Td>
+                    <Td right bold>{fmt(inv.taxable)}</Td>
+                    <Td right style={{ color: '#2563eb' }}>{inv.cgst > 0 ? fmt(inv.cgst) : '—'}</Td>
+                    <Td right style={{ color: '#7c3aed' }}>{inv.sgst > 0 ? fmt(inv.sgst) : '—'}</Td>
+                    <Td right style={{ color: '#f59e0b' }}>{inv.vat > 0 ? fmt(inv.vat) : '—'}</Td>
+                    <Td right bold style={{ color: 'var(--primary)' }}>{fmt(inv.tax)}</Td>
+                    <Td right bold>{fmt(inv.total)}</Td>
+                  </tr>
+                ))}
+                <tr>
+                  <TdSummary bold colSpan={4}>TOTAL ({filteredInvoices.length} Invoices)</TdSummary>
+                  <TdSummary right bold>{filteredInvoices.reduce((s, i) => s + i.itemsCount, 0)}</TdSummary>
+                  <TdSummary right bold>{fmt(filteredInvoices.reduce((s, i) => s + i.gross, 0))}</TdSummary>
+                  <TdSummary right bold style={{ color: 'var(--danger)' }}>
+                    {fmt(filteredInvoices.reduce((s, i) => s + i.discount, 0))}
+                  </TdSummary>
+                  <TdSummary right bold>{fmt(invoiceTotals.taxable)}</TdSummary>
+                  <TdSummary right bold style={{ color: '#2563eb' }}>{fmt(invoiceTotals.cgst)}</TdSummary>
+                  <TdSummary right bold style={{ color: '#7c3aed' }}>{fmt(invoiceTotals.sgst)}</TdSummary>
+                  <TdSummary right bold style={{ color: '#f59e0b' }}>{fmt(invoiceTotals.vat)}</TdSummary>
+                  <TdSummary right bold>{fmt(invoiceTotals.tax)}</TdSummary>
+                  <TdSummary right bold>{fmt(invoiceTotals.total)}</TdSummary>
+                </tr>
+              </tbody>
+            </TableWrap>
+          )}
+        </div>
+      )}
     </div>
   );
 };
