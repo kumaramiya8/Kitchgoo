@@ -1712,22 +1712,100 @@ const AssignTableModal = ({ tab, tables, savedOrders, currentCart, onAssign, onC
 
 
 // ─── Quick Start No-Table Dine-In Modal ────────────────────────────
-const NoTableOrderModal = ({ nextToken, onStart, onClose }) => {
+const NoTableOrderModal = ({ nextToken, guests = [], onStart, onClose }) => {
   const [tokenNumber, setTokenNumber] = useState(String(nextToken || 1));
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [partySize, setPartySize] = useState(2);
   const [notes, setNotes] = useState('');
+  const [selectedGuest, setSelectedGuest] = useState(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  // Compute matches from existing guests
+  const matchingGuests = useMemo(() => {
+    const cleanN = guestName.trim().toLowerCase();
+    const cleanP = guestPhone.replace(/\D/g, '');
+    if (!cleanN && (!cleanP || cleanP.length < 2)) return [];
+    return (guests || []).filter(g => {
+      const matchName = cleanN && g.name?.toLowerCase().includes(cleanN);
+      const gDigits = (g.phone || '').replace(/\D/g, '');
+      const matchPhone = cleanP.length >= 2 && gDigits.includes(cleanP);
+      return matchName || matchPhone;
+    }).slice(0, 6);
+  }, [guests, guestName, guestPhone]);
+
+  const handleSelectGuest = (g) => {
+    setSelectedGuest(g);
+    setGuestName(g.name || '');
+    setGuestPhone(g.phone || '');
+    setSearchFocused(false);
+  };
+
+  const handleClearSelectedGuest = () => {
+    setSelectedGuest(null);
+    setGuestName('');
+    setGuestPhone('');
+  };
+
+  const handleSubmit = async (e) => {
     e?.preventDefault();
-    onStart({
-      tokenNumber: tokenNumber.trim() || String(nextToken || 1),
-      guestName: guestName.trim(),
-      guestPhone: guestPhone.trim(),
-      partySize: parseInt(partySize, 10) || 1,
-      notes: notes.trim(),
-    });
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      let resolvedGuestId = selectedGuest?.id || null;
+      let finalName = guestName.trim();
+      let finalPhone = guestPhone.trim();
+
+      // If not linked yet, search or auto-create in CRM
+      if (!resolvedGuestId && (finalName || finalPhone)) {
+        const cleanDigits = finalPhone.replace(/\D/g, '');
+        const cleanLower = finalName.toLowerCase();
+
+        const found = (guests || []).find(g => {
+          if (cleanDigits && cleanDigits.length >= 7) {
+            const gDigits = (g.phone || '').replace(/\D/g, '');
+            if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
+          }
+          if (cleanLower && (g.name || '').trim().toLowerCase() === cleanLower) return true;
+          return false;
+        });
+
+        if (found) {
+          resolvedGuestId = found.id;
+          finalName = found.name;
+          finalPhone = found.phone || finalPhone;
+        } else {
+          // Auto-create new guest in CRM!
+          const newGuest = await insert('guests', {
+            name: finalName || (finalPhone ? `Guest ${finalPhone.slice(-4)}` : 'Walk-in Guest'),
+            phone: finalPhone,
+            visitCount: 0,
+            totalSpend: 0,
+            notes: notes ? `Token Order Note: ${notes}` : '',
+            createdAt: new Date().toISOString(),
+          });
+          if (newGuest?.id) {
+            resolvedGuestId = newGuest.id;
+            finalName = newGuest.name || finalName;
+          }
+        }
+      }
+
+      onStart({
+        tokenNumber: tokenNumber.trim() || String(nextToken || 1),
+        guestName: finalName,
+        guestPhone: finalPhone,
+        guestId: resolvedGuestId,
+        partySize: parseInt(partySize, 10) || 1,
+        notes: notes.trim(),
+      });
+    } catch (err) {
+      console.error('[POS] Failed to start no-table order:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1775,33 +1853,120 @@ const NoTableOrderModal = ({ nextToken, onStart, onClose }) => {
             </div>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-              Customer Name (Optional)
-            </label>
-            <input
-              type="text"
-              className="input-field"
-              value={guestName}
-              onChange={e => setGuestName(e.target.value)}
-              placeholder="e.g. Rahul, Table Waiting..."
-              style={{ margin: 0 }}
-            />
-          </div>
+          {selectedGuest ? (
+            <div style={{
+              padding: '10px 12px',
+              borderRadius: '10px',
+              background: 'rgba(30, 94, 74, 0.08)',
+              border: '1px solid rgba(30, 94, 74, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '0.86rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <User size={14} /> {selectedGuest.name}
+                  <span style={{ fontSize: '0.7rem', padding: '1px 6px', borderRadius: 8, background: 'rgba(30,94,74,0.15)', fontWeight: 700 }}>
+                    Existing Guest
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  {selectedGuest.phone && <span>📞 {selectedGuest.phone} &bull; </span>}
+                  <span>{selectedGuest.visitCount || 0} visits &bull; ₹{(selectedGuest.totalSpend || 0).toLocaleString('en-IN')} total spend</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleClearSelectedGuest}
+                style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+                title="Unlink and enter a different guest"
+              >
+                Change / Unlink
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, position: 'relative' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  Customer Name (Optional - Search or Add New)
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={guestName}
+                    onChange={e => { setGuestName(e.target.value); setSearchFocused(true); }}
+                    onFocus={() => setSearchFocused(true)}
+                    placeholder="Type to search existing guest or enter new name..."
+                    style={{ margin: 0 }}
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-              Phone Number (Optional - for CRM/Loyalty)
-            </label>
-            <input
-              type="tel"
-              className="input-field"
-              value={guestPhone}
-              onChange={e => setGuestPhone(e.target.value)}
-              placeholder="10-digit mobile number"
-              style={{ margin: 0 }}
-            />
-          </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  Phone Number (Optional - for CRM / Loyalty)
+                </label>
+                <input
+                  type="tel"
+                  className="input-field"
+                  value={guestPhone}
+                  onChange={e => { setGuestPhone(e.target.value); setSearchFocused(true); }}
+                  onFocus={() => setSearchFocused(true)}
+                  placeholder="10-digit mobile number"
+                  style={{ margin: 0 }}
+                />
+              </div>
+
+              {/* Autocomplete dropdown if matching existing guests */}
+              {searchFocused && matchingGuests.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  zIndex: 50,
+                  background: 'var(--card-bg, #ffffff)',
+                  border: '1.5px solid var(--primary)',
+                  borderRadius: '10px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                  maxHeight: 200,
+                  overflowY: 'auto',
+                  marginTop: -4,
+                }}>
+                  <div style={{ padding: '6px 10px', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', background: 'rgba(0,0,0,0.03)', borderBottom: '1px solid var(--border-subtle)' }}>
+                    Matching Existing Guests ({matchingGuests.length})
+                  </div>
+                  {matchingGuests.map(g => (
+                    <div
+                      key={g.id}
+                      onClick={() => handleSelectGuest(g)}
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderBottom: '1px solid var(--border-subtle)',
+                        fontSize: '0.8rem',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(30, 94, 74, 0.08)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{g.name}</div>
+                        {g.phone && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>📞 {g.phone}</div>}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 600 }}>
+                        {g.visitCount || 0} visits
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -1819,14 +1984,245 @@ const NoTableOrderModal = ({ nextToken, onStart, onClose }) => {
         </div>
 
         <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button type="button" className="btn btn-secondary" onClick={onClose}>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" style={{ fontWeight: 700 }}>
-            Start Order ➔
+          <button type="submit" className="btn btn-primary" style={{ fontWeight: 700 }} disabled={isSubmitting}>
+            {isSubmitting ? 'Starting...' : 'Start Order ➔'}
           </button>
         </div>
       </form>
+    </Modal>
+  );
+};
+
+
+// ─── Assign Guest to Order Modal ──────────────────────────────────────
+const AssignGuestModal = ({ currentGuest, currentPhone, guests = [], onAssign, onClose }) => {
+  const [tab, setTab] = useState('search'); // 'search' | 'new'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newNotes, setNewNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const filteredGuests = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const qDigits = searchQuery.replace(/\D/g, '');
+    if (!q) return (guests || []).slice(-8).reverse();
+    return (guests || []).filter(g =>
+      g.name?.toLowerCase().includes(q) ||
+      (g.phone && (g.phone.includes(q) || (qDigits.length >= 3 && g.phone.replace(/\D/g, '').includes(qDigits)))) ||
+      g.email?.toLowerCase().includes(q)
+    ).slice(0, 15);
+  }, [guests, searchQuery]);
+
+  const handleSelectExisting = (g) => {
+    onAssign({
+      guestId: g.id,
+      guestName: g.name,
+      guestPhone: g.phone || '',
+      isExisting: true
+    });
+    onClose();
+  };
+
+  const handleCreateAndAssign = async (e) => {
+    e?.preventDefault();
+    if (!newName.trim() && !newPhone.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const cleanName = newName.trim() || (newPhone.trim() ? `Guest ${newPhone.trim().slice(-4)}` : 'Guest');
+      const cleanPhone = newPhone.trim();
+
+      // Check if already exists by phone
+      const cleanDigits = cleanPhone.replace(/\D/g, '');
+      const existing = cleanDigits.length >= 7
+        ? (guests || []).find(g => (g.phone || '').replace(/\D/g, '') === cleanDigits)
+        : null;
+
+      if (existing) {
+        onAssign({
+          guestId: existing.id,
+          guestName: existing.name,
+          guestPhone: existing.phone || '',
+          isExisting: true
+        });
+      } else {
+        const created = await insert('guests', {
+          name: cleanName,
+          phone: cleanPhone,
+          email: newEmail.trim(),
+          notes: newNotes.trim(),
+          visitCount: 0,
+          totalSpend: 0,
+          createdAt: new Date().toISOString()
+        });
+        onAssign({
+          guestId: created?.id,
+          guestName: cleanName,
+          guestPhone: cleanPhone,
+          isNew: true
+        });
+      }
+      onClose();
+    } catch (err) {
+      console.error('[POS] Failed to create guest:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title="Assign Guest to Order" onClose={onClose} wide>
+      <div style={{ display: 'flex', gap: '4px', padding: '0 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <button
+          type="button"
+          onClick={() => setTab('search')}
+          style={{
+            padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer',
+            fontWeight: tab === 'search' ? 700 : 500, fontSize: '0.85rem',
+            color: tab === 'search' ? 'var(--primary)' : 'var(--text-muted)',
+            borderBottom: tab === 'search' ? '2px solid var(--primary)' : '2px solid transparent',
+            marginBottom: '-1px'
+          }}
+        >
+          Find Existing Guest
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('new')}
+          style={{
+            padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer',
+            fontWeight: tab === 'new' ? 700 : 500, fontSize: '0.85rem',
+            color: tab === 'new' ? 'var(--primary)' : 'var(--text-muted)',
+            borderBottom: tab === 'new' ? '2px solid var(--primary)' : '2px solid transparent',
+            marginBottom: '-1px'
+          }}
+        >
+          + New Guest
+        </button>
+      </div>
+
+      <div className="modal-body" style={{ padding: '16px 20px' }}>
+        {tab === 'search' ? (
+          <div>
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="input-field"
+                style={{ paddingLeft: 36, margin: 0 }}
+                placeholder="Search by guest name, phone number, or email..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {filteredGuests.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No guests found matching "{searchQuery}".
+                  <div style={{ marginTop: 8 }}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setTab('new'); setNewName(searchQuery); }}>
+                      + Create "{searchQuery}" as New Guest
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                filteredGuests.map(g => (
+                  <div
+                    key={g.id}
+                    onClick={() => handleSelectExisting(g)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '10px 14px', borderRadius: 'var(--r-md)',
+                      background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-subtle)',
+                      cursor: 'pointer', transition: 'all 0.15s'
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30, 94, 74, 0.05)'; e.currentTarget.style.borderColor = 'var(--primary)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.02)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)' }}>{g.name}</div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', gap: 10, marginTop: 2 }}>
+                        {g.phone && <span>📞 {g.phone}</span>}
+                        {g.email && <span>✉️ {g.email}</span>}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.72rem', background: 'rgba(30, 94, 74, 0.1)', color: 'var(--primary)', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                        {g.visitCount || 0} visits
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleCreateAndAssign} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 4 }}>Guest Name *</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. Priya Sharma"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  required
+                  autoFocus
+                  style={{ margin: 0 }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 4 }}>Phone Number</label>
+                <input
+                  type="tel"
+                  className="input-field"
+                  placeholder="10-digit mobile number"
+                  value={newPhone}
+                  onChange={e => setNewPhone(e.target.value)}
+                  style={{ margin: 0 }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 4 }}>Email (Optional)</label>
+                <input
+                  type="email"
+                  className="input-field"
+                  placeholder="guest@example.com"
+                  value={newEmail}
+                  onChange={e => setNewEmail(e.target.value)}
+                  style={{ margin: 0 }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 4 }}>Notes / Preferences</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. Prefers window table"
+                  value={newNotes}
+                  onChange={e => setNewNotes(e.target.value)}
+                  style={{ margin: 0 }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={isSubmitting || (!newName.trim() && !newPhone.trim())}>
+                Save &amp; Assign to Order
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </Modal>
   );
 };
@@ -2580,6 +2976,7 @@ const PaymentModal = ({
     if (paymentsConfig.applePay) list.push({ key: 'Apple Pay', icon: Smartphone, color: '#000000' });
     if (paymentsConfig.googlePay) list.push({ key: 'Google Pay', icon: Globe, color: '#4285F4' });
     if (paymentsConfig.onlineGateway) list.push({ key: 'Online', icon: CreditCard, color: '#8b5cf6' });
+    list.push({ key: 'Pay Later', icon: Clock, color: '#f59e0b' });
     if (list.length === 0) list.push({ key: 'Cash', icon: Banknote, color: '#22c55e' });
     return list;
   }, [paymentsConfig, availableWalletBalance]);
@@ -2692,7 +3089,76 @@ const PaymentModal = ({
     return allHaveAmount && Math.abs(remainingToPay) <= 0.01;
   }, [isSplit, splitRows, remainingToPay]);
 
+  const handleSettleLater = async () => {
+    if (isSubmittingRef.current || isSubmitting) return;
+
+    const rawN = (guestName || '').trim();
+    const rawP = (guestPhone || '').trim();
+
+    if (!rawN && !rawP && !matchedGuest) {
+      alert('Please enter a Guest Name or Mobile Number to charge this bill to their profile (Pay Later).');
+      return;
+    }
+
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+
+    try {
+      let resolvedId = matchedGuest?.id || null;
+      let resolvedName = rawN || matchedGuest?.name || 'Guest';
+      let resolvedPhone = rawP || matchedGuest?.phone || '';
+
+      if (!resolvedId) {
+        const cleanDigits = resolvedPhone.replace(/\D/g, '');
+        const found = (guests || []).find(g => {
+          if (cleanDigits && cleanDigits.length >= 7) {
+            const gDigits = (g.phone || '').replace(/\D/g, '');
+            if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
+          }
+          if (resolvedName && (g.name || '').trim().toLowerCase() === resolvedName.toLowerCase()) return true;
+          return false;
+        });
+
+        if (found) {
+          resolvedId = found.id;
+          resolvedName = found.name;
+          resolvedPhone = found.phone || resolvedPhone;
+        } else {
+          // Auto-create guest profile in DB
+          const newG = await insert('guests', {
+            name: resolvedName,
+            phone: resolvedPhone,
+            visitCount: 0,
+            totalSpend: 0,
+            createdAt: new Date().toISOString()
+          });
+          resolvedId = newG?.id || null;
+        }
+      }
+
+      const settlementMeta = {
+        guestName: resolvedName,
+        guestPhone: resolvedPhone,
+        guestId: resolvedId,
+        isSettleLater: true,
+        walletCreditApplied: 0,
+        changeAction: 'cash',
+        changeAmount: 0,
+        cashTendered: 0,
+      };
+
+      await onConfirm('Pay Later', 0, finalTotal, null, settlementMeta);
+    } catch (err) {
+      console.error('[POS] Settle later failed:', err);
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSettle = async () => {
+    if (paymentMethod === 'Pay Later') {
+      return handleSettleLater();
+    }
     if (isSubmittingRef.current || isSubmitting) return;
     if (isSplit && !isSplitValid) return;
     if (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim()) {
@@ -3299,35 +3765,62 @@ const PaymentModal = ({
         </div>
       </div>
 
-      <div className="modal-footer">
+      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
-        <button
-          className="btn btn-success"
-          disabled={isSubmitting || (isSplit && !isSplitValid) || (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim())}
-          onClick={handleSettle}
-          style={{ minWidth: 200, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
-              <span>Processing Payment...</span>
-            </>
-          ) : (
-            <>
-              {shouldAutoPrint ? <Printer size={15} /> : <Check size={15} />}
-              {changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim()
-                ? 'Enter Mobile to Credit Wallet'
-                : !isSplit
-                ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}${shouldAutoPrint ? ' & Print' : ''}`
-                : isSplitValid
-                ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)${shouldAutoPrint ? ' & Print' : ''}`
-                : remainingToPay > 0
-                ? `Allocate Remaining ₹${remainingToPay.toFixed(2)}`
-                : `Over-allocated by ₹${(-remainingToPay).toFixed(2)}`
-              }
-            </>
-          )}
-        </button>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn"
+            onClick={handleSettleLater}
+            disabled={isSubmitting}
+            style={{
+              background: 'rgba(245, 158, 11, 0.1)',
+              border: '1.5px solid rgba(245, 158, 11, 0.4)',
+              color: '#b45309',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+            title="Record bill as pending and charge to guest's profile"
+          >
+            <Clock size={15} /> Settle Bill Later (Pay Later)
+          </button>
+
+          <button
+            className="btn btn-success"
+            disabled={isSubmitting || (isSplit && !isSplitValid) || (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim())}
+            onClick={paymentMethod === 'Pay Later' ? handleSettleLater : handleSettle}
+            style={{ minWidth: 200, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                <span>Processing Payment...</span>
+              </>
+            ) : paymentMethod === 'Pay Later' ? (
+              <>
+                <Clock size={15} />
+                <span>Charge to Guest Profile (Pay Later)</span>
+              </>
+            ) : (
+              <>
+                {shouldAutoPrint ? <Printer size={15} /> : <Check size={15} />}
+                {changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim()
+                  ? 'Enter Mobile to Credit Wallet'
+                  : !isSplit
+                  ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}${shouldAutoPrint ? ' & Print' : ''}`
+                  : isSplitValid
+                  ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)${shouldAutoPrint ? ' & Print' : ''}`
+                  : remainingToPay > 0
+                  ? `Allocate Remaining ₹${remainingToPay.toFixed(2)}`
+                  : `Over-allocated by ₹${(-remainingToPay).toFixed(2)}`
+                }
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </Modal>
   );
@@ -4981,6 +5474,7 @@ const POS = () => {
 
   // Modals
   const [guestModal, setGuestModal] = useState(null);
+  const [assignGuestModal, setAssignGuestModal] = useState(false);
   const [noTableModal, setNoTableModal] = useState(false);
   const [assignTableModal, setAssignTableModal] = useState(null);
   const [modifierModal, setModifierModal] = useState(null);
@@ -5456,12 +5950,50 @@ const POS = () => {
     setNoTableModal(true);
   };
 
-  const handleConfirmNoTableOrder = ({ tokenNumber, guestName, guestPhone, partySize, notes }) => {
+  const handleConfirmNoTableOrder = async ({ tokenNumber, guestName, guestPhone, guestId, partySize, notes }) => {
+    let resolvedGuestId = guestId || null;
+    let finalName = (guestName || '').trim();
+    let finalPhone = (guestPhone || '').trim();
+
+    // Fallback: if name or phone given but guestId is null, resolve or create guest in CRM
+    if (!resolvedGuestId && (finalName || finalPhone)) {
+      const allG = getAll('guests') || [];
+      const cleanDigits = finalPhone.replace(/\D/g, '');
+      const cleanLower = finalName.toLowerCase();
+
+      const found = allG.find(g => {
+        if (cleanDigits && cleanDigits.length >= 7) {
+          const gDigits = (g.phone || '').replace(/\D/g, '');
+          if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
+        }
+        if (cleanLower && (g.name || '').trim().toLowerCase() === cleanLower) return true;
+        return false;
+      });
+
+      if (found) {
+        resolvedGuestId = found.id;
+        finalName = found.name;
+        finalPhone = found.phone || finalPhone;
+      } else {
+        const created = await insert('guests', {
+          name: finalName || (finalPhone ? `Guest ${finalPhone.slice(-4)}` : 'Walk-in Guest'),
+          phone: finalPhone,
+          visitCount: 0,
+          totalSpend: 0,
+          notes: notes ? `Token Order Note: ${notes}` : '',
+          createdAt: new Date().toISOString(),
+        });
+        resolvedGuestId = created?.id || null;
+        if (created?.name) finalName = created.name;
+      }
+    }
+
     const newTab = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       tokenNumber: tokenNumber || String(getNextTokenNumber()),
-      guestName: guestName || '',
-      guestPhone: guestPhone || '',
+      guestId: resolvedGuestId,
+      guestName: finalName || '',
+      guestPhone: finalPhone || '',
       partySize: partySize || 2,
       notes: notes || '',
       createdAt: new Date().toISOString(),
@@ -5483,8 +6015,46 @@ const POS = () => {
       [`tab_${newTab.id}`]: newTab,
     }));
 
+    if (reload) reload();
+
     setView('order');
     setNoTableModal(false);
+  };
+
+  const handleAssignGuestToCurrentOrder = async ({ guestId, guestName, guestPhone }) => {
+    // 1. Update activeTable if table dine-in
+    if (activeTable) {
+      const updatedTable = { ...activeTable, guestName, guestPhone, guestId: guestId || null };
+      setActiveTable(updatedTable);
+      setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
+        ? { ...t, guestName, guestPhone, guestId: guestId || null }
+        : t
+      ));
+      if (setPosTables) {
+        setPosTables(prev => (prev || []).map(t => String(t.id) === String(activeTable.id)
+          ? { ...t, guestName, guestPhone, guestId: guestId || null }
+          : t
+        ));
+      }
+    }
+
+    // 2. Update unassignedTab if floating tab
+    if (unassignedTab) {
+      const updatedTab = { ...unassignedTab, guestName, guestPhone, guestId: guestId || null };
+      setUnassignedTab(updatedTab);
+      setSavedOrders(prev => ({
+        ...prev,
+        [`tab_${unassignedTab.id}`]: updatedTab,
+      }));
+    }
+
+    // 3. Update customer states in POS
+    setCustomerName(guestName || '');
+    setCustomerPhone(guestPhone || '');
+
+    if (reload) reload();
+
+    showSuccess(`Assigned ${guestName} to order`);
   };
 
   const handleOpenFloatingTab = (tab) => {
@@ -6484,17 +7054,18 @@ const POS = () => {
       // aligning with first ticket printed if fired earlier in this same dining session
       const orderPlacedTime = firstTicketPrinted || new Date().toISOString();
 
+      const isSettleLater = settlementMeta?.isSettleLater || paymentMethod === 'Pay Later';
       const effectiveGuestName = (settlementMeta?.guestName || activeTable?.guestName || unassignedTab?.guestName || customerName || '').trim();
       const effectiveGuestPhone = (settlementMeta?.guestPhone || customerPhone || unassignedTab?.guestPhone || '').trim();
       const effectiveGuestId = settlementMeta?.guestId || activeTable?.guestId || null;
-      const walletCreditApplied = parseFloat(settlementMeta?.walletCreditApplied || 0);
+      const walletCreditApplied = isSettleLater ? 0 : parseFloat(settlementMeta?.walletCreditApplied || 0);
       const changeAction = settlementMeta?.changeAction || 'cash';
-      const changeAmount = parseFloat(settlementMeta?.changeAmount || 0);
-      const cashTenderedVal = parseFloat(settlementMeta?.cashTendered || 0);
-      const walletCredited = (changeAction === 'wallet' && changeAmount > 0) ? changeAmount : 0;
+      const changeAmount = isSettleLater ? 0 : parseFloat(settlementMeta?.changeAmount || 0);
+      const cashTenderedVal = isSettleLater ? 0 : parseFloat(settlementMeta?.cashTendered || 0);
+      const walletCredited = (!isSettleLater && changeAction === 'wallet' && changeAmount > 0) ? changeAmount : 0;
 
-      let effectiveSplits = paymentSplits;
-      let effectiveMethod = paymentMethod;
+      let effectiveSplits = isSettleLater ? null : paymentSplits;
+      let effectiveMethod = isSettleLater ? 'Pay Later' : paymentMethod;
 
       if (walletCreditApplied > 0) {
         if (!effectiveSplits || effectiveSplits.length === 0) {
@@ -6521,14 +7092,16 @@ const POS = () => {
       const paymentHistory = [
         ...cartAudit,
         {
-          action: 'payment_settled',
+          action: isSettleLater ? 'settle_later' : 'payment_settled',
           timestamp: new Date().toISOString(),
           by: user?.name || 'Cashier',
-          description: Array.isArray(effectiveSplits) && effectiveSplits.length > 0
-            ? `Settled via Split: ${effectiveSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal + walletCreditApplied).toFixed(2)})`
-            : `Settled via ${effectiveMethod} for ₹${(finalTotal).toFixed(2)}`,
-          paymentMethod: effectiveMethod,
-          paymentSplits: effectiveSplits || null,
+          description: isSettleLater
+            ? `Order charged to ${effectiveGuestName}'s guest profile (Pay Later / Pending Settlement)`
+            : (Array.isArray(effectiveSplits) && effectiveSplits.length > 0
+              ? `Settled via Split: ${effectiveSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal + walletCreditApplied).toFixed(2)})`
+              : `Settled via ${effectiveMethod} for ₹${(finalTotal).toFixed(2)}`),
+          paymentMethod: isSettleLater ? 'Pay Later' : effectiveMethod,
+          paymentSplits: isSettleLater ? null : (effectiveSplits || null),
         }
       ];
 
@@ -6559,6 +7132,10 @@ const POS = () => {
         guestId: effectiveGuestId,
         guestName: effectiveGuestName,
         guestPhone: effectiveGuestPhone,
+        status: isSettleLater ? 'pending_payment' : 'paid',
+        paymentStatus: isSettleLater ? 'unpaid' : 'paid',
+        paidAt: isSettleLater ? null : new Date().toISOString(),
+        settledAt: isSettleLater ? null : new Date().toISOString(),
         tokenNumber: unassignedTab?.tokenNumber || null,
         pickupTime: orderType === 'takeout' ? pickupTime : undefined,
         deliveryAddress: orderType === 'delivery' ? deliveryAddress : undefined,
@@ -6601,8 +7178,7 @@ const POS = () => {
 
       const order = await placeOrder(tableId, currentCart, effectiveMethod, extra);
 
-      // Bill settled — table needs bussing before it can be reused. Tapping the
-      // table on the floor map marks it cleaned and available again.
+      // Bill settled or charged to profile — table needs bussing before it can be reused.
       if (currentActiveTable) {
         prePayStatusRef.current = null;
         setSavedOrders(prev => { const next = { ...prev }; delete next[currentActiveTable.id]; return next; });
@@ -6644,12 +7220,16 @@ const POS = () => {
       setDeliveryChannel('In-House');
       setView(isTableManagementEnabled ? 'floor' : 'order');
 
-      const displayMethod = paymentSplits && paymentSplits.length > 0
-        ? `Split (${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')})`
-        : paymentMethod;
-      showSuccess(`Bill settled! ${(order?.total || finalTotal).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} via ${displayMethod}`);
+      if (isSettleLater) {
+        showSuccess(`Order #${order?.billNo || ''} charged to ${effectiveGuestName}'s profile (Pay Later)`);
+      } else {
+        const displayMethod = paymentSplits && paymentSplits.length > 0
+          ? `Split (${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')})`
+          : paymentMethod;
+        showSuccess(`Bill settled! ${(order?.total || finalTotal).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} via ${displayMethod}`);
+      }
 
-      // Link tickets to this settled order in database
+      // Link tickets to this order in database
       if (relatedTickets.length > 0 && order?.id) {
         for (const t of relatedTickets) {
           try {
@@ -6664,8 +7244,8 @@ const POS = () => {
         }
       }
 
-      // Handle digital wallet redemption / credit in database
-      if (walletCreditApplied > 0) {
+      // Handle digital wallet redemption / credit in database (only if not settle later)
+      if (!isSettleLater && walletCreditApplied > 0) {
         try {
           await redeemWalletCredit({
             guestPhone: effectiveGuestPhone,
@@ -6682,7 +7262,7 @@ const POS = () => {
         }
       }
 
-      if (walletCredited > 0) {
+      if (!isSettleLater && walletCredited > 0) {
         try {
           await issueWalletCredit({
             guestPhone: effectiveGuestPhone,
@@ -6709,45 +7289,47 @@ const POS = () => {
         if (guest) {
           update('guests', targetGuestId, {
             visitCount: (guest.visitCount || 0) + 1,
-            totalSpend: (guest.totalSpend || 0) + (order?.total || finalTotal),
+            totalSpend: (guest.totalSpend || 0) + (isSettleLater ? 0 : (order?.total || finalTotal)),
             lastVisit: new Date().toISOString(),
           });
         }
       }
 
-      // Update cash drawer for cash payments (either full cash or partial cash split)
+      // Update cash drawer for cash payments (only when actually paid, not settle later)
       let cashPortion = 0;
       let hasCardPayment = false;
-      if (Array.isArray(effectiveSplits) && effectiveSplits.length > 0) {
-        cashPortion = effectiveSplits
-          .filter(p => (p.method || '').toLowerCase() === 'cash')
-          .reduce((sum, p) => {
-            const tendered = parseFloat(p.cashTendered);
-            const amt = parseFloat(p.amount) || 0;
-            // If extra cash was kept for wallet credit, tender enters drawer
-            if (walletCredited > 0 && tendered > amt) return sum + tendered;
-            if (walletCredited > 0 && cashTenderedVal > amt) return sum + cashTenderedVal;
-            return sum + amt;
-          }, 0);
-        hasCardPayment = effectiveSplits.some(p => (p.method || '').toLowerCase() === 'card');
-      } else if (effectiveMethod === 'Cash') {
-        if (walletCredited > 0 && cashTenderedVal > 0) {
-          // Tendered amount physically enters the drawer
-          cashPortion = cashTenderedVal;
-        } else {
-          cashPortion = finalTotal;
+      if (!isSettleLater) {
+        if (Array.isArray(effectiveSplits) && effectiveSplits.length > 0) {
+          cashPortion = effectiveSplits
+            .filter(p => (p.method || '').toLowerCase() === 'cash')
+            .reduce((sum, p) => {
+              const tendered = parseFloat(p.cashTendered);
+              const amt = parseFloat(p.amount) || 0;
+              // If extra cash was kept for wallet credit, tender enters drawer
+              if (walletCredited > 0 && tendered > amt) return sum + tendered;
+              if (walletCredited > 0 && cashTenderedVal > amt) return sum + cashTenderedVal;
+              return sum + amt;
+            }, 0);
+          hasCardPayment = effectiveSplits.some(p => (p.method || '').toLowerCase() === 'card');
+        } else if (effectiveMethod === 'Cash') {
+          if (walletCredited > 0 && cashTenderedVal > 0) {
+            // Tendered amount physically enters the drawer
+            cashPortion = cashTenderedVal;
+          } else {
+            cashPortion = finalTotal;
+          }
+        } else if (effectiveMethod === 'Card') {
+          hasCardPayment = true;
         }
-      } else if (effectiveMethod === 'Card') {
-        hasCardPayment = true;
-      }
 
-      if (cashPortion > 0) {
-        updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + cashPortion });
-        if (settings?.operations?.autoOpenCashDrawer !== false) {
-          addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', `Cash drawer auto-opened for cash payment of ₹${cashPortion.toFixed(2)}`);
+        if (cashPortion > 0) {
+          updateCashDrawer({ ...cashDrawer, cashIn: (cashDrawer?.cashIn || 0) + cashPortion });
+          if (settings?.operations?.autoOpenCashDrawer !== false) {
+            addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', `Cash drawer auto-opened for cash payment of ₹${cashPortion.toFixed(2)}`);
+          }
+        } else if (hasCardPayment && settings?.workflow?.cashDrawerOnCreditSplit) {
+          addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', 'Cash drawer popped on card split payment');
         }
-      } else if (hasCardPayment && settings?.workflow?.cashDrawerOnCreditSplit) {
-        addAuditEntry('DRAWER_OPEN', 'cashier', user?.name || 'Cashier', 'Cash drawer popped on card split payment');
       }
 
       // Auto-print receipt according to settings
@@ -7894,8 +8476,20 @@ const POS = () => {
         {noTableModal && (
           <NoTableOrderModal
             nextToken={getNextTokenNumber()}
+            guests={guests}
             onStart={handleConfirmNoTableOrder}
             onClose={() => setNoTableModal(false)}
+          />
+        )}
+
+        {/* Assign Guest Modal */}
+        {assignGuestModal && (
+          <AssignGuestModal
+            currentGuest={activeTable?.guestName || unassignedTab?.guestName || customerName}
+            currentPhone={activeTable?.guestPhone || unassignedTab?.guestPhone || customerPhone}
+            guests={guests}
+            onAssign={handleAssignGuestToCurrentOrder}
+            onClose={() => setAssignGuestModal(false)}
           />
         )}
 
@@ -8132,7 +8726,30 @@ const POS = () => {
                   : (unassignedTab
                       ? `Dine-In • Token #${unassignedTab.tokenNumber}`
                       : (orderType === 'takeout' ? 'Takeout' : 'Delivery'))}
-                {currentGuest && <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.82rem' }}> -- {currentGuest}</span>}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: '0.74rem',
+                    borderRadius: 'var(--r-sm)',
+                    marginLeft: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    border: '1px solid var(--border-subtle)',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    color: currentGuest ? 'var(--text-primary)' : 'var(--primary)',
+                    background: currentGuest ? 'rgba(0,0,0,0.03)' : 'rgba(30,94,74,0.08)',
+                  }}
+                  onClick={() => setAssignGuestModal(true)}
+                  title="Assign or change guest for this table/order"
+                >
+                  <User size={12} style={{ color: 'var(--primary)' }} />
+                  <span>{currentGuest ? (currentGuest === 'Walk-in Guest' ? 'Walk-in (Change)' : currentGuest) : '+ Assign Guest'}</span>
+                  <Edit2 size={10} style={{ opacity: 0.6 }} />
+                </button>
                 {unassignedTab && !activeTable && (
                   <button
                     type="button"
@@ -8372,9 +8989,30 @@ const POS = () => {
               </span>
             )}
           </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            {currentGuest && <><User size={11} /> {currentGuest} | </>}
-            {cart.reduce((s, i) => s + i.qty, 0)} items
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <button
+              type="button"
+              onClick={() => setAssignGuestModal(true)}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '1px 4px',
+                cursor: 'pointer',
+                color: currentGuest ? 'var(--primary)' : 'var(--text-muted)',
+                fontWeight: currentGuest ? 700 : 500,
+                fontSize: '0.72rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                borderRadius: 4,
+              }}
+              title="Assign or change guest"
+            >
+              <User size={11} />
+              <span>{currentGuest || 'Assign Guest'}</span>
+              <Edit2 size={9} style={{ opacity: 0.5 }} />
+            </button>
+            <span>| {cart.reduce((s, i) => s + i.qty, 0)} items</span>
           </div>
         </div>
 

@@ -6,10 +6,11 @@ import {
   Filter, Users, TrendingUp, Heart, Calendar, Tag, Send, Eye, Pause, Play,
   Clock, CreditCard, ChevronDown, ChevronUp, ArrowLeft, Settings, ToggleLeft,
   ToggleRight, Zap, Target, Layers, AlertCircle, UserCheck, BarChart3,
-  FileText, Utensils, MapPin, MessageSquare, Percent, Hash, RefreshCw
+  FileText, Utensils, MapPin, MessageSquare, Percent, Hash, RefreshCw,
+  Banknote, Wallet
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
-import { getAll } from '../db/database';
+import { getAll, update, insert, updateCashDrawer, redeemGiftCardCredit } from '../db/database';
 import { isModuleEnabled } from '../../shared/seeds';
 
 // ── Constants ─────────────────────────────────────────────────
@@ -231,9 +232,16 @@ const ProgressBar = ({ value, max, color = 'var(--primary)', height = 8 }) => (
 // ══════════════════════════════════════════════════════════════
 //  INVOICE MODAL
 // ══════════════════════════════════════════════════════════════
-const InvoiceModal = ({ order, onClose, settings }) => {
+const InvoiceModal = ({ order, onClose, settings, onSettle }) => {
   if (!order) return null;
   const restaurant = settings?.restaurant || {};
+  const isPending = (
+    order.status === 'pending_payment' ||
+    order.status === 'pending' ||
+    order.paymentMethod === 'Pay Later' ||
+    order.paymentStatus === 'unpaid'
+  ) && order.status !== 'voided' && order.status !== 'cancelled';
+
   return (
     <Modal title={`Invoice ${order.billNo || ''}`} onClose={onClose} wide>
       <div className="modal-body" style={{ padding: '24px' }}>
@@ -249,9 +257,47 @@ const InvoiceModal = ({ order, onClose, settings }) => {
           <div><span style={{ color: 'var(--text-muted)' }}>Bill No:</span> <strong>{order.billNo}</strong></div>
           <div style={{ textAlign: 'right' }}><span style={{ color: 'var(--text-muted)' }}>Date:</span> <strong>{new Date(order.createdAt).toLocaleString('en-IN')}</strong></div>
           <div><span style={{ color: 'var(--text-muted)' }}>Table:</span> <strong>{order.tableId || 'N/A'}</strong></div>
-          <div style={{ textAlign: 'right' }}><span style={{ color: 'var(--text-muted)' }}>Payment:</span> <strong>{order.paymentMethod || 'N/A'}</strong></div>
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ color: 'var(--text-muted)' }}>Payment: </span>
+            <strong style={isPending ? { color: '#b45309' } : {}}>
+              {isPending ? 'Pay Later (Pending)' : (order.paymentMethod || 'N/A')}
+            </strong>
+          </div>
           {order.server && <div><span style={{ color: 'var(--text-muted)' }}>Server:</span> <strong>{order.server}</strong></div>}
         </div>
+
+        {/* Pending Settlement Alert Banner */}
+        {isPending && (
+          <div style={{
+            margin: '0 0 16px',
+            padding: '10px 14px',
+            borderRadius: '10px',
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1.5px solid rgba(245, 158, 11, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: '#b45309', fontWeight: 700 }}>
+              <Clock size={16} />
+              <span>Outstanding House Account Bill (Pending Settlement)</span>
+            </div>
+            {onSettle && (
+              <button
+                type="button"
+                className="btn btn-warning btn-sm"
+                style={{ fontWeight: 700, padding: '4px 12px' }}
+                onClick={() => {
+                  onClose();
+                  onSettle(order);
+                }}
+              >
+                Settle This Bill Now
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Items */}
         <div style={{ borderTop: '1px solid var(--border-subtle)', borderBottom: '1px solid var(--border-subtle)', padding: '12px 0' }}>
@@ -288,12 +334,278 @@ const InvoiceModal = ({ order, onClose, settings }) => {
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '2px solid var(--text-primary)', marginTop: '8px' }}>
             <span style={{ fontWeight: 800, fontSize: '1rem' }}>Total</span>
-            <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--primary)' }}>{fmtCurrency(order.total)}</span>
+            <span style={{ fontWeight: 800, fontSize: '1.1rem', color: isPending ? '#b45309' : 'var(--primary)' }}>
+              {fmtCurrency(order.total)}
+            </span>
           </div>
         </div>
       </div>
-      <div className="modal-footer">
+      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        {isPending && onSettle && (
+          <button
+            type="button"
+            className="btn btn-warning"
+            style={{ fontWeight: 700 }}
+            onClick={() => {
+              onClose();
+              onSettle(order);
+            }}
+          >
+            Settle This Bill Now ({fmtCurrency(order.total)})
+          </button>
+        )}
+      </div>
+    </Modal>
+  );
+};
+
+
+// ─── Settle Pending Bill Modal ───────────────────────────────
+const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose, settings }) => {
+  const [selectedMethod, setSelectedMethod] = useState('Cash');
+  const [cashTendered, setCashTendered] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const totalAmount = useMemo(() => {
+    return ordersToSettle.reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
+  }, [ordersToSettle]);
+
+  const guestWalletBalance = parseFloat(guest?.walletBalance || 0);
+  const tenderVal = parseFloat(cashTendered) || 0;
+  const cashChange = selectedMethod === 'Cash' ? Math.max(0, tenderVal - totalAmount) : 0;
+
+  const handleConfirmSettle = async () => {
+    if (isSubmitting || ordersToSettle.length === 0) return;
+    if (selectedMethod === 'Wallet' && guestWalletBalance < totalAmount) {
+      alert(`Insufficient digital wallet balance. Available: ₹${guestWalletBalance.toFixed(2)}, Required: ₹${totalAmount.toFixed(2)}`);
+      return;
+    }
+    setIsSubmitting(true);
+
+    try {
+      const nowIso = new Date().toISOString();
+
+      // Settle each pending order
+      for (const order of ordersToSettle) {
+        const updatedHistory = [
+          ...(order.history || []),
+          {
+            action: 'payment_settled_from_profile',
+            timestamp: nowIso,
+            by: 'Cashier / Manager',
+            description: `Pending bill settled via ${selectedMethod} for ₹${(parseFloat(order.total) || 0).toFixed(2)}`,
+            paymentMethod: selectedMethod,
+          }
+        ];
+
+        await update('orders', order.id, {
+          status: 'paid',
+          paymentStatus: 'paid',
+          paymentMethod: selectedMethod,
+          settledAt: nowIso,
+          paidAt: nowIso,
+          settledBy: 'Cashier',
+          history: updatedHistory,
+        });
+
+        // Redeem wallet if wallet payment
+        if (selectedMethod === 'Wallet') {
+          try {
+            await redeemGiftCardCredit({
+              guestPhone: guest?.phone,
+              guestId: guest?.id,
+              amount: parseFloat(order.total) || 0,
+              orderId: order.id,
+              billNo: order.billNo,
+              staffName: 'Cashier',
+              notes: `Pending bill ${order.billNo} settled from profile`
+            });
+          } catch (err) {
+            console.error('[Guests] Failed to redeem wallet credit:', err);
+          }
+        }
+      }
+
+      // Update cash drawer if cash
+      if (selectedMethod === 'Cash') {
+        try {
+          const currentDrawer = getAll('cash_drawer') || {};
+          await updateCashDrawer({
+            ...currentDrawer,
+            cashIn: (currentDrawer?.cashIn || 0) + totalAmount,
+          });
+        } catch (err) {
+          console.warn('[Guests] Could not update cash drawer:', err);
+        }
+      }
+
+      // Update guest spend
+      if (guest?.id) {
+        try {
+          const currentGuestRec = (getAll('guests') || []).find(g => g.id === guest.id);
+          if (currentGuestRec) {
+            await update('guests', guest.id, {
+              totalSpend: (currentGuestRec.totalSpend || 0) + totalAmount,
+              lastVisit: nowIso,
+            });
+          }
+        } catch (err) {
+          console.warn('[Guests] Could not update guest spend:', err);
+        }
+      }
+
+      onSettled(selectedMethod, totalAmount);
+    } catch (err) {
+      console.error('[Guests] Error settling pending bills:', err);
+      alert('Failed to settle bills: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title={`Settle Pending ${ordersToSettle.length === 1 ? 'Bill' : 'Bills'} - ${guest?.name || 'Guest'}`} onClose={onClose} wide>
+      <div className="modal-body" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Orders list summary */}
+        <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '12px 16px' }}>
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+            Bills Being Settled ({ordersToSettle.length})
+          </div>
+          <div style={{ maxHeight: 150, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {ordersToSettle.map(o => (
+              <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                <div>
+                  <strong>{o.billNo}</strong>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: '0.74rem' }}>
+                    {new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} &bull; {o.items?.length || 0} items
+                  </span>
+                </div>
+                <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {fmtCurrency(o.total)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop: '2px dashed var(--border-subtle)', marginTop: 10, paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>Total Payable Amount:</span>
+            <span style={{ fontWeight: 800, fontSize: '1.15rem', color: '#b45309' }}>{fmtCurrency(totalAmount)}</span>
+          </div>
+        </div>
+
+        {/* Payment Method Selector */}
+        <div>
+          <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>
+            Select Settlement Payment Method
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+            {[
+              { key: 'Cash', icon: Banknote, color: '#22c55e' },
+              { key: 'UPI', icon: Phone, color: '#1e5e4a' },
+              { key: 'Card', icon: CreditCard, color: '#3b82f6' },
+              { key: 'Wallet', icon: Wallet, color: '#f59e0b', disabled: guestWalletBalance < totalAmount },
+            ].map(m => {
+              const Icon = m.icon;
+              const isSelected = selectedMethod === m.key;
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setSelectedMethod(m.key)}
+                  disabled={m.disabled}
+                  style={{
+                    padding: '12px 8px',
+                    borderRadius: 10,
+                    border: `2px solid ${isSelected ? m.color : 'var(--border-subtle)'}`,
+                    background: isSelected ? `${m.color}15` : 'var(--card-bg, #ffffff)',
+                    color: isSelected ? m.color : 'var(--text-primary)',
+                    fontWeight: isSelected ? 800 : 600,
+                    fontSize: '0.8rem',
+                    cursor: m.disabled ? 'not-allowed' : 'pointer',
+                    opacity: m.disabled ? 0.4 : 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Icon size={18} />
+                  <span>{m.key}</span>
+                  {m.key === 'Wallet' && (
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700 }}>
+                      (₹{guestWalletBalance.toFixed(0)})
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Cash Tendered & Change */}
+        {selectedMethod === 'Cash' && (
+          <div style={{
+            background: 'rgba(34, 197, 94, 0.05)',
+            border: '1px solid rgba(34, 197, 94, 0.2)',
+            borderRadius: 10,
+            padding: '12px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, marginBottom: 4 }}>Cash Tendered (Optional)</label>
+              <input
+                type="number"
+                className="input-field"
+                placeholder={totalAmount.toFixed(0)}
+                value={cashTendered}
+                onChange={e => setCashTendered(e.target.value)}
+                style={{ margin: 0, height: 34 }}
+              />
+            </div>
+            {cashChange > 0 && (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Change to Return:</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#15803d' }}>{fmtCurrency(cashChange)}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedMethod === 'Wallet' && guestWalletBalance >= totalAmount && (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            borderRadius: 10,
+            padding: '10px 14px',
+            fontSize: '0.78rem',
+            color: '#b45309',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}>
+            <Gift size={16} />
+            <span>₹{totalAmount.toFixed(2)} will be debited from {guest?.name}'s digital wallet (Balance: ₹{guestWalletBalance.toFixed(2)}).</span>
+          </div>
+        )}
+      </div>
+
+      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handleConfirmSettle}
+          disabled={isSubmitting}
+          style={{ minWidth: 180, fontWeight: 700 }}
+        >
+          {isSubmitting ? 'Settling...' : `Confirm Settle (${fmtCurrency(totalAmount)})`}
+        </button>
       </div>
     </Modal>
   );
@@ -450,6 +762,7 @@ const Guests = () => {
     guests, orders, loyalty, campaigns, settings,
     addGuest, editGuest, deleteGuest,
     updateLoyalty, addCampaign, editCampaign, deleteCampaign,
+    reload, updateCashDrawer, redeemWalletCredit,
   } = useApp();
 
   const allGuests = guests || [];
@@ -468,6 +781,8 @@ const Guests = () => {
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState(null);
   const [invoiceOrder, setInvoiceOrder] = useState(null);
+  const [settlePendingModal, setSettlePendingModal] = useState(null);
+  const [orderHistoryFilter, setOrderHistoryFilter] = useState('all'); // 'all' | 'pending' | 'paid'
 
   const visibleTabs = useMemo(() => {
     return TABS.filter(t => !t.module || isModuleEnabled(settings, t.module));
@@ -487,6 +802,18 @@ const Guests = () => {
     minVisits: '', maxVisits: '', minSpend: '', maxSpend: '',
     lastVisitDays: '', tier: 'All', tags: [], channel: 'All',
   });
+
+  // ── Pending Orders & Settlement Helpers ──────────────────
+  const isPendingOrder = useCallback((o) => {
+    if (!o) return false;
+    if (o.status === 'voided' || o.status === 'cancelled') return false;
+    return (
+      o.status === 'pending_payment' ||
+      o.status === 'pending' ||
+      o.paymentMethod === 'Pay Later' ||
+      o.paymentStatus === 'unpaid'
+    );
+  }, []);
 
   // ── Computed ──────────────────────────────────────────────
   const guestsWithTier = useMemo(() =>
@@ -521,8 +848,30 @@ const Guests = () => {
 
   const guestOrders = useMemo(() => {
     if (!selectedGuest) return [];
-    return allOrders.filter(o => o.guestId === selectedGuest.id).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const cleanPhone = (selectedGuest.phone || '').trim().replace(/\D/g, '');
+    return allOrders.filter(o => {
+      if (o.guestId && o.guestId === selectedGuest.id) return true;
+      if (cleanPhone && cleanPhone.length >= 7) {
+        const oPhone = (o.guestPhone || o.customerPhone || '').replace(/\D/g, '');
+        if (oPhone && (oPhone === cleanPhone || oPhone.endsWith(cleanPhone) || cleanPhone.endsWith(oPhone))) return true;
+      }
+      return false;
+    }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [selectedGuest, allOrders]);
+
+  const guestPendingOrders = useMemo(() => {
+    return guestOrders.filter(isPendingOrder);
+  }, [guestOrders, isPendingOrder]);
+
+  const totalPendingDue = useMemo(() => {
+    return guestPendingOrders.reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
+  }, [guestPendingOrders]);
+
+  const displayedGuestOrders = useMemo(() => {
+    if (orderHistoryFilter === 'pending') return guestOrders.filter(isPendingOrder);
+    if (orderHistoryFilter === 'paid') return guestOrders.filter(o => !isPendingOrder(o));
+    return guestOrders;
+  }, [guestOrders, orderHistoryFilter, isPendingOrder]);
 
   // Loyalty stats
   const loyaltyStats = useMemo(() => {
@@ -696,6 +1045,17 @@ const Guests = () => {
             <tbody>
               {filtered.map(g => {
                 const avgSpend = g.visitCount > 0 ? (g.totalSpend || 0) / g.visitCount : 0;
+                const cleanPhone = (g.phone || '').trim().replace(/\D/g, '');
+                const pendingForGuest = allOrders.filter(o => {
+                  if (o.guestId && o.guestId === g.id) return true;
+                  if (cleanPhone && cleanPhone.length >= 7) {
+                    const oPhone = (o.guestPhone || o.customerPhone || '').replace(/\D/g, '');
+                    if (oPhone && (oPhone === cleanPhone || oPhone.endsWith(cleanPhone) || cleanPhone.endsWith(oPhone))) return true;
+                  }
+                  return false;
+                }).filter(isPendingOrder);
+                const pendingTotal = pendingForGuest.reduce((s, o) => s + (parseFloat(o.total) || 0), 0);
+
                 return (
                   <tr key={g.id} onClick={() => openProfile(g)} style={{ cursor: 'pointer', transition: 'background 0.15s' }}
                     onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 94, 74,0.03)'}
@@ -703,7 +1063,21 @@ const Guests = () => {
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <Avatar name={g.name} size={32} tier={g.tier} />
-                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{g.name}</span>
+                        <div>
+                          <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{g.name}</span>
+                          {pendingTotal > 0 && (
+                            <div style={{ marginTop: 2 }}>
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 3,
+                                fontSize: '0.66rem', fontWeight: 700,
+                                background: 'rgba(245, 158, 11, 0.12)', color: '#b45309',
+                                padding: '1px 6px', borderRadius: 8, border: '1px solid rgba(245, 158, 11, 0.3)'
+                              }}>
+                                <Clock size={10} /> {fmtCurrency(pendingTotal)} Due ({pendingForGuest.length} pending)
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{g.phone || '-'}</td>
@@ -845,6 +1219,47 @@ const Guests = () => {
           ))}
         </div>
 
+        {/* Outstanding Pending Bills Banner */}
+        {guestPendingOrders.length > 0 && (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1.5px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '12px',
+            padding: '14px 18px',
+            marginBottom: '18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 38, height: 38, borderRadius: '50%',
+                background: 'rgba(245, 158, 11, 0.2)', color: '#b45309',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                <Clock size={20} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#b45309' }}>
+                  {guestPendingOrders.length} Pending {guestPendingOrders.length === 1 ? 'Bill' : 'Bills'} To Settle ({fmtCurrency(totalPendingDue)})
+                </div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  This guest has house account bills recorded as "Pay Later".
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-warning"
+              style={{ fontWeight: 700, fontSize: '0.82rem', padding: '8px 16px' }}
+              onClick={() => setSettlePendingModal({ orders: guestPendingOrders, guest: selectedGuest })}
+            >
+              💳 Settle All ({fmtCurrency(totalPendingDue)})
+            </button>
+          </div>
+        )}
+
         {/* Sub-tabs */}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
           {profileSubTabs.map(t => {
@@ -866,40 +1281,93 @@ const Guests = () => {
         {/* Sub-tab content */}
         {profileTab === 'orders' && (
           <div className="card" style={{ padding: '20px' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Order History</h3>
-            {guestOrders.length === 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Order History</h3>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[
+                  { key: 'all', label: `All (${guestOrders.length})` },
+                  { key: 'pending', label: `Pending (${guestPendingOrders.length})`, alert: guestPendingOrders.length > 0 },
+                  { key: 'paid', label: `Paid (${guestOrders.length - guestPendingOrders.length})` },
+                ].map(f => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setOrderHistoryFilter(f.key)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 8,
+                      border: '1px solid',
+                      borderColor: orderHistoryFilter === f.key ? (f.alert ? '#f59e0b' : 'var(--primary)') : 'var(--border-subtle)',
+                      background: orderHistoryFilter === f.key ? (f.alert ? 'rgba(245, 158, 11, 0.12)' : 'rgba(30, 94, 74, 0.1)') : 'transparent',
+                      color: orderHistoryFilter === f.key ? (f.alert ? '#b45309' : 'var(--primary)') : 'var(--text-muted)',
+                      fontSize: '0.74rem',
+                      fontWeight: orderHistoryFilter === f.key ? 700 : 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {displayedGuestOrders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                 <ShoppingBag size={36} strokeWidth={1} style={{ marginBottom: 10, opacity: 0.4 }} />
-                <p style={{ fontSize: '0.85rem' }}>No order history found.</p>
+                <p style={{ fontSize: '0.85rem' }}>No orders found in this view.</p>
               </div>
-            ) : guestOrders.map(o => (
-              <div key={o.id} onClick={() => setInvoiceOrder(o)}
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '14px 16px', background: 'rgba(255,255,255,0.6)', borderRadius: '12px',
-                  border: '1px solid var(--border-subtle)', marginBottom: '8px',
-                  cursor: 'pointer', transition: 'all 0.15s',
-                }}
-                onMouseOver={e => { e.currentTarget.style.background = 'rgba(30, 94, 74,0.03)'; e.currentTarget.style.borderColor = 'rgba(30, 94, 74,0.2)'; }}
-                onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)' }}>{o.billNo || 'Order'}</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    {' '}&middot; {o.items?.length || 0} items &middot; {o.paymentMethod || 'N/A'}
-                    {o.server && <> &middot; Server: {o.server}</>}
+            ) : displayedGuestOrders.map(o => {
+              const pending = isPendingOrder(o);
+              return (
+                <div key={o.id} onClick={() => setInvoiceOrder(o)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '14px 16px', background: pending ? 'rgba(245, 158, 11, 0.04)' : 'rgba(255,255,255,0.6)', borderRadius: '12px',
+                    border: `1px solid ${pending ? 'rgba(245, 158, 11, 0.3)' : 'var(--border-subtle)'}`, marginBottom: '8px',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                  onMouseOver={e => { e.currentTarget.style.background = pending ? 'rgba(245, 158, 11, 0.08)' : 'rgba(30, 94, 74,0.03)'; }}
+                  onMouseOut={e => { e.currentTarget.style.background = pending ? 'rgba(245, 158, 11, 0.04)' : 'rgba(255,255,255,0.6)'; }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>{o.billNo || 'Order'}</span>
+                      {pending && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#b45309', background: 'rgba(245, 158, 11, 0.12)', padding: '1px 6px', borderRadius: 6, border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                          ⏳ Pay Later
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      {' '}&middot; {o.items?.length || 0} items &middot; {o.paymentMethod || 'N/A'}
+                      {o.server && <> &middot; Server: {o.server}</>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 800, color: pending ? '#b45309' : 'var(--primary)', fontSize: '0.95rem' }}>{fmtCurrency(o.total)}</div>
+                      <div style={{ fontSize: '0.68rem', color: pending ? '#b45309' : 'var(--success)', fontWeight: 600 }}>
+                        {pending ? 'Pending Settlement' : 'Paid'}
+                      </div>
+                    </div>
+                    {pending && (
+                      <button
+                        type="button"
+                        className="btn btn-warning btn-sm"
+                        style={{ fontSize: '0.72rem', padding: '4px 10px', fontWeight: 700 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSettlePendingModal({ orders: [o], guest: selectedGuest });
+                        }}
+                      >
+                        Settle Bill
+                      </button>
+                    )}
+                    <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.95rem' }}>{fmtCurrency(o.total)}</div>
-                    <div style={{ fontSize: '0.68rem', color: 'var(--success)', fontWeight: 600 }}>Paid</div>
-                  </div>
-                  <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -1486,7 +1954,28 @@ const Guests = () => {
       )}
 
       {invoiceOrder && (
-        <InvoiceModal order={invoiceOrder} onClose={() => setInvoiceOrder(null)} settings={settings} />
+        <InvoiceModal
+          order={invoiceOrder}
+          onClose={() => setInvoiceOrder(null)}
+          settings={settings}
+          onSettle={(ord) => {
+            setInvoiceOrder(null);
+            setSettlePendingModal({ orders: [ord], guest: selectedGuest });
+          }}
+        />
+      )}
+
+      {settlePendingModal && (
+        <SettlePendingBillModal
+          ordersToSettle={settlePendingModal.orders}
+          guest={settlePendingModal.guest}
+          onSettled={async () => {
+            if (reload) await reload();
+            setSettlePendingModal(null);
+          }}
+          onClose={() => setSettlePendingModal(null)}
+          settings={settings}
+        />
       )}
 
       {deleteConfirm && (

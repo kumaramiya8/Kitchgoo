@@ -946,8 +946,9 @@ export function AppProvider({ children }) {
 
   // ── Guests ─────────────────────────────────────────────
   const addGuest = useCallback(async (data) => {
-    await insert('guests', data);
+    const res = await insert('guests', data);
     setGuests(getAll('guests'));
+    return res;
   }, []);
 
   const editGuest = useCallback(async (id, data) => {
