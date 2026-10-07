@@ -337,7 +337,23 @@ const InvoiceHistoryModal = ({ order, onClose }) => {
         }}>
           <div><span>Table: </span><strong>{order.tableId ? `Table ${order.tableId}` : (order.orderType || 'Dine-in')}</strong></div>
           <div><span>Primary Staff: </span><strong>{order.serverName || 'Staff'}</strong></div>
-          <div><span>Payment: </span><strong>{order.paymentMethod || '—'}</strong></div>
+          <div>
+            <span>Payment: </span>
+            <strong>
+              {(() => {
+                const splits = order.paymentSplits || order.timestamps?.paymentSplits;
+                if (Array.isArray(splits) && splits.length > 1) {
+                  return `Split (${splits.map(s => `${s.method}: ₹${parseFloat(s.amount || 0).toFixed(0)}`).join(', ')})`;
+                }
+                const walletAmt = parseFloat(order.walletRedeemed || 0) || (Array.isArray(order.history) ? (order.history.find(h => h.action === 'wallet_redeemed')?.amount || 0) : 0);
+                if (walletAmt > 0 && order.paymentMethod && !order.paymentMethod.toLowerCase().includes('wallet')) {
+                  const rem = Math.max(0, (parseFloat(order.total || 0) - walletAmt));
+                  return `Split (${order.paymentMethod}: ₹${rem.toFixed(0)}, Wallet: ₹${walletAmt.toFixed(0)})`;
+                }
+                return order.paymentMethod || '—';
+              })()}
+            </strong>
+          </div>
           <div><span>Initial Date: </span><strong>{fmtDateTime(order.createdAt)}</strong></div>
         </div>
 

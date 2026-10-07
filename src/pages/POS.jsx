@@ -2714,13 +2714,33 @@ const PaymentModal = ({
       };
 
       if (!isSplit) {
-        await onConfirm(paymentMethod, tipValue, finalTotal, null, settlementMeta);
+        if (effectiveWalletApplied > 0) {
+          if (finalTotal === 0) {
+            const splits = [{ method: 'Wallet', amount: effectiveWalletApplied }];
+            await onConfirm('Wallet', tipValue, 0, splits, settlementMeta);
+          } else {
+            const splits = [
+              { method: 'Wallet', amount: effectiveWalletApplied },
+              { method: paymentMethod, amount: finalTotal }
+            ];
+            const methodLabel = `Split (${paymentMethod}: ₹${finalTotal.toFixed(0)}, Wallet: ₹${effectiveWalletApplied.toFixed(0)})`;
+            await onConfirm(methodLabel, tipValue, finalTotal, splits, settlementMeta);
+          }
+        } else {
+          await onConfirm(paymentMethod, tipValue, finalTotal, null, settlementMeta);
+        }
       } else {
         const validSplits = splitRows.map(r => ({
           method: r.method,
           amount: Math.round((parseFloat(r.amount) || 0) * 100) / 100,
           cashTendered: r.method === 'Cash' && r.cashTendered ? parseFloat(r.cashTendered) : undefined
         }));
+        if (effectiveWalletApplied > 0) {
+          validSplits.unshift({
+            method: 'Wallet',
+            amount: effectiveWalletApplied
+          });
+        }
         const methodLabel = `Split (${validSplits.map(s => `${s.method}: ₹${s.amount.toFixed(0)}`).join(', ')})`;
         await onConfirm(methodLabel, tipValue, finalTotal, validSplits, settlementMeta);
       }
@@ -6473,17 +6493,42 @@ const POS = () => {
       const cashTenderedVal = parseFloat(settlementMeta?.cashTendered || 0);
       const walletCredited = (changeAction === 'wallet' && changeAmount > 0) ? changeAmount : 0;
 
+      let effectiveSplits = paymentSplits;
+      let effectiveMethod = paymentMethod;
+
+      if (walletCreditApplied > 0) {
+        if (!effectiveSplits || effectiveSplits.length === 0) {
+          if (finalTotal === 0) {
+            effectiveSplits = [{ method: 'Wallet', amount: walletCreditApplied }];
+            effectiveMethod = 'Wallet';
+          } else {
+            effectiveSplits = [
+              { method: 'Wallet', amount: walletCreditApplied },
+              { method: paymentMethod, amount: finalTotal }
+            ];
+            effectiveMethod = `Split (${paymentMethod}: ₹${finalTotal.toFixed(0)}, Wallet: ₹${walletCreditApplied.toFixed(0)})`;
+          }
+        } else {
+          if (!effectiveSplits.some(s => (s.method || '').toLowerCase().includes('wallet'))) {
+            effectiveSplits = [
+              { method: 'Wallet', amount: walletCreditApplied },
+              ...effectiveSplits
+            ];
+          }
+        }
+      }
+
       const paymentHistory = [
         ...cartAudit,
         {
           action: 'payment_settled',
           timestamp: new Date().toISOString(),
           by: user?.name || 'Cashier',
-          description: Array.isArray(paymentSplits) && paymentSplits.length > 0
-            ? `Settled via Split: ${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal).toFixed(2)})`
-            : `Settled via ${paymentMethod} for ₹${(finalTotal).toFixed(2)}`,
-          paymentMethod,
-          paymentSplits: paymentSplits || null,
+          description: Array.isArray(effectiveSplits) && effectiveSplits.length > 0
+            ? `Settled via Split: ${effectiveSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal + walletCreditApplied).toFixed(2)})`
+            : `Settled via ${effectiveMethod} for ₹${(finalTotal).toFixed(2)}`,
+          paymentMethod: effectiveMethod,
+          paymentSplits: effectiveSplits || null,
         }
       ];
 
@@ -6528,7 +6573,7 @@ const POS = () => {
         discountAppliedBy: discountAmount > 0 ? (user?.name || 'Staff') : null,
         serviceCharge,
         partySize,
-        paymentSplits,
+        paymentSplits: effectiveSplits,
         walletCredited,
         walletRedeemed: walletCreditApplied,
         cashTendered: cashTenderedVal,
@@ -6554,7 +6599,7 @@ const POS = () => {
       const currentUnassignedTab = unassignedTab;
       const currentCustomerName = effectiveGuestName;
 
-      const order = await placeOrder(tableId, currentCart, paymentMethod, extra);
+      const order = await placeOrder(tableId, currentCart, effectiveMethod, extra);
 
       // Bill settled — table needs bussing before it can be reused. Tapping the
       // table on the floor map marks it cleaned and available again.
@@ -6673,25 +6718,26 @@ const POS = () => {
       // Update cash drawer for cash payments (either full cash or partial cash split)
       let cashPortion = 0;
       let hasCardPayment = false;
-      if (Array.isArray(paymentSplits) && paymentSplits.length > 0) {
-        cashPortion = paymentSplits
+      if (Array.isArray(effectiveSplits) && effectiveSplits.length > 0) {
+        cashPortion = effectiveSplits
           .filter(p => (p.method || '').toLowerCase() === 'cash')
           .reduce((sum, p) => {
             const tendered = parseFloat(p.cashTendered);
             const amt = parseFloat(p.amount) || 0;
             // If extra cash was kept for wallet credit, tender enters drawer
             if (walletCredited > 0 && tendered > amt) return sum + tendered;
+            if (walletCredited > 0 && cashTenderedVal > amt) return sum + cashTenderedVal;
             return sum + amt;
           }, 0);
-        hasCardPayment = paymentSplits.some(p => (p.method || '').toLowerCase() === 'card');
-      } else if (paymentMethod === 'Cash') {
+        hasCardPayment = effectiveSplits.some(p => (p.method || '').toLowerCase() === 'card');
+      } else if (effectiveMethod === 'Cash') {
         if (walletCredited > 0 && cashTenderedVal > 0) {
           // Tendered amount physically enters the drawer
           cashPortion = cashTenderedVal;
         } else {
           cashPortion = finalTotal;
         }
-      } else if (paymentMethod === 'Card') {
+      } else if (effectiveMethod === 'Card') {
         hasCardPayment = true;
       }
 
@@ -6716,7 +6762,8 @@ const POS = () => {
           order: {
             ...order,
             items: currentCart,
-            paymentSplits,
+            paymentMethod: effectiveMethod,
+            paymentSplits: effectiveSplits,
             tokenNumber: currentUnassignedTab?.tokenNumber || order?.tokenNumber,
             customerPhone: effectiveGuestPhone,
             guestPhone: effectiveGuestPhone,

@@ -144,49 +144,102 @@ function useHistoricalOrders(range, dateFrom) {
 
 // ─── Payment Split & Filter Helpers ─────────────────────────
 
+export function getWalletAmountFromOrder(order) {
+  if (!order) return 0;
+  const direct = parseFloat(order.walletRedeemed || 0);
+  if (direct > 0) return direct;
+  const hist = Array.isArray(order.history) ? order.history : (order.timestamps?.history || []);
+  const entry = hist.find(h => h.action === 'wallet_redeemed');
+  if (entry) {
+    const val = parseFloat(entry.amount || (typeof entry.description === 'string' && entry.description.match(/₹([0-9.]+)/)?.[1]) || 0);
+    if (val > 0) return val;
+  }
+  return 0;
+}
+
 export function getOrderPaymentSplits(order) {
   if (!order) return null;
-  const rawSplits = order.paymentSplits || order.timestamps?.paymentSplits;
-  if (Array.isArray(rawSplits) && rawSplits.length > 0) return rawSplits;
-  const pm = order.paymentMethod || '';
-  if (typeof pm === 'string' && pm.toLowerCase().startsWith('split')) {
-    const match = pm.match(/\(([^)]+)\)/);
-    if (match) {
-      const parts = match[1].split(',');
-      const parsed = parts.map(part => {
-        const [method, amtStr] = part.split(':');
-        const cleanAmt = parseFloat((amtStr || '').replace(/[^0-9.]/g, '')) || 0;
-        return { method: (method || '').trim(), amount: cleanAmt };
-      }).filter(sp => sp.amount > 0);
-      if (parsed.length > 0) return parsed;
+  let rawSplits = order.paymentSplits || order.timestamps?.paymentSplits;
+
+  if (!rawSplits) {
+    const pm = order.paymentMethod || '';
+    if (typeof pm === 'string' && pm.toLowerCase().startsWith('split')) {
+      const match = pm.match(/\(([^)]+)\)/);
+      if (match) {
+        const parts = match[1].split(',');
+        const parsed = parts.map(part => {
+          const [method, amtStr] = part.split(':');
+          const cleanAmt = parseFloat((amtStr || '').replace(/[^0-9.]/g, '')) || 0;
+          return { method: (method || '').trim(), amount: cleanAmt };
+        }).filter(sp => sp.amount > 0);
+        if (parsed.length > 0) rawSplits = parsed;
+      }
     }
   }
+
+  const walletAmt = getWalletAmountFromOrder(order);
+  const total = parseFloat(order.total || 0);
+
+  // If splits already exist:
+  if (Array.isArray(rawSplits) && rawSplits.length > 0) {
+    const hasWallet = rawSplits.some(s => (s.method || '').toLowerCase().includes('wallet'));
+    if (!hasWallet && walletAmt > 0) {
+      return [
+        { method: 'Wallet', amount: walletAmt },
+        ...rawSplits
+      ];
+    }
+    return rawSplits;
+  }
+
+  // If no splits array, but wallet was redeemed:
+  if (walletAmt > 0 && total > 0) {
+    const remainingAmt = Math.max(0, Math.round((total - walletAmt) * 100) / 100);
+    const pm = (order.paymentMethod || '').trim();
+    const otherMethod = (pm && !pm.toLowerCase().includes('wallet') && !pm.toLowerCase().startsWith('split'))
+      ? pm
+      : 'Cash';
+    if (remainingAmt > 0) {
+      return [
+        { method: 'Wallet', amount: walletAmt },
+        { method: otherMethod, amount: remainingAmt }
+      ];
+    } else {
+      return [{ method: 'Wallet', amount: total }];
+    }
+  }
+
   return null;
 }
 
 export function orderMatchesPaymentType(order, filter) {
   if (!order || !filter || filter === 'All') return true;
-  const pm = (order.paymentMethod || '').toLowerCase();
-  const splits = getOrderPaymentSplits(order);
   const target = filter.toLowerCase();
+  const splits = getOrderPaymentSplits(order);
+  const walletAmt = getWalletAmountFromOrder(order);
 
   if (target === 'wallet') {
+    if (walletAmt > 0) return true;
+    const pm = (order.paymentMethod || '').toLowerCase();
     if (pm === 'wallet' || pm.includes('wallet')) return true;
-    if (parseFloat(order.walletRedeemed || 0) > 0) return true;
     if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase().includes('wallet'))) return true;
     return false;
   }
+
   if (target === 'split') {
+    const pm = (order.paymentMethod || '').toLowerCase();
     return pm.startsWith('split') || (Array.isArray(splits) && splits.length > 1);
   }
-  if (pm === target) return true;
+
   if (Array.isArray(splits) && splits.length > 0) {
     return splits.some(s => {
       const sm = (s.method || '').toLowerCase();
       return sm === target || sm.includes(target);
     });
   }
-  return false;
+
+  const pm = (order.paymentMethod || '').toLowerCase();
+  return pm === target || pm.includes(target);
 }
 
 export function getOrderPaymentAmount(order, method) {
@@ -194,11 +247,7 @@ export function getOrderPaymentAmount(order, method) {
   const total = parseFloat(order.total || 0);
   if (!method || method === 'All') return total;
   const target = method.toLowerCase();
-  if (target === 'wallet') {
-    if (parseFloat(order.walletRedeemed || 0) > 0) {
-      return parseFloat(order.walletRedeemed || 0);
-    }
-  }
+
   const splits = getOrderPaymentSplits(order);
   if (Array.isArray(splits) && splits.length > 0) {
     return splits
@@ -208,9 +257,15 @@ export function getOrderPaymentAmount(order, method) {
       })
       .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
   }
+
+  if (target === 'wallet') {
+    return getWalletAmountFromOrder(order);
+  }
+
   const pm = (order.paymentMethod || '').toLowerCase();
   if (pm === target || pm.includes(target)) {
-    return total;
+    const walletAmt = getWalletAmountFromOrder(order);
+    return Math.max(0, total - walletAmt);
   }
   return 0;
 }
@@ -1037,13 +1092,19 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       ${order.serviceCharge ? `<tr><td colspan="2">Service Charge</td><td style="text-align:right">₹${(order.serviceCharge || 0).toFixed(2)}</td></tr>` : ''}
       <tr><td colspan="2"><strong>TOTAL ${isInclusive ? '(INCL. GST)' : ''}</strong></td><td style="text-align:right"><strong>₹${(order.total || 0).toFixed(2)}</strong></td></tr>
       ${(() => {
-        const splits = order.paymentSplits || order.timestamps?.paymentSplits;
+        const splits = getOrderPaymentSplits(order);
         if (Array.isArray(splits) && splits.length > 0) {
           return splits.map(sp => `<tr><td colspan="2" style="font-size:11px;color:#555;padding-left:12px;">&bull; Paid via ${sp.method}</td><td style="text-align:right;font-size:11px;color:#555;">₹${parseFloat(sp.amount || 0).toFixed(2)}</td></tr>`).join('');
         }
         return '';
       })()}
-      </table><p style="text-align:center;margin-top:16px">Payment: ${order.paymentMethod || 'N/A'}<br/>Thank you!</p>
+      </table><p style="text-align:center;margin-top:16px">Payment: ${(() => {
+        const splits = getOrderPaymentSplits(order);
+        if (Array.isArray(splits) && splits.length > 1) {
+          return `Split (${splits.map(s => `${s.method}: ₹${parseFloat(s.amount || 0).toFixed(0)}`).join(', ')})`;
+        }
+        return order.paymentMethod || 'N/A';
+      })()}<br/>Thank you!</p>
       <script>window.print();</script></body></html>`);
   };
 
@@ -1155,10 +1216,31 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                     </Td>
                     <Td>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <Badge label={o.paymentMethod || '—'} color="#6366f1" />
-                        {parseFloat(o.walletRedeemed || 0) > 0 && (
-                          <Badge label={`Redeemed ₹${parseFloat(o.walletRedeemed).toFixed(0)}`} color="#10b981" />
-                        )}
+                        {(() => {
+                          const splits = getOrderPaymentSplits(o);
+                          const walletRedeemedAmt = getWalletAmountFromOrder(o);
+                          if (Array.isArray(splits) && splits.length > 1) {
+                            return (
+                              <>
+                                {splits.map((sp, idx) => (
+                                  <Badge
+                                    key={idx}
+                                    label={`${sp.method}: ₹${parseFloat(sp.amount || 0).toFixed(0)}`}
+                                    color={sp.method.toLowerCase().includes('wallet') ? '#10b981' : '#6366f1'}
+                                  />
+                                ))}
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <Badge label={o.paymentMethod || '—'} color="#6366f1" />
+                              {walletRedeemedAmt > 0 && (
+                                <Badge label={`Redeemed ₹${walletRedeemedAmt.toFixed(0)}`} color="#10b981" />
+                              )}
+                            </>
+                          );
+                        })()}
                         {parseFloat(o.walletCredited || 0) > 0 && (
                           <Badge label={`Credited ₹${parseFloat(o.walletCredited).toFixed(0)}`} color="#f59e0b" />
                         )}
@@ -1221,20 +1303,37 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
               <div><span style={{ color: 'var(--text-muted)' }}>Type: </span><strong>{selectedOrder.orderType || (selectedOrder.tableId ? 'Dine-in' : 'Takeout')}</strong></div>
               <div><span style={{ color: 'var(--text-muted)' }}>Table: </span><strong>{selectedOrder.tableId ? `T-${selectedOrder.tableId}` : 'N/A'}</strong></div>
               <div><span style={{ color: 'var(--text-muted)' }}>Server: </span><strong>{selectedOrder.serverName || 'N/A'}</strong></div>
-              <div><span style={{ color: 'var(--text-muted)' }}>Payment: </span><strong>{selectedOrder.paymentMethod || 'N/A'}</strong></div>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Payment: </span>
+                <strong>
+                  {(() => {
+                    const splits = getOrderPaymentSplits(selectedOrder);
+                    if (Array.isArray(splits) && splits.length > 1) {
+                      return `Split (${splits.map(s => `${s.method}: ₹${parseFloat(s.amount || 0).toFixed(0)}`).join(', ')})`;
+                    }
+                    return selectedOrder.paymentMethod || 'N/A';
+                  })()}
+                </strong>
+              </div>
               <div><span style={{ color: 'var(--text-muted)' }}>Status: </span><Badge label={selectedOrder.status || 'Closed'} color={selectedOrder.status === 'Voided' || selectedOrder.status === 'voided' ? '#ef4444' : '#22c55e'} /></div>
-              {(selectedOrder.paymentSplits || selectedOrder.timestamps?.paymentSplits)?.length > 0 && (
-                <div style={{ gridColumn: 'span 2', padding: '8px 12px', background: 'rgba(30, 94, 74, 0.05)', borderRadius: 'var(--r-sm)', border: '1px solid rgba(30, 94, 74, 0.15)' }}>
-                  <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>Split Payment Breakdown:</span>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    {(selectedOrder.paymentSplits || selectedOrder.timestamps?.paymentSplits).map((sp, i) => (
-                      <span key={i} style={{ fontSize: '0.78rem' }}>
-                        <strong>{sp.method}:</strong> {fmt(sp.amount)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const splits = getOrderPaymentSplits(selectedOrder);
+                if (Array.isArray(splits) && splits.length > 1) {
+                  return (
+                    <div style={{ gridColumn: 'span 2', padding: '8px 12px', background: 'rgba(30, 94, 74, 0.05)', borderRadius: 'var(--r-sm)', border: '1px solid rgba(30, 94, 74, 0.15)' }}>
+                      <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>Split Payment Breakdown:</span>
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        {splits.map((sp, i) => (
+                          <span key={i} style={{ fontSize: '0.78rem' }}>
+                            <strong>{sp.method}:</strong> {fmt(sp.amount)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
             <TableWrap style={{ marginBottom: 16 }}>
               <thead>

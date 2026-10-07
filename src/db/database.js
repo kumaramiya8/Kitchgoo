@@ -830,6 +830,37 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     : parseFloat(rawTotal.toFixed(2));
 
   const nowIso = new Date().toISOString();
+
+  const walletRedeemed = parseFloat(extra.walletRedeemed || 0);
+  let resolvedSplits = extra.paymentSplits;
+  let resolvedMethod = paymentMethod;
+
+  if (walletRedeemed > 0) {
+    if (!resolvedSplits || resolvedSplits.length === 0) {
+      if (total <= walletRedeemed) {
+        resolvedSplits = [{ method: 'Wallet', amount: total }];
+        resolvedMethod = 'Wallet';
+      } else {
+        const remaining = Math.max(0, Math.round((total - walletRedeemed) * 100) / 100);
+        const otherMethod = (paymentMethod && !paymentMethod.toLowerCase().includes('wallet') && !paymentMethod.toLowerCase().startsWith('split'))
+          ? paymentMethod
+          : 'Cash';
+        resolvedSplits = [
+          { method: 'Wallet', amount: walletRedeemed },
+          { method: otherMethod, amount: remaining }
+        ];
+        resolvedMethod = `Split (${otherMethod}: ₹${remaining.toFixed(0)}, Wallet: ₹${walletRedeemed.toFixed(0)})`;
+      }
+    } else {
+      if (!resolvedSplits.some(s => (s.method || '').toLowerCase().includes('wallet'))) {
+        resolvedSplits = [
+          { method: 'Wallet', amount: walletRedeemed },
+          ...resolvedSplits
+        ];
+      }
+    }
+  }
+
   const order = {
     id: genId(),
     billNo: candidateBillNo,
@@ -845,7 +876,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     comp,
     tip,
     total,
-    paymentMethod,
+    paymentMethod: resolvedMethod,
     orderType: extra.orderType || 'dine-in',
     tokenNumber: extra.tokenNumber || null,
     guestId: extra.guestId || null,

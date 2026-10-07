@@ -7,7 +7,8 @@ import {
 } from '../src/db/database';
 import {
   orderMatchesPaymentType,
-  getOrderPaymentAmount
+  getOrderPaymentAmount,
+  getOrderPaymentSplits
 } from '../src/pages/Reports.jsx';
 
 describe('Phone-Linked Digital Wallet & Gift Card System', () => {
@@ -253,6 +254,64 @@ describe('Phone-Linked Digital Wallet & Gift Card System', () => {
 
       // Non-wallet order
       expect(getOrderPaymentAmount(mockOrders[0], 'Wallet')).toBe(0);
+    });
+
+    it('correctly decomposes orders where wallet and UPI were used (e.g. ₹910 total, ₹60 wallet, ₹850 UPI)', () => {
+      // Exactly matching the user's invoice INV-TES1J-1444
+      const order = {
+        id: 'ord_1444',
+        billNo: 'INV-TES1J-1444',
+        total: 910,
+        paymentMethod: 'UPI',
+        walletRedeemed: 60,
+        history: [
+          { action: 'created', timestamp: '2026-10-07T10:38:47Z' },
+          { action: 'payment_settled', description: 'Settled via UPI for ₹850.00', amount: 850 },
+          { action: 'wallet_redeemed', description: 'Redeemed ₹60.00 from digital wallet towards bill', amount: 60 }
+        ]
+      };
+
+      const splits = getOrderPaymentSplits(order);
+      expect(splits).not.toBeNull();
+      expect(splits).toHaveLength(2);
+
+      const walletSplit = splits.find(s => s.method === 'Wallet');
+      const upiSplit = splits.find(s => s.method === 'UPI');
+
+      expect(walletSplit).toBeDefined();
+      expect(walletSplit.amount).toBe(60);
+
+      expect(upiSplit).toBeDefined();
+      expect(upiSplit.amount).toBe(850);
+
+      // Check report payment filtering
+      expect(orderMatchesPaymentType(order, 'UPI')).toBe(true);
+      expect(orderMatchesPaymentType(order, 'Wallet')).toBe(true);
+      expect(orderMatchesPaymentType(order, 'Split')).toBe(true);
+
+      // Ensure UPI does NOT take the full ₹910
+      expect(getOrderPaymentAmount(order, 'UPI')).toBe(850);
+      expect(getOrderPaymentAmount(order, 'Wallet')).toBe(60);
+      expect(getOrderPaymentAmount(order, 'All')).toBe(910);
+    });
+
+    it('recovers wallet redemption amount even when walletRedeemed was only logged in history', () => {
+      const legacyOrder = {
+        id: 'ord_legacy',
+        billNo: 'INV-LEGACY-01',
+        total: 500,
+        paymentMethod: 'UPI',
+        // walletRedeemed is omitted
+        history: [
+          { action: 'payment_settled', description: 'Settled via UPI for ₹400.00' },
+          { action: 'wallet_redeemed', description: 'Redeemed ₹100.00 from digital wallet towards bill', amount: 100 }
+        ]
+      };
+
+      const splits = getOrderPaymentSplits(legacyOrder);
+      expect(splits).not.toBeNull();
+      expect(getOrderPaymentAmount(legacyOrder, 'UPI')).toBe(400);
+      expect(getOrderPaymentAmount(legacyOrder, 'Wallet')).toBe(100);
     });
   });
 });
