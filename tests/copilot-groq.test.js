@@ -109,7 +109,7 @@ describe('Copilot & QR AI Groq integration', () => {
 
       const parsedBody = JSON.parse(fetchOptions.body);
       expect(parsedBody.model).toBe('openai/gpt-oss-120b');
-      expect(parsedBody.max_tokens).toBe(1500);
+      expect(parsedBody.max_tokens).toBe(800);
       expect(parsedBody.response_format).toEqual({ type: 'json_object' });
       expect(parsedBody.messages[0].role).toBe('system');
       expect(parsedBody.messages[1].role).toBe('user');

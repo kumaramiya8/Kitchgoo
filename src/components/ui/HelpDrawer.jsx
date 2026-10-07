@@ -125,13 +125,12 @@ const HelpDrawer = ({ isOpen, onClose }) => {
       menuCategories: settings.menuCategories || null,
     } : null;
 
-    // Menu summary containing all items, categories, status, prices, and cost prices
+    // Menu summary containing all items, categories, and prices
     const menuSummary = (menu || []).map(m => ({
+      id: m.id,
       name: m.name,
       price: m.price,
-      costPrice: m.costPrice,
-      category: m.category,
-      active: m.active
+      category: m.category
     }));
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -201,8 +200,8 @@ const HelpDrawer = ({ isOpen, onClose }) => {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
-    // Build compact recent orders list (last 25 orders to prevent token limit overflows)
-    const maxCompactOrders = 25;
+    // Build compact recent orders list (last 10 orders to stay well within token limits)
+    const maxCompactOrders = 10;
     const sortedOrders = [...allOrders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const compactRecentOrders = sortedOrders.slice(0, maxCompactOrders).map(o => {
       const item = {
@@ -260,13 +259,11 @@ const HelpDrawer = ({ isOpen, onClose }) => {
     const lowStockItems = (inventory || []).filter(i => (i.stock || 0) <= (i.min || 0)).slice(0, 5).map(i => `${i.name} (${i.stock} ${i.unit || 'pcs'} left)`);
     
     const inventoryList = (inventory || []).map(i => ({
+      id: i.id,
       name: i.name,
-      category: i.category,
       stock: i.stock,
       unit: i.unit,
-      min: i.min,
-      cost: i.cost,
-      supplier: i.supplier
+      min: i.min
     }));
 
     const inventorySummary = {
@@ -323,8 +320,8 @@ const HelpDrawer = ({ isOpen, onClose }) => {
     setLoading(true);
     setError(null);
 
-    // Prepare history to send to Gemini
-    const chatHistory = messages.slice(1).map(m => ({
+    // Prepare history to send (keep only last 4 messages to preserve token budget)
+    const chatHistory = messages.slice(-5, -1).map(m => ({
       sender: m.sender,
       text: m.text
     }));
