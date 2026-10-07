@@ -108,8 +108,8 @@ describe('Copilot & QR AI Groq integration', () => {
       expect(fetchOptions.headers['Authorization']).toBe('Bearer gsk_mock_test_key');
 
       const parsedBody = JSON.parse(fetchOptions.body);
-      expect(parsedBody.model).toBe('llama-3.1-8b-instant');
-      expect(parsedBody.max_tokens).toBe(2048);
+      expect(parsedBody.model).toBe('openai/gpt-oss-120b');
+      expect(parsedBody.max_tokens).toBe(1500);
       expect(parsedBody.response_format).toEqual({ type: 'json_object' });
       expect(parsedBody.messages[0].role).toBe('system');
       expect(parsedBody.messages[1].role).toBe('user');
@@ -240,7 +240,7 @@ describe('Copilot & QR AI Groq integration', () => {
       expect(fetchUrl).toBe('https://api.groq.com/openai/v1/chat/completions');
       expect(fetchOptions.headers['Authorization']).toBe('Bearer gsk_mock_test_key');
       const parsed = JSON.parse(fetchOptions.body);
-      expect(parsed.model).toBe('llama-3.1-8b-instant');
+      expect(parsed.model).toBe('openai/gpt-oss-120b');
       expect(parsed.response_format).toEqual({ type: 'json_object' });
       expect(res.body.text).toBe('I recommend our Creamy Alfredo Pasta!');
       expect(res.body.add_to_cart).toHaveLength(1);
