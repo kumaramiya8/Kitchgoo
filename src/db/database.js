@@ -347,7 +347,7 @@ export async function initDB() {
       'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
       'locations', 'audit_log', 'floor_plans', 'modifiers', 'schedules',
       'tip_pools', 'loyalty', 'campaigns', 'cash_drawer', 'register_closures',
-      'expenses'
+      'expenses', 'gift_cards'
     ];
     for (const col of collections) {
       const key = `Kitchgoo_${col}`;
@@ -397,7 +397,7 @@ export async function initTenantDB(tenantName) {
       'online_orders', 'suppliers', 'purchase_orders', 'recipes', 'waste_log',
       'locations', 'floor_plans', 'modifiers', 'schedules',
       'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
-      'pos_tables', 'pos_saved_orders', 'register_closures', 'expenses'
+      'pos_tables', 'pos_saved_orders', 'register_closures', 'expenses', 'gift_cards'
     ];
     for (const col of collections) {
       const key = `${tenantName}_${col}`;
@@ -849,7 +849,14 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     orderType: extra.orderType || 'dine-in',
     tokenNumber: extra.tokenNumber || null,
     guestId: extra.guestId || null,
-    guestName: extra.guestName || '',
+    guestName: extra.guestName || extra.customerName || '',
+    guestPhone: extra.customerPhone || extra.guestPhone || '',
+    customerName: extra.customerName || extra.guestName || '',
+    customerPhone: extra.customerPhone || extra.guestPhone || '',
+    walletCredited: extra.walletCredited || 0,
+    walletRedeemed: extra.walletRedeemed || 0,
+    cashTendered: extra.cashTendered || 0,
+    changeReturned: extra.changeReturned || 0,
     serverId: extra.serverId || null,
     serverName: extra.serverName || '',
     partySize: extra.partySize || 1,
@@ -1281,3 +1288,150 @@ export async function saveTableOrder(tableId, savedOrder) {
     console.error('[DB] Error saving table order:', err);
   }
 }
+
+// ─── Gift Cards & Phone-Linked Digital Wallet ───────────────
+export async function issueGiftCardCredit({
+  guestPhone = '',
+  guestName = '',
+  guestId = null,
+  amount = 0,
+  orderId = null,
+  billNo = '',
+  staffName = 'Staff',
+  cashTendered = 0,
+  billTotal = 0,
+  notes = 'Extra cash change converted to digital wallet'
+}) {
+  const numAmount = parseFloat(amount) || 0;
+  if (numAmount <= 0) return null;
+
+  const cleanPhone = (guestPhone || '').trim();
+  const allGuests = getAll('guests') || [];
+  let guest = null;
+
+  if (guestId) {
+    guest = allGuests.find(g => g.id === guestId);
+  }
+  if (!guest && cleanPhone) {
+    guest = allGuests.find(g => (g.phone || '').trim() === cleanPhone);
+  }
+  if (!guest && guestName && !cleanPhone) {
+    guest = allGuests.find(g => (g.name || '').trim().toLowerCase() === guestName.trim().toLowerCase());
+  }
+
+  const prevBalance = parseFloat(guest?.walletBalance || 0);
+  const newBalance = Math.round((prevBalance + numAmount) * 100) / 100;
+  const nowIso = new Date().toISOString();
+
+  if (guest) {
+    const updated = {
+      ...guest,
+      name: guest.name || guestName || 'Guest',
+      phone: guest.phone || cleanPhone,
+      walletBalance: newBalance,
+      totalCreditIssued: Math.round(((parseFloat(guest.totalCreditIssued || 0)) + numAmount) * 100) / 100,
+      updatedAt: nowIso
+    };
+    await update('guests', guest.id, updated);
+    guest = updated;
+  } else {
+    guest = {
+      id: genId(),
+      name: guestName || (cleanPhone ? `Guest (${cleanPhone.slice(-4)})` : 'Guest'),
+      phone: cleanPhone,
+      email: '',
+      walletBalance: newBalance,
+      totalCreditIssued: numAmount,
+      totalCreditRedeemed: 0,
+      loyaltyPoints: 0,
+      loyaltyTier: 'Bronze',
+      visitCount: 1,
+      totalSpend: parseFloat(billTotal) || 0,
+      lastVisit: nowIso,
+      createdAt: nowIso
+    };
+    await insert('guests', guest);
+  }
+
+  const tx = {
+    id: genId(),
+    type: 'issue',
+    guestId: guest.id,
+    guestPhone: guest.phone || cleanPhone,
+    guestName: guest.name,
+    amount: numAmount,
+    previousBalance: prevBalance,
+    balanceAfter: newBalance,
+    orderId,
+    billNo,
+    cashTendered: parseFloat(cashTendered) || 0,
+    billTotal: parseFloat(billTotal) || 0,
+    staffName,
+    notes,
+    createdAt: nowIso
+  };
+
+  await insert('gift_cards', tx);
+  return { transaction: tx, guest };
+}
+
+export async function redeemGiftCardCredit({
+  guestPhone = '',
+  guestId = null,
+  amount = 0,
+  orderId = null,
+  billNo = '',
+  staffName = 'Staff',
+  notes = 'Redeemed towards bill payment'
+}) {
+  const numAmount = parseFloat(amount) || 0;
+  if (numAmount <= 0) return null;
+
+  const allGuests = getAll('guests') || [];
+  let guest = null;
+
+  if (guestId) {
+    guest = allGuests.find(g => g.id === guestId);
+  }
+  if (!guest && guestPhone) {
+    const cleanPhone = (guestPhone || '').trim();
+    guest = allGuests.find(g => (g.phone || '').trim() === cleanPhone);
+  }
+
+  if (!guest) return null;
+
+  const prevBalance = parseFloat(guest.walletBalance || 0);
+  const actualDeduct = Math.min(prevBalance, numAmount);
+  if (actualDeduct <= 0) return null;
+
+  const newBalance = Math.round((prevBalance - actualDeduct) * 100) / 100;
+  const nowIso = new Date().toISOString();
+
+  const updated = {
+    ...guest,
+    walletBalance: newBalance,
+    totalCreditRedeemed: Math.round(((parseFloat(guest.totalCreditRedeemed || 0)) + actualDeduct) * 100) / 100,
+    updatedAt: nowIso
+  };
+  await update('guests', guest.id, updated);
+
+  const tx = {
+    id: genId(),
+    type: 'redeem',
+    guestId: guest.id,
+    guestPhone: guest.phone,
+    guestName: guest.name,
+    amount: actualDeduct,
+    previousBalance: prevBalance,
+    balanceAfter: newBalance,
+    orderId,
+    billNo,
+    staffName,
+    notes,
+    createdAt: nowIso
+  };
+
+  await insert('gift_cards', tx);
+  return { transaction: tx, guest: updated, amountRedeemed: actualDeduct };
+}
+

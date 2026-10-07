@@ -9,7 +9,7 @@ import {
   Square, Circle, Minus, Plus, ChevronDown, ChevronRight,
   AlertTriangle, Timer, Banknote, BadgeCheck, Armchair,
   GripVertical, Coffee, ReceiptText, UserX, Smartphone, Globe, Check, Eye,
-  Sparkles, Trash2, AlertCircle, Edit3, Edit2, Loader2
+  Sparkles, Trash2, AlertCircle, Edit3, Edit2, Loader2, Gift, Heart
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
@@ -2518,7 +2518,8 @@ const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) 
 // ─── Payment Modal ──────────────────────────────────────────────────────────
 const PaymentModal = ({
   cart, cartTotal, tax, gstRate, pricesIncludeGst = true, grandTotal, serviceCharge, autoGratuity,
-  discount, activeTable, unassignedTab, currentGuest, onConfirm, onClose, settings, packagingCharge = 0
+  discount, activeTable, unassignedTab, currentGuest, onConfirm, onClose, settings, packagingCharge = 0,
+  initialPhone = '', guests = []
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -2526,19 +2527,62 @@ const PaymentModal = ({
   const [tipAmount, setTipAmount] = useState('');
   const [cashTendered, setCashTendered] = useState('');
 
+  // Guest details editable directly at billing / settlement
+  const [guestName, setGuestName] = useState(() => activeTable?.guestName || unassignedTab?.guestName || currentGuest || '');
+  const [guestPhone, setGuestPhone] = useState(() => initialPhone || activeTable?.guestPhone || unassignedTab?.guestPhone || '');
+  const [walletCreditApplied, setWalletCreditApplied] = useState(0);
+  const [changeAction, setChangeAction] = useState('cash'); // 'cash' | 'wallet' | 'tip'
+
+  // Match existing guest by phone or name
+  const matchedGuest = useMemo(() => {
+    const rawP = (guestPhone || '').trim();
+    const cleanDigits = rawP.replace(/\D/g, '');
+    const cleanName = (guestName || '').trim().toLowerCase();
+    if (!cleanDigits && !cleanName) return null;
+
+    if (cleanDigits.length >= 4) {
+      const byPhone = (guests || []).find(g => {
+        const gDigits = (g.phone || '').replace(/\D/g, '');
+        return gDigits && (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits));
+      });
+      if (byPhone) return byPhone;
+    }
+
+    if (cleanName) {
+      return (guests || []).find(g => (g.name || '').trim().toLowerCase() === cleanName);
+    }
+    return null;
+  }, [guests, guestPhone, guestName]);
+
+  const availableWalletBalance = parseFloat(matchedGuest?.walletBalance || 0);
+
+  // Auto-sync guest name if found by phone and user hasn't typed a custom name
+  useEffect(() => {
+    if (matchedGuest?.name && !guestName) {
+      setGuestName(matchedGuest.name);
+    }
+  }, [matchedGuest]);
+
+  // Clamp wallet credit if guest changed
+  useEffect(() => {
+    if (walletCreditApplied > availableWalletBalance) {
+      setWalletCreditApplied(availableWalletBalance);
+    }
+  }, [availableWalletBalance, walletCreditApplied]);
+
   const paymentsConfig = settings?.payments || {};
   const payMethods = useMemo(() => {
     const list = [];
     if (paymentsConfig.cash !== false) list.push({ key: 'Cash', icon: Banknote, color: '#22c55e' });
     if (paymentsConfig.upi !== false) list.push({ key: 'UPI', icon: Phone, color: '#1e5e4a' });
     if (paymentsConfig.card !== false) list.push({ key: 'Card', icon: CreditCard, color: '#3b82f6' });
-    if (paymentsConfig.wallet) list.push({ key: 'Wallet', icon: Wallet, color: '#f59e0b' });
+    if (paymentsConfig.wallet || availableWalletBalance > 0) list.push({ key: 'Wallet', icon: Wallet, color: '#f59e0b' });
     if (paymentsConfig.applePay) list.push({ key: 'Apple Pay', icon: Smartphone, color: '#000000' });
     if (paymentsConfig.googlePay) list.push({ key: 'Google Pay', icon: Globe, color: '#4285F4' });
     if (paymentsConfig.onlineGateway) list.push({ key: 'Online', icon: CreditCard, color: '#8b5cf6' });
     if (list.length === 0) list.push({ key: 'Cash', icon: Banknote, color: '#22c55e' });
     return list;
-  }, [paymentsConfig]);
+  }, [paymentsConfig, availableWalletBalance]);
 
   const [paymentMethod, setPaymentMethod] = useState(() => payMethods[0]?.key || 'Cash');
 
@@ -2550,9 +2594,12 @@ const PaymentModal = ({
     return Math.round(val * 100) / 100;
   }, [roundingMode]);
 
-  // grandTotal already includes serviceCharge + autoGratuity + packagingCharge and is net of discount.
-  // Only the tip is added on top here — re-applying discount/gratuity double-counted them.
-  const finalTotal = applyRounding(grandTotal + tipValue);
+  // Base total before wallet redemption
+  const rawBaseTotal = applyRounding(grandTotal + tipValue);
+  // Applied wallet credit cannot exceed rawBaseTotal
+  const effectiveWalletApplied = Math.min(walletCreditApplied, rawBaseTotal);
+  // Net final payable total
+  const finalTotal = Math.max(0, applyRounding(rawBaseTotal - effectiveWalletApplied));
   const cashChange = paymentMethod === 'Cash' ? Math.max(0, (parseFloat(cashTendered) || 0) - finalTotal) : 0;
 
   const shouldAutoPrint = (
@@ -2648,13 +2695,26 @@ const PaymentModal = ({
   const handleSettle = async () => {
     if (isSubmittingRef.current || isSubmitting) return;
     if (isSplit && !isSplitValid) return;
+    if (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim()) {
+      return;
+    }
 
     isSubmittingRef.current = true;
     setIsSubmitting(true);
 
     try {
+      const settlementMeta = {
+        guestName: guestName.trim() || matchedGuest?.name || 'Guest',
+        guestPhone: guestPhone.trim() || matchedGuest?.phone || '',
+        guestId: matchedGuest?.id || null,
+        walletCreditApplied: effectiveWalletApplied,
+        changeAction: cashChange > 0 ? changeAction : 'cash',
+        changeAmount: cashChange,
+        cashTendered: parseFloat(cashTendered) || 0,
+      };
+
       if (!isSplit) {
-        await onConfirm(paymentMethod, tipValue, finalTotal, null);
+        await onConfirm(paymentMethod, tipValue, finalTotal, null, settlementMeta);
       } else {
         const validSplits = splitRows.map(r => ({
           method: r.method,
@@ -2662,7 +2722,7 @@ const PaymentModal = ({
           cashTendered: r.method === 'Cash' && r.cashTendered ? parseFloat(r.cashTendered) : undefined
         }));
         const methodLabel = `Split (${validSplits.map(s => `${s.method}: ₹${s.amount.toFixed(0)}`).join(', ')})`;
-        await onConfirm(methodLabel, tipValue, finalTotal, validSplits);
+        await onConfirm(methodLabel, tipValue, finalTotal, validSplits, settlementMeta);
       }
     } catch (err) {
       console.error('[POS] Payment settle failed:', err);
@@ -2674,6 +2734,106 @@ const PaymentModal = ({
   return (
     <Modal title="Settle Bill" onClose={isSubmitting ? undefined : onClose} wide>
       <div className="modal-body">
+        {/* Guest Details & Digital Wallet Banner */}
+        <div style={{
+          background: 'rgba(30, 94, 74, 0.03)',
+          border: '1px solid rgba(30, 94, 74, 0.15)',
+          borderRadius: 'var(--r-lg)',
+          padding: '10px 14px',
+          marginBottom: 14,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+              <User size={14} style={{ color: 'var(--primary)' }} />
+              <span>Guest Details (Link Mobile for Digital Wallet &amp; Receipts)</span>
+            </div>
+            {matchedGuest && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem' }}>
+                <span style={{ padding: '2px 8px', borderRadius: 12, background: 'rgba(30, 94, 74, 0.1)', color: 'var(--primary)', fontWeight: 600 }}>
+                  {matchedGuest.loyaltyTier || 'Member'}
+                </span>
+                <span style={{ color: 'var(--text-muted)' }}>•</span>
+                <span style={{ fontWeight: 700, color: '#15803d', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <Gift size={12} /> Wallet: ₹{availableWalletBalance.toFixed(2)}
+                </span>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
+            <div style={{ position: 'relative' }}>
+              <Phone size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                className="input-field"
+                type="tel"
+                placeholder="Guest Mobile (e.g. 9876543210)"
+                value={guestPhone}
+                onChange={e => setGuestPhone(e.target.value)}
+                style={{ paddingLeft: 30, height: 34, fontSize: '0.82rem' }}
+              />
+            </div>
+            <div style={{ position: 'relative' }}>
+              <User size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                className="input-field"
+                type="text"
+                placeholder="Guest Name (optional)"
+                value={guestName}
+                onChange={e => setGuestName(e.target.value)}
+                style={{ paddingLeft: 30, height: 34, fontSize: '0.82rem' }}
+              />
+            </div>
+          </div>
+
+          {/* Wallet Balance Redemption Option if Guest has balance */}
+          {availableWalletBalance > 0 && (
+            <div style={{
+              marginTop: 10,
+              padding: '8px 12px',
+              borderRadius: 'var(--r-md)',
+              background: 'rgba(34,197,94,0.08)',
+              border: '1px solid rgba(34,197,94,0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.78rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Gift size={14} style={{ color: '#15803d' }} />
+                <span>
+                  Customer has <strong>₹{availableWalletBalance.toFixed(2)}</strong> digital wallet credit.
+                </span>
+              </div>
+              {effectiveWalletApplied > 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 700, color: '#15803d' }}>
+                    Applied: ₹{effectiveWalletApplied.toFixed(2)}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setWalletCreditApplied(0)}
+                    style={{ fontSize: '0.7rem', padding: '2px 8px', height: 24 }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-success btn-sm"
+                  onClick={() => {
+                    const toApply = Math.min(availableWalletBalance, rawBaseTotal);
+                    setWalletCreditApplied(toApply);
+                  }}
+                  style={{ fontSize: '0.72rem', padding: '3px 10px', height: 26, fontWeight: 700 }}
+                >
+                  Apply ₹{Math.min(availableWalletBalance, rawBaseTotal).toFixed(0)} Credit
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {/* Left: Summary */}
           <div>
@@ -2682,7 +2842,7 @@ const PaymentModal = ({
               borderRadius: 'var(--r-lg)', padding: 14,
             }}>
               <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 10, color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>{activeTable ? `Table ${activeTable.number || activeTable.id}` : (unassignedTab ? `Token #${unassignedTab.tokenNumber} (Dine-In)` : 'Order')}{currentGuest ? ` - ${currentGuest}` : ''}</span>
+                <span>{activeTable ? `Table ${activeTable.number || activeTable.id}` : (unassignedTab ? `Token #${unassignedTab.tokenNumber} (Dine-In)` : 'Order')}{guestName ? ` - ${guestName}` : ''}</span>
               </div>
               <div style={{ maxHeight: 160, overflowY: 'auto' }}>
                 {cart.map(item => (
@@ -2729,6 +2889,14 @@ const PaymentModal = ({
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d97706' }}>
                     <span>Tip</span>
                     <span>{tipValue.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
+                  </div>
+                )}
+                {effectiveWalletApplied > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#15803d', fontWeight: 700 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Gift size={12} /> Wallet Credit
+                    </span>
+                    <span>-{effectiveWalletApplied.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
                   </div>
                 )}
               </div>
@@ -2820,8 +2988,99 @@ const PaymentModal = ({
                       placeholder={finalTotal.toFixed(2)}
                     />
                     {cashChange > 0 && (
-                      <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 'var(--r-sm)', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', fontSize: '0.82rem', fontWeight: 700, color: '#15803d' }}>
-                        Change: {cashChange.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}
+                      <div style={{
+                        marginTop: 8,
+                        padding: '10px 12px',
+                        borderRadius: 'var(--r-md)',
+                        background: 'rgba(30, 94, 74, 0.04)',
+                        border: '1px solid rgba(30, 94, 74, 0.2)',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Extra Cash Received:
+                          </span>
+                          <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#15803d' }}>
+                            ₹{cashChange.toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 6 }}>
+                          How would you like to handle the extra ₹{cashChange.toFixed(2)}?
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => setChangeAction('cash')}
+                            style={{
+                              padding: '6px 4px',
+                              borderRadius: 'var(--r-sm)',
+                              border: `1.5px solid ${changeAction === 'cash' ? '#22c55e' : 'var(--border-subtle)'}`,
+                              background: changeAction === 'cash' ? 'rgba(34,197,94,0.1)' : 'var(--card-bg)',
+                              color: changeAction === 'cash' ? '#15803d' : 'var(--text-secondary)',
+                              fontSize: '0.72rem',
+                              fontWeight: changeAction === 'cash' ? 700 : 500,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 2
+                            }}
+                          >
+                            <Banknote size={14} />
+                            <span>Return Cash</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setChangeAction('wallet')}
+                            style={{
+                              padding: '6px 4px',
+                              borderRadius: 'var(--r-sm)',
+                              border: `1.5px solid ${changeAction === 'wallet' ? '#1e5e4a' : 'var(--border-subtle)'}`,
+                              background: changeAction === 'wallet' ? 'rgba(30, 94, 74,0.12)' : 'var(--card-bg)',
+                              color: changeAction === 'wallet' ? '#1e5e4a' : 'var(--text-secondary)',
+                              fontSize: '0.72rem',
+                              fontWeight: changeAction === 'wallet' ? 700 : 500,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 2
+                            }}
+                          >
+                            <Gift size={14} />
+                            <span>Store Credit</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setChangeAction('tip')}
+                            style={{
+                              padding: '6px 4px',
+                              borderRadius: 'var(--r-sm)',
+                              border: `1.5px solid ${changeAction === 'tip' ? '#d97706' : 'var(--border-subtle)'}`,
+                              background: changeAction === 'tip' ? 'rgba(217,119,6,0.1)' : 'var(--card-bg)',
+                              color: changeAction === 'tip' ? '#b45309' : 'var(--text-secondary)',
+                              fontSize: '0.72rem',
+                              fontWeight: changeAction === 'tip' ? 700 : 500,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 2
+                            }}
+                          >
+                            <Heart size={14} />
+                            <span>Staff Tip</span>
+                          </button>
+                        </div>
+
+                        {changeAction === 'wallet' && !guestPhone.trim() && (
+                          <div style={{ marginTop: 6, fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>
+                            ⚠️ Enter guest mobile number above to link ₹{cashChange.toFixed(2)} to their digital wallet
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3024,7 +3283,7 @@ const PaymentModal = ({
         <button className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
         <button
           className="btn btn-success"
-          disabled={isSubmitting || (isSplit && !isSplitValid)}
+          disabled={isSubmitting || (isSplit && !isSplitValid) || (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim())}
           onClick={handleSettle}
           style={{ minWidth: 200, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
         >
@@ -3036,7 +3295,9 @@ const PaymentModal = ({
           ) : (
             <>
               {shouldAutoPrint ? <Printer size={15} /> : <Check size={15} />}
-              {!isSplit
+              {changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim()
+                ? 'Enter Mobile to Credit Wallet'
+                : !isSplit
                 ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}${shouldAutoPrint ? ' & Print' : ''}`
                 : isSplitValid
                 ? `Settle ${finalTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Split)${shouldAutoPrint ? ' & Print' : ''}`
@@ -4456,7 +4717,7 @@ const POS = () => {
     placeOrder, fireToKDS, transferKDSTickets, cancelKDSTickets, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
-    reservations, orders, kdsTickets, updatePOSOrder,
+    reservations, orders, kdsTickets, updatePOSOrder, issueWalletCredit, redeemWalletCredit,
   } = useApp();
 
   // ── State ─────────────────────────────────────────────────
@@ -6158,7 +6419,7 @@ const POS = () => {
   };
 
   // ── Payment ───────────────────────────────────────────────
-  const handleConfirmPayment = async (paymentMethod, tipValue, finalTotal, paymentSplits = null) => {
+  const handleConfirmPayment = async (paymentMethod, tipValue, finalTotal, paymentSplits = null, settlementMeta = null) => {
     if (isPaymentProcessingRef.current || cart.length === 0) return;
     isPaymentProcessingRef.current = true;
 
@@ -6203,10 +6464,56 @@ const POS = () => {
       // aligning with first ticket printed if fired earlier in this same dining session
       const orderPlacedTime = firstTicketPrinted || new Date().toISOString();
 
+      const effectiveGuestName = (settlementMeta?.guestName || activeTable?.guestName || unassignedTab?.guestName || customerName || '').trim();
+      const effectiveGuestPhone = (settlementMeta?.guestPhone || customerPhone || unassignedTab?.guestPhone || '').trim();
+      const effectiveGuestId = settlementMeta?.guestId || activeTable?.guestId || null;
+      const walletCreditApplied = parseFloat(settlementMeta?.walletCreditApplied || 0);
+      const changeAction = settlementMeta?.changeAction || 'cash';
+      const changeAmount = parseFloat(settlementMeta?.changeAmount || 0);
+      const cashTenderedVal = parseFloat(settlementMeta?.cashTendered || 0);
+      const walletCredited = (changeAction === 'wallet' && changeAmount > 0) ? changeAmount : 0;
+
+      const paymentHistory = [
+        ...cartAudit,
+        {
+          action: 'payment_settled',
+          timestamp: new Date().toISOString(),
+          by: user?.name || 'Cashier',
+          description: Array.isArray(paymentSplits) && paymentSplits.length > 0
+            ? `Settled via Split: ${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal).toFixed(2)})`
+            : `Settled via ${paymentMethod} for ₹${(finalTotal).toFixed(2)}`,
+          paymentMethod,
+          paymentSplits: paymentSplits || null,
+        }
+      ];
+
+      if (walletCreditApplied > 0) {
+        paymentHistory.push({
+          action: 'wallet_redeemed',
+          timestamp: new Date().toISOString(),
+          by: user?.name || 'Cashier',
+          description: `Redeemed ₹${walletCreditApplied.toFixed(2)} from digital wallet towards bill`,
+          amount: walletCreditApplied,
+        });
+      }
+
+      if (walletCredited > 0) {
+        paymentHistory.push({
+          action: 'wallet_credit_issued',
+          timestamp: new Date().toISOString(),
+          by: user?.name || 'Cashier',
+          description: `Converted ₹${walletCredited.toFixed(2)} extra cash change to digital wallet credit (linked to ${effectiveGuestPhone})`,
+          amount: walletCredited,
+        });
+      }
+
       const extra = {
         orderType,
-        customerName: activeTable?.guestName || unassignedTab?.guestName || customerName,
-        customerPhone: customerPhone || unassignedTab?.guestPhone || '',
+        customerName: effectiveGuestName,
+        customerPhone: effectiveGuestPhone,
+        guestId: effectiveGuestId,
+        guestName: effectiveGuestName,
+        guestPhone: effectiveGuestPhone,
         tokenNumber: unassignedTab?.tokenNumber || null,
         pickupTime: orderType === 'takeout' ? pickupTime : undefined,
         deliveryAddress: orderType === 'delivery' ? deliveryAddress : undefined,
@@ -6222,6 +6529,10 @@ const POS = () => {
         serviceCharge,
         partySize,
         paymentSplits,
+        walletCredited,
+        walletRedeemed: walletCreditApplied,
+        cashTendered: cashTenderedVal,
+        changeReturned: changeAction === 'cash' ? changeAmount : 0,
         orderPlacedAt: orderPlacedTime,
         ticketPrintedAt: firstTicketPrinted,
         foodBumpedAt: latestFoodBumped,
@@ -6233,17 +6544,7 @@ const POS = () => {
             by: user?.name || 'Staff',
             description: `Order created with ${cart.reduce((s, i) => s + (i.qty || 1), 0)} items (${activeTable ? `Table ${activeTable.number || activeTable.id}` : (unassignedTab ? `Token #${unassignedTab.tokenNumber}` : 'Direct')})`,
           },
-          ...cartAudit,
-          {
-            action: 'payment_settled',
-            timestamp: new Date().toISOString(),
-            by: user?.name || 'Cashier',
-            description: Array.isArray(paymentSplits) && paymentSplits.length > 0
-              ? `Settled via Split: ${paymentSplits.map(s => `${s.method}: ₹${s.amount}`).join(', ')} (Total: ₹${(finalTotal).toFixed(2)})`
-              : `Settled via ${paymentMethod} for ₹${(finalTotal).toFixed(2)}`,
-            paymentMethod,
-            paymentSplits: paymentSplits || null,
-          }
+          ...paymentHistory
         ],
       };
 
@@ -6251,7 +6552,7 @@ const POS = () => {
       const currentCart = [...cart];
       const currentActiveTable = activeTable;
       const currentUnassignedTab = unassignedTab;
-      const currentCustomerName = customerName;
+      const currentCustomerName = effectiveGuestName;
 
       const order = await placeOrder(tableId, currentCart, paymentMethod, extra);
 
@@ -6318,13 +6619,53 @@ const POS = () => {
         }
       }
 
-      // Update guest
-      if (currentActiveTable?.guestId) {
-        const guest = (getAll('guests') || []).find(g => g.id === currentActiveTable.guestId);
+      // Handle digital wallet redemption / credit in database
+      if (walletCreditApplied > 0) {
+        try {
+          await redeemWalletCredit({
+            guestPhone: effectiveGuestPhone,
+            guestId: effectiveGuestId,
+            amount: walletCreditApplied,
+            orderId: order?.id,
+            billNo: order?.billNo,
+            staffName: user?.name || 'Cashier',
+            notes: `Redeemed on bill ${order?.billNo || ''}`
+          });
+          addAuditEntry('WALLET_REDEEM', 'cashier', user?.name || 'Cashier', `Redeemed ₹${walletCreditApplied.toFixed(2)} wallet credit for ${effectiveGuestPhone || effectiveGuestName} on ${order?.billNo}`);
+        } catch (err) {
+          console.error('[POS] Failed to redeem wallet credit:', err);
+        }
+      }
+
+      if (walletCredited > 0) {
+        try {
+          await issueWalletCredit({
+            guestPhone: effectiveGuestPhone,
+            guestName: effectiveGuestName,
+            guestId: effectiveGuestId,
+            amount: walletCredited,
+            orderId: order?.id,
+            billNo: order?.billNo,
+            staffName: user?.name || 'Cashier',
+            cashTendered: cashTenderedVal,
+            billTotal: finalTotal,
+            notes: `Extra cash change from bill ${order?.billNo || ''}`
+          });
+          addAuditEntry('WALLET_CREDIT', 'cashier', user?.name || 'Cashier', `Credited ₹${walletCredited.toFixed(2)} extra cash to digital wallet for ${effectiveGuestPhone} on ${order?.billNo}`);
+        } catch (err) {
+          console.error('[POS] Failed to issue wallet credit:', err);
+        }
+      }
+
+      // Update or create guest CRM record
+      const targetGuestId = effectiveGuestId || (effectiveGuestPhone ? (getAll('guests') || []).find(g => (g.phone || '').trim() === effectiveGuestPhone)?.id : null);
+      if (targetGuestId) {
+        const guest = (getAll('guests') || []).find(g => g.id === targetGuestId);
         if (guest) {
-          update('guests', currentActiveTable.guestId, {
+          update('guests', targetGuestId, {
             visitCount: (guest.visitCount || 0) + 1,
             totalSpend: (guest.totalSpend || 0) + (order?.total || finalTotal),
+            lastVisit: new Date().toISOString(),
           });
         }
       }
@@ -6335,10 +6676,21 @@ const POS = () => {
       if (Array.isArray(paymentSplits) && paymentSplits.length > 0) {
         cashPortion = paymentSplits
           .filter(p => (p.method || '').toLowerCase() === 'cash')
-          .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+          .reduce((sum, p) => {
+            const tendered = parseFloat(p.cashTendered);
+            const amt = parseFloat(p.amount) || 0;
+            // If extra cash was kept for wallet credit, tender enters drawer
+            if (walletCredited > 0 && tendered > amt) return sum + tendered;
+            return sum + amt;
+          }, 0);
         hasCardPayment = paymentSplits.some(p => (p.method || '').toLowerCase() === 'card');
       } else if (paymentMethod === 'Cash') {
-        cashPortion = finalTotal;
+        if (walletCredited > 0 && cashTenderedVal > 0) {
+          // Tendered amount physically enters the drawer
+          cashPortion = cashTenderedVal;
+        } else {
+          cashPortion = finalTotal;
+        }
       } else if (paymentMethod === 'Card') {
         hasCardPayment = true;
       }
@@ -6361,9 +6713,20 @@ const POS = () => {
 
       if (shouldAutoPrint) {
         printReceipt({
-          order: { ...order, items: currentCart, paymentSplits, tokenNumber: currentUnassignedTab?.tokenNumber || order?.tokenNumber },
-          settings, tableId,
-          guestName: currentActiveTable?.guestName || currentUnassignedTab?.guestName || currentCustomerName,
+          order: {
+            ...order,
+            items: currentCart,
+            paymentSplits,
+            tokenNumber: currentUnassignedTab?.tokenNumber || order?.tokenNumber,
+            customerPhone: effectiveGuestPhone,
+            guestPhone: effectiveGuestPhone,
+            walletCredited,
+            walletRedeemed: walletCreditApplied,
+            cashTendered: cashTenderedVal,
+          },
+          settings,
+          tableId,
+          guestName: effectiveGuestName,
         });
       }
 
@@ -8298,6 +8661,8 @@ const POS = () => {
           activeTable={activeTable}
           unassignedTab={unassignedTab}
           currentGuest={currentGuest}
+          guests={guests}
+          initialPhone={customerPhone || activeTable?.guestPhone || unassignedTab?.guestPhone || ''}
           onConfirm={handleConfirmPayment}
           onClose={() => {
             setPaymentModal(false);

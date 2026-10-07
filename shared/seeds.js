@@ -11,7 +11,7 @@ export const FLEX_COLLECTIONS = [
   'recipes', 'waste_log', 'locations', 'floor_plans', 'modifiers',
   'schedules', 'tip_pools', 'loyalty', 'campaigns', 'cash_drawer',
   'pos_tables', 'pos_saved_orders', 'register_closures', 'audit_log',
-  'expenses',
+  'expenses', 'gift_cards',
 ];
 
 // Relational tables with real columns
@@ -318,4 +318,5 @@ export const SEEDS = {
   pos_tables: [],
   pos_saved_orders: {},
   expenses: [],
+  gift_cards: [],
 };

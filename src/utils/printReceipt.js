@@ -174,6 +174,29 @@ export function printReceipt({ order, settings, tableId, guestName }) {
       <span>${restaurant.currency || '₹'}${total.toFixed(2)}</span>
     </div>
     ${(() => {
+      let extraHtml = '';
+      if (order.cashTendered > 0) {
+        extraHtml += `<div class="row sm" style="color:#555;"><span>Cash Tendered:</span><span>${restaurant.currency || '₹'}${parseFloat(order.cashTendered).toFixed(2)}</span></div>`;
+      }
+      if (order.walletRedeemed > 0) {
+        extraHtml += `<div class="row sm" style="color:#15803d; font-weight:600;"><span>Paid via Digital Wallet:</span><span>-${restaurant.currency || '₹'}${parseFloat(order.walletRedeemed).toFixed(2)}</span></div>`;
+      }
+      if (order.walletCredited > 0) {
+        extraHtml += `
+          <div class="row sm bold" style="color:#1e5e4a; margin-top:2px;">
+            <span>Credited to Digital Wallet:</span>
+            <span>+${restaurant.currency || '₹'}${parseFloat(order.walletCredited).toFixed(2)}</span>
+          </div>
+          ${(order.customerPhone || order.guestPhone) ? `
+          <div class="row sm" style="font-size:9px; color:#666;">
+            <span>Linked Mobile:</span>
+            <span>${order.customerPhone || order.guestPhone}</span>
+          </div>` : ''}
+        `;
+      }
+      return extraHtml;
+    })()}
+    ${(() => {
       const splits = order.paymentSplits || order.timestamps?.paymentSplits;
       if (Array.isArray(splits) && splits.length > 0) {
         return `

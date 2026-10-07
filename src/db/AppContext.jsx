@@ -45,6 +45,8 @@ import {
   saveTableOrder,
   isGuestMode,
   ensureOrdersSince,
+  issueGiftCardCredit,
+  redeemGiftCardCredit,
 } from './database';
 
 const AppContext = createContext(null);
@@ -112,6 +114,7 @@ export function AppProvider({ children }) {
   const [registerClosures, setRegisterClosures] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [giftCards, setGiftCards] = useState([]);
 
   const { user, loading: authLoading } = useAuth();
 
@@ -245,6 +248,7 @@ export function AppProvider({ children }) {
     setRegisterClosures(getAll('register_closures') || []);
     setAttendance(getAll('attendance'));
     setExpenses(getAll('expenses') || []);
+    setGiftCards(getAll('gift_cards') || []);
 
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
     if (!supabase || isDemoMode) {
@@ -956,6 +960,21 @@ export function AppProvider({ children }) {
     setGuests(getAll('guests'));
   }, []);
 
+  // ── Gift Cards / Digital Wallet ────────────────────────
+  const issueWalletCredit = useCallback(async (params) => {
+    const res = await issueGiftCardCredit(params);
+    setGuests(getAll('guests'));
+    setGiftCards(getAll('gift_cards') || []);
+    return res;
+  }, []);
+
+  const redeemWalletCredit = useCallback(async (params) => {
+    const res = await redeemGiftCardCredit(params);
+    setGuests(getAll('guests'));
+    setGiftCards(getAll('gift_cards') || []);
+    return res;
+  }, []);
+
   // ── Cash Drawer ────────────────────────────────────────
   const updateCashDrawerAction = useCallback(async (data) => {
     const updated = await updateCashDrawer(data);
@@ -1098,7 +1117,7 @@ export function AppProvider({ children }) {
     staff, inventory, menu, orders, deliveryOrders, settings, todayStats,
     kdsTickets, reservations, waitlist, onlineOrders, suppliers, purchaseOrders,
     recipes, wasteLog, locations, auditLog, floorPlans, modifiers, schedules,
-    tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures, attendance, expenses,
+    tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures, attendance, expenses, giftCards,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
     // Staff
     addStaff, editStaff, deleteStaff, toggleStaffStatus, checkInOut, getStaffAttendance,
@@ -1138,7 +1157,7 @@ export function AppProvider({ children }) {
     // Loyalty
     updateLoyalty,
     // Guests
-    addGuest, editGuest, deleteGuest,
+    addGuest, editGuest, deleteGuest, issueWalletCredit, redeemWalletCredit,
     // Cash Drawer
     updateCashDrawer: updateCashDrawerAction,
     addRegisterClosure: addRegisterClosureAction,

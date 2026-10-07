@@ -8,7 +8,7 @@ import {
   Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
   Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck,
   TableProperties, Armchair, Eye, Layers, History, ShieldCheck,
-  Building2, FileSpreadsheet, Flame
+  Building2, FileSpreadsheet, Flame, Gift, Wallet, Phone, Banknote
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
@@ -170,6 +170,12 @@ export function orderMatchesPaymentType(order, filter) {
   const splits = getOrderPaymentSplits(order);
   const target = filter.toLowerCase();
 
+  if (target === 'wallet') {
+    if (pm === 'wallet' || pm.includes('wallet')) return true;
+    if (parseFloat(order.walletRedeemed || 0) > 0) return true;
+    if (Array.isArray(splits) && splits.some(s => (s.method || '').toLowerCase().includes('wallet'))) return true;
+    return false;
+  }
   if (target === 'split') {
     return pm.startsWith('split') || (Array.isArray(splits) && splits.length > 1);
   }
@@ -188,6 +194,11 @@ export function getOrderPaymentAmount(order, method) {
   const total = parseFloat(order.total || 0);
   if (!method || method === 'All') return total;
   const target = method.toLowerCase();
+  if (target === 'wallet') {
+    if (parseFloat(order.walletRedeemed || 0) > 0) {
+      return parseFloat(order.walletRedeemed || 0);
+    }
+  }
   const splits = getOrderPaymentSplits(order);
   if (Array.isArray(splits) && splits.length > 0) {
     return splits
@@ -977,7 +988,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
   const cashiers = useMemo(() => ['All', ...new Set(orders.map(o => o.serverName).filter(Boolean))], [orders]);
 
   const paymentMethods = useMemo(() => {
-    const standard = ['All', 'Cash', 'Card', 'UPI', 'Split'];
+    const standard = ['All', 'Cash', 'Card', 'UPI', 'Split', 'Wallet'];
     const extra = new Set();
     orders.forEach(o => {
       if (o.paymentMethod && !standard.map(s => s.toLowerCase()).includes(o.paymentMethod.toLowerCase())) {
@@ -1142,7 +1153,17 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                         fmt(o.total || 0)
                       )}
                     </Td>
-                    <Td><Badge label={o.paymentMethod || '—'} color="#6366f1" /></Td>
+                    <Td>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <Badge label={o.paymentMethod || '—'} color="#6366f1" />
+                        {parseFloat(o.walletRedeemed || 0) > 0 && (
+                          <Badge label={`Redeemed ₹${parseFloat(o.walletRedeemed).toFixed(0)}`} color="#10b981" />
+                        )}
+                        {parseFloat(o.walletCredited || 0) > 0 && (
+                          <Badge label={`Credited ₹${parseFloat(o.walletCredited).toFixed(0)}`} color="#f59e0b" />
+                        )}
+                      </div>
+                    </Td>
                     <Td><Badge label={status} color={statusColor} /></Td>
                     <Td muted>{o.serverName || '—'}</Td>
                     <Td>
@@ -1940,6 +1961,7 @@ const SalesAccrualReport = ({ orders, settings }) => {
           <option value="Card">Card</option>
           <option value="UPI">UPI</option>
           <option value="Split">Split</option>
+          <option value="Wallet">Wallet</option>
         </Select>
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>
@@ -5568,6 +5590,402 @@ function activeDaysBetween(from, to) {
 }
 
 // =================================================================
+// GIFT CARDS & DIGITAL WALLET REPORT
+// =================================================================
+
+const GiftCardWalletReport = ({ giftCards = [], guests = [], orders = [] }) => {
+  const [range, setRange] = useState('This Month');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [subView, setSubView] = useState('ledger'); // 'ledger' | 'customers'
+  const [typeFilter, setTypeFilter] = useState('All'); // 'All' | 'issue' | 'redeem'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [invoiceHistoryOrder, setInvoiceHistoryOrder] = useState(null);
+
+  const { sortField, sortDirection, handleSort } = useSort('createdAt', 'desc');
+
+  // Filter gift card transactions by range
+  const rangedTransactions = useMemo(() => {
+    return filterByRange(giftCards, range, dateFrom, dateTo, 'createdAt');
+  }, [giftCards, range, dateFrom, dateTo]);
+
+  // Apply type and search query filters to ledger transactions
+  const filteredTransactions = useMemo(() => {
+    let list = rangedTransactions;
+
+    if (typeFilter !== 'All') {
+      list = list.filter(t => t.type === typeFilter);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(t =>
+        (t.guestName || '').toLowerCase().includes(q) ||
+        (t.guestPhone || '').toLowerCase().includes(q) ||
+        (t.billNo || '').toLowerCase().includes(q) ||
+        (t.orderId || '').toLowerCase().includes(q) ||
+        (t.staffName || '').toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [rangedTransactions, typeFilter, searchQuery]);
+
+  const sortedTransactions = useMemo(() => {
+    return sortData(filteredTransactions, sortField, sortDirection, {
+      guestName: t => t.guestName || '',
+      amount: t => parseFloat(t.amount || 0),
+      balanceAfter: t => parseFloat(t.balanceAfter || 0),
+      createdAt: t => t.createdAt || ''
+    });
+  }, [filteredTransactions, sortField, sortDirection]);
+
+  // KPI Metrics
+  const stats = useMemo(() => {
+    // Current total outstanding liability across all guests
+    const totalLiability = (guests || []).reduce((sum, g) => sum + (parseFloat(g.walletBalance || 0)), 0);
+    const activeWalletUsers = (guests || []).filter(g => parseFloat(g.walletBalance || 0) > 0).length;
+
+    // Period metrics from rangedTransactions
+    const issuedTxs = rangedTransactions.filter(t => t.type === 'issue');
+    const redeemedTxs = rangedTransactions.filter(t => t.type === 'redeem');
+
+    const totalIssued = issuedTxs.reduce((sum, t) => sum + (parseFloat(t.amount || 0)), 0);
+    const totalRedeemed = redeemedTxs.reduce((sum, t) => sum + (parseFloat(t.amount || 0)), 0);
+
+    return {
+      totalLiability,
+      activeWalletUsers,
+      totalIssued,
+      issuedCount: issuedTxs.length,
+      totalRedeemed,
+      redeemedCount: redeemedTxs.length,
+    };
+  }, [guests, rangedTransactions]);
+
+  // Filtered customers directory
+  const customerList = useMemo(() => {
+    let list = (guests || []).filter(g => (parseFloat(g.walletBalance || 0) > 0) || (g.totalVisits > 0));
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(g =>
+        (g.name || '').toLowerCase().includes(q) ||
+        (g.phone || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Sort by walletBalance desc
+    return [...list].sort((a, b) => (parseFloat(b.walletBalance || 0) - parseFloat(a.walletBalance || 0)));
+  }, [guests, searchQuery]);
+
+  const handleExportCSV = () => {
+    if (subView === 'ledger') {
+      const rows = [
+        'Date & Time,Type,Guest Name,Guest Mobile,Bill / Invoice,Amount,Balance After,Staff,Notes',
+        ...sortedTransactions.map(t => {
+          const typeStr = t.type === 'issue' ? 'Credit Issued (Extra Cash)' : 'Credit Redeemed (Bill Payment)';
+          const amtStr = `${t.type === 'issue' ? '+' : '-'}${parseFloat(t.amount || 0).toFixed(2)}`;
+          return `"${fmtDateTime(t.createdAt)}","${typeStr}","${t.guestName || 'Guest'}","${t.guestPhone || ''}","${t.billNo || t.orderId || ''}",${amtStr},${(parseFloat(t.balanceAfter || 0)).toFixed(2)},"${t.staffName || ''}","${(t.notes || '').replace(/"/g, '""')}"`;
+        })
+      ];
+      downloadCSV(`gift_cards_wallet_ledger_${range.toLowerCase().replace(/\s+/g, '_')}.csv`, rows);
+    } else {
+      const rows = [
+        'Guest Name,Mobile Number,Wallet Balance,Total Visits,Total Spend,Last Visit',
+        ...customerList.map(g =>
+          `"${g.name || 'Guest'}","${g.phone || ''}",${(parseFloat(g.walletBalance || 0)).toFixed(2)},${g.totalVisits || 0},${(parseFloat(g.totalSpend || 0)).toFixed(2)},"${fmtDateTime(g.lastVisit)}"`
+        )
+      ];
+      downloadCSV('customer_wallet_balances.csv', rows);
+    }
+  };
+
+  return (
+    <div className="animate-fade-up">
+      {/* Sub-Tabs / Mode Toggle */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button
+          className={`btn ${subView === 'ledger' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubView('ledger')}
+          style={{ fontSize: '0.8rem', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <Receipt size={14} /> Audit Ledger &amp; Extra Cash
+        </button>
+        <button
+          className={`btn ${subView === 'customers' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setSubView('customers')}
+          style={{ fontSize: '0.8rem', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <Users size={14} /> Customer Wallet Balances ({stats.activeWalletUsers})
+        </button>
+      </div>
+
+      {/* KPI Cards */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+        <StatCard
+          label="Total Active Wallet Liability"
+          value={fmt(stats.totalLiability)}
+          sub={`${stats.activeWalletUsers} customer${stats.activeWalletUsers === 1 ? '' : 's'} hold credit`}
+          color="#10b981"
+          icon={Wallet}
+        />
+        <StatCard
+          label="Credit Issued (In Period)"
+          value={fmt(stats.totalIssued)}
+          sub={`${stats.issuedCount} deposit${stats.issuedCount === 1 ? '' : 's'} / extra cash`}
+          color="#3b82f6"
+          icon={Gift}
+        />
+        <StatCard
+          label="Credit Redeemed (In Period)"
+          value={fmt(stats.totalRedeemed)}
+          sub={`${stats.redeemedCount} bill settlement${stats.redeemedCount === 1 ? '' : 's'}`}
+          color="#8b5cf6"
+          icon={IndianRupee}
+        />
+        <StatCard
+          label="Active Wallet Customers"
+          value={stats.activeWalletUsers}
+          sub="Phone-linked profiles"
+          color="#f59e0b"
+          icon={Users}
+        />
+      </div>
+
+      {/* Filter Bar */}
+      <FilterBar>
+        {subView === 'ledger' && (
+          <>
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+            <RangePicker
+              range={range}
+              setRange={setRange}
+              dateFrom={dateFrom}
+              setDateFrom={setDateFrom}
+              dateTo={dateTo}
+              setDateTo={setDateTo}
+            />
+            <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Type:</span>
+            <Select value={typeFilter} onChange={setTypeFilter}>
+              <option value="All">All Transactions</option>
+              <option value="issue">Credit Issued (Extra Cash / Deposit)</option>
+              <option value="redeem">Credit Redeemed (Paid with Wallet)</option>
+            </Select>
+          </>
+        )}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <Search size={14} color="var(--text-muted)" style={{ position: 'absolute', left: 8 }} />
+          <input
+            type="text"
+            placeholder={subView === 'ledger' ? "Search guest, mobile, invoice..." : "Search guest or mobile..."}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              padding: '5px 10px 5px 28px',
+              borderRadius: 8,
+              border: '1px solid var(--border-subtle)',
+              fontSize: '0.8rem',
+              width: 210,
+              background: 'white'
+            }}
+          />
+        </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <ExportBtn onClick={handleExportCSV} />
+        </div>
+      </FilterBar>
+
+      {/* Main Content View */}
+      {subView === 'ledger' ? (
+        <div className="card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div>
+              <SectionTitle>Wallet Transaction Audit Ledger</SectionTitle>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+                Chronological log tracking who gave extra money, change converted to digital store credit, and bill redemptions.
+              </p>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              {sortedTransactions.length} transaction{sortedTransactions.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {sortedTransactions.length === 0 ? (
+            <Empty text="No wallet transactions found for this period." />
+          ) : (
+            <TableWrap>
+              <thead>
+                <tr>
+                  <Th currentField="createdAt" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>Date &amp; Time</Th>
+                  <Th>Type</Th>
+                  <Th currentField="guestName" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>Guest / Mobile</Th>
+                  <Th>Invoice / Extra Cash Context</Th>
+                  <Th right currentField="amount" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>Amount</Th>
+                  <Th right currentField="balanceAfter" sortField={sortField} sortDirection={sortDirection} onSort={handleSort}>Balance After</Th>
+                  <Th>Handled By</Th>
+                  <Th>Actions</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTransactions.map(t => {
+                  const isIssue = t.type === 'issue';
+                  const relatedOrder = (orders || []).find(o => o.id === t.orderId || o.billNo === t.billNo);
+
+                  return (
+                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <Td>{fmtDateTime(t.createdAt)}</Td>
+                      <Td>
+                        {isIssue ? (
+                          <Badge label="+ Issued (Store Credit)" color="#10b981" />
+                        ) : (
+                          <Badge label="- Redeemed on Bill" color="#8b5cf6" />
+                        )}
+                      </Td>
+                      <Td>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.guestName || 'Guest'}</span>
+                          {t.guestPhone && (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2 }}>
+                              <Phone size={11} /> {t.guestPhone}
+                            </span>
+                          )}
+                        </div>
+                      </Td>
+                      <Td>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
+                            {t.billNo || (t.orderId ? t.orderId.slice(0, 8) : '—')}
+                          </span>
+                          {t.cashTendered > t.billTotal && (
+                            <span style={{ fontSize: '0.72rem', color: '#059669', marginTop: 2 }}>
+                              Cash Tendered: ₹{t.cashTendered} on ₹{t.billTotal} bill (+₹{t.amount} change saved)
+                            </span>
+                          )}
+                          {t.notes && !t.cashTendered && (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                              {t.notes}
+                            </span>
+                          )}
+                        </div>
+                      </Td>
+                      <Td right bold style={{ color: isIssue ? '#10b981' : '#8b5cf6', fontSize: '0.88rem' }}>
+                        {isIssue ? `+₹${parseFloat(t.amount || 0).toFixed(2)}` : `-₹${parseFloat(t.amount || 0).toFixed(2)}`}
+                      </Td>
+                      <Td right bold>
+                        ₹{parseFloat(t.balanceAfter || 0).toFixed(2)}
+                      </Td>
+                      <Td muted>{t.staffName || 'Cashier'}</Td>
+                      <Td>
+                        {relatedOrder ? (
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => setInvoiceHistoryOrder(relatedOrder)}
+                            style={{ padding: '3px 8px', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                            title="View Invoice History & Settlement Details"
+                          >
+                            <Eye size={12} /> Invoice
+                          </button>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>—</span>
+                        )}
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </TableWrap>
+          )}
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div>
+              <SectionTitle>Customer Wallet Balances Directory</SectionTitle>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+                Registered customers with phone-linked digital store credit and their current available balances.
+              </p>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              {customerList.length} customer{customerList.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {customerList.length === 0 ? (
+            <Empty text="No customer wallet balances found." />
+          ) : (
+            <TableWrap>
+              <thead>
+                <tr>
+                  <Th>Guest Name</Th>
+                  <Th>Mobile Number</Th>
+                  <Th right>Wallet Balance</Th>
+                  <Th right>Total Visits</Th>
+                  <Th right>Total Spend</Th>
+                  <Th>Last Visit</Th>
+                  <Th>Action</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {customerList.map(g => {
+                  const bal = parseFloat(g.walletBalance || 0);
+                  return (
+                    <tr key={g.id || g.phone} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <Td bold>{g.name || 'Guest'}</Td>
+                      <Td>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
+                          <Phone size={12} /> {g.phone || '—'}
+                        </span>
+                      </Td>
+                      <Td right bold>
+                        <span style={{
+                          padding: '3px 9px',
+                          borderRadius: 20,
+                          fontSize: '0.8rem',
+                          background: bal > 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                          color: bal > 0 ? '#059669' : 'var(--text-muted)',
+                          fontWeight: 700
+                        }}>
+                          ₹{bal.toFixed(2)}
+                        </span>
+                      </Td>
+                      <Td right>{g.totalVisits || 1}</Td>
+                      <Td right>{fmt(g.totalSpend || 0)}</Td>
+                      <Td muted>{fmtDateTime(g.lastVisit)}</Td>
+                      <Td>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => {
+                            setSubView('ledger');
+                            setSearchQuery(g.phone || g.name || '');
+                          }}
+                          style={{ padding: '3px 8px', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                          <History size={12} /> View Ledger
+                        </button>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </TableWrap>
+          )}
+        </div>
+      )}
+
+      {/* Invoice History Modal if opened */}
+      {invoiceHistoryOrder && (
+        <InvoiceHistoryModal
+          order={invoiceHistoryOrder}
+          onClose={() => setInvoiceHistoryOrder(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+// =================================================================
 // MAIN REPORTS COMPONENT
 // =================================================================
 
@@ -5582,11 +6000,12 @@ const TABS = [
   { id: 'speed',             label: 'Speed of Service',     icon: Zap },
   { id: 'labor',             label: 'Labor & Staffing',     icon: Users },
   { id: 'attendance',        label: 'Attendance',           icon: CalendarCheck },
+  { id: 'gift_cards',        label: 'Gift Cards & Wallet',  icon: Gift },
   { id: 'register_closure',  label: 'Register Closure',     icon: CreditCard },
 ];
 
 const Reports = () => {
-  const { orders, settings, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, posTables, attendance, registerClosures } = useApp();
+  const { orders, settings, inventory, staff, menu, kdsTickets, wasteLog, floorPlans, posTables, attendance, registerClosures, guests, giftCards } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   
@@ -5640,6 +6059,7 @@ const Reports = () => {
       {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} menu={menu} />}
       {activeTab === 'labor'            && <LaborReport orders={orders} staff={staff} />}
       {activeTab === 'attendance'       && <AttendanceReportTab staff={staff} attendance={attendance} />}
+      {activeTab === 'gift_cards'       && <GiftCardWalletReport giftCards={giftCards} guests={guests} orders={orders} />}
       {activeTab === 'register_closure' && <RegisterClosuresReport />}
     </div>
   );

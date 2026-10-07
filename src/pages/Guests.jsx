@@ -684,7 +684,7 @@ const Guests = () => {
           <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr>
-                {['Name', 'Phone', 'Email', 'Visits', 'Total Spend', 'Avg Spend', 'Tier', 'Last Visit', 'Tags', 'Actions'].map(h => (
+                {['Name', 'Phone', 'Email', 'Visits', 'Total Spend', 'Wallet Balance', 'Avg Spend', 'Tier', 'Last Visit', 'Tags', 'Actions'].map(h => (
                   <th key={h} style={{
                     padding: '10px 14px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700,
                     color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)',
@@ -710,6 +710,20 @@ const Guests = () => {
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{g.email || '-'}</td>
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{g.visitCount || 0}</td>
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.85rem', fontWeight: 700, color: 'var(--success)' }}>{fmtCurrency(g.totalSpend)}</td>
+                    <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}>
+                      {parseFloat(g.walletBalance || 0) > 0 ? (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '2px 8px', borderRadius: 12,
+                          background: 'rgba(34, 197, 94, 0.1)', color: '#15803d',
+                          fontWeight: 700, fontSize: '0.78rem'
+                        }}>
+                          <Gift size={11} /> {fmtCurrency(g.walletBalance)}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>₹0</span>
+                      )}
+                    </td>
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{fmtCurrency(avgSpend)}</td>
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)' }}><TierBadge tier={g.tier} small /></td>
                     <td style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -819,6 +833,7 @@ const Guests = () => {
           {[
             { label: 'Total Visits', value: g.visitCount || 0, color: '#1e5e4a' },
             { label: 'Total Spend', value: fmtCurrency(g.totalSpend), color: '#22c55e' },
+            { label: 'Wallet Balance', value: fmtCurrency(g.walletBalance || 0), color: (g.walletBalance || 0) > 0 ? '#15803d' : '#64748b' },
             { label: 'Avg Spend', value: fmtCurrency(avgSpend), color: '#3b82f6' },
             { label: 'Loyalty Points', value: fmt(points), color: '#f59e0b' },
             { label: 'Days Since Visit', value: daysAgo < 999 ? daysAgo : 'N/A', color: daysAgo > 30 ? '#ef4444' : '#22c55e' },
