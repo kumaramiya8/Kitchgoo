@@ -201,8 +201,8 @@ const HelpDrawer = ({ isOpen, onClose }) => {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
-    // Build compact recent orders list (last 300 orders)
-    const maxCompactOrders = 300;
+    // Build compact recent orders list (last 25 orders to prevent token limit overflows)
+    const maxCompactOrders = 25;
     const sortedOrders = [...allOrders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const compactRecentOrders = sortedOrders.slice(0, maxCompactOrders).map(o => {
       const item = {

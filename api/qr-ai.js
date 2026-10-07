@@ -5,7 +5,7 @@
  * with fallback to Zenoti internal gateway (Zeenie) via ZEENIE_API_KEY.
  */
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
+const DEFAULT_GROQ_MODEL = 'llama-3.1-8b-instant';
 
 const ZEENIE_URL = 'https://zeenie-llm-api.zenotibeta.com/GenericLLM';
 const DEFAULT_ZEENIE_MODEL = 'claude-4.5-haiku';
