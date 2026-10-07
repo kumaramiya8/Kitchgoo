@@ -7,6 +7,7 @@ import {
   update,
   updateCashDrawer,
   redeemGiftCardCredit,
+  createKDSTicket,
 } from '../src/db/database';
 
 describe('Guest Management & Settle Bill Later', () => {
@@ -469,6 +470,99 @@ describe('Guest Management & Settle Bill Later', () => {
 
       const updatedGuest = (getAll('guests') || []).find(g => g.id === guest.id);
       expect(updatedGuest.totalSpend).toBe(5350); // 5000 + 350
+    });
+  });
+
+  describe('6. Kitchen Display (KDS): Guest Name Display & Propagation', () => {
+    beforeEach(() => {
+      setLocalCollection('kds_tickets', []);
+      setLocalCollection('pos_tables', []);
+      setLocalCollection('pos_saved_orders', {});
+    });
+
+    it('creates KDS ticket with guestName when fired from a named table', async () => {
+      const ticket = await createKDSTicket('T-12-0001', [{ id: 'item-1', name: 'Butter Chicken', qty: 2 }], 12, 'dine-in', {
+        guestName: 'Kunal Verma',
+      });
+
+      expect(ticket.guestName).toBe('Kunal Verma');
+      expect(ticket.tableId).toBe(12);
+
+      const allTickets = getAll('kds_tickets');
+      expect(allTickets.length).toBe(1);
+      expect(allTickets[0].guestName).toBe('Kunal Verma');
+    });
+
+    it('resolves guest name from dine-in table or order if not directly on the ticket', () => {
+      const posTables = [
+        { id: 4, number: 4, status: 'occupied', guestName: 'Meera Rajput' },
+      ];
+      const orders = [
+        { id: 'ORD-99', customerName: 'Vikram Seth', tableId: 5 },
+      ];
+      const orderMap = new Map();
+      orders.forEach(o => orderMap.set(o.id, o));
+
+      const resolveGuestName = (ticket) => {
+        const candidates = [
+          ticket.guestName,
+          ticket.customerName,
+          ticket.orderId ? orderMap.get(ticket.orderId)?.customerName : null,
+          ticket.orderId ? orderMap.get(ticket.orderId)?.guestName : null,
+        ];
+        if (ticket.tableId) {
+          const tbl = posTables.find(t => String(t.id) === String(ticket.tableId) || String(t.number) === String(ticket.tableId));
+          if (tbl) candidates.push(tbl.guestName);
+        }
+        for (const name of candidates) {
+          if (name && typeof name === 'string' && name.trim()) {
+            const clean = name.trim();
+            if (clean.toLowerCase() !== 'walk-in' && clean.toLowerCase() !== 'walk-in guest') {
+              return clean;
+            }
+          }
+        }
+        return null;
+      };
+
+      // Ticket with tableId 4 but no direct guestName
+      const t1 = { id: 'kds-1', orderId: 'T4-100', tableId: 4, guestName: null };
+      expect(resolveGuestName(t1)).toBe('Meera Rajput');
+
+      // Ticket linked to order ORD-99
+      const t2 = { id: 'kds-2', orderId: 'ORD-99', tableId: 5, guestName: null };
+      expect(resolveGuestName(t2)).toBe('Vikram Seth');
+
+      // Walk-in ticket with no assigned name
+      const t3 = { id: 'kds-3', orderId: 'T6-200', tableId: 6, guestName: 'Walk-in Guest' };
+      expect(resolveGuestName(t3)).toBeNull();
+    });
+
+    it('updates active KDS tickets when a guest is assigned to an active table', async () => {
+      // 1. Table orders food before guest provides their name
+      const ticket = await createKDSTicket('T-7-5555', [{ id: 'item-2', name: 'Paneer Tikka', qty: 1 }], 7, 'dine-in', {
+        guestName: null,
+      });
+      expect(ticket.guestName).toBeNull();
+
+      // 2. Waiter assigns guest "Ananya Roy" to Table 7
+      const targetTableId = 7;
+      const assignedGuestName = 'Ananya Roy';
+
+      const allKds = getAll('kds_tickets') || [];
+      const matches = [String(targetTableId)];
+      const relatedTickets = allKds.filter(t =>
+        t.status === 'active' && matches.includes(String(t.tableId))
+      );
+      expect(relatedTickets.length).toBe(1);
+
+      for (const t of relatedTickets) {
+        await update('kds_tickets', t.id, { guestName: assignedGuestName });
+      }
+
+      // 3. Kitchen Display ticket now has the guest's name
+      const updatedTickets = getAll('kds_tickets');
+      expect(updatedTickets[0].guestName).toBe('Ananya Roy');
     });
   });
 });

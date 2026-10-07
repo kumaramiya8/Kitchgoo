@@ -4,7 +4,7 @@ import {
   ChefHat, Flame, X, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, ArrowRightLeft,
   CornerDownLeft, Eye, BarChart3, ListChecks, Grid3X3, Utensils,
   Wine, IceCream, Salad, BookOpen, Keyboard, ChevronDown, ChevronUp,
-  Timer, TrendingUp, Hash, Zap
+  Timer, TrendingUp, Hash, Zap, User
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { todayLocalStr, localDayStr } from '../../shared/dates';
@@ -247,7 +247,7 @@ const RecipeModal = ({ item, recipes, menu, onClose }) => {
 };
 
 /* ── Recall Panel ──────────────────────────────────────── */
-const RecallPanel = ({ tickets, onRecall, onClose }) => {
+const RecallPanel = ({ tickets, onRecall, onClose, getTicketGuestName }) => {
   const completed = tickets
     .filter(t => t.status === 'completed')
     .sort((a, b) => new Date(b.firedAt) - new Date(a.firedAt))
@@ -271,6 +271,7 @@ const RecallPanel = ({ tickets, onRecall, onClose }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {completed.map(t => {
               const ot = ORDER_TYPE_COLORS[t.orderType] || ORDER_TYPE_COLORS['dine-in'];
+              const guestName = getTicketGuestName ? getTicketGuestName(t) : (t.guestName && t.guestName !== 'Walk-in Guest' ? t.guestName : null);
               // When was it bumped? Use the latest item bump time, else fired time.
               const bumpTimes = (t.items || []).map(i => i.bumpedAt).filter(Boolean);
               const doneAt = bumpTimes.length ? new Date(Math.max(...bumpTimes.map(x => new Date(x)))) : null;
@@ -287,6 +288,16 @@ const RecallPanel = ({ tickets, onRecall, onClose }) => {
                       </span>
                       <span style={s.badge(ot.bg, ot.text)}>{(t.orderType || 'dine-in').toUpperCase()}</span>
                       {t.tableId && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Table {t.tableId}</span>}
+                      {guestName && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          fontSize: '0.78rem', color: 'var(--accent-blue)', fontWeight: 700,
+                          background: 'rgba(59,130,246,0.12)', padding: '1px 6px', borderRadius: 4,
+                          border: '1px solid rgba(59, 130, 246, 0.25)',
+                        }} title={`Guest: ${guestName}`}>
+                          <User size={11} style={{ flexShrink: 0 }} /> {guestName}
+                        </span>
+                      )}
                     </div>
                     <button
                       onClick={() => onRecall(t.id)}
@@ -411,6 +422,43 @@ export default function KDS() {
     });
     return map;
   }, [orders]);
+
+  // Helper to resolve guest name for a ticket across ticket, order, table, or tab
+  const getTicketGuestName = useCallback((ticket) => {
+    if (!ticket) return null;
+    const candidates = [
+      ticket.guestName,
+      ticket.customerName,
+      ticket.guest?.name,
+      ticket.orderId ? orderMap.get(ticket.orderId)?.customerName : null,
+      ticket.orderId ? orderMap.get(ticket.orderId)?.guestName : null,
+      ticket.orderId ? orderMap.get(ticket.orderId)?.customer_name : null,
+      ticket.orderId ? orderMap.get(ticket.orderId)?.guest_name : null,
+      ticket.orderId ? orderMap.get(ticket.orderId)?.customer : null,
+    ];
+
+    if (ticket.tableId && (!ticket.orderType || ticket.orderType === 'dine-in')) {
+      const table = (posTables || []).find(t => String(t.id) === String(ticket.tableId) || String(t.number) === String(ticket.tableId));
+      if (table) {
+        candidates.push(table.guestName, table.customerName, table.guest?.name);
+      }
+    }
+
+    if (ticket.tableId && posSavedOrders && posSavedOrders[ticket.tableId]) {
+      const tab = posSavedOrders[ticket.tableId];
+      candidates.push(tab.guestName, tab.customerName, tab.guest?.name);
+    }
+
+    for (const name of candidates) {
+      if (name && typeof name === 'string' && name.trim()) {
+        const clean = name.trim();
+        if (clean.toLowerCase() !== 'walk-in' && clean.toLowerCase() !== 'walk-in guest') {
+          return clean;
+        }
+      }
+    }
+    return null;
+  }, [orderMap, posTables, posSavedOrders]);
 
   // Helper to extract preparation time (in seconds) for a ticket
   const getTicketPrepSeconds = useCallback((t) => {
@@ -673,6 +721,7 @@ export default function KDS() {
             const overdue = secs > prepTime;
             const isHighlighted = tIdx === highlightIdx;
             const ot = ORDER_TYPE_COLORS[ticket.orderType] || ORDER_TYPE_COLORS['dine-in'];
+            const guestName = getTicketGuestName(ticket);
 
             return (
               <div
@@ -712,6 +761,30 @@ export default function KDS() {
                         ? (ticket.tokenNumber ? `Token #${ticket.tokenNumber}` : 'Waiting Table')
                         : `T${ticket.tableId}`}
                     </span>
+                    {guestName && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '0.8rem',
+                          fontWeight: 700,
+                          background: 'rgba(59, 130, 246, 0.12)',
+                          color: 'var(--accent-blue)',
+                          border: '1px solid rgba(59, 130, 246, 0.25)',
+                          maxWidth: 160,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={`Guest: ${guestName}`}
+                      >
+                        <User size={12} style={{ flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{guestName}</span>
+                      </span>
+                    )}
                     {ticket.tableShiftedFrom && (
                       <span
                         title={`Moved from ${ticket.tableShiftedFrom} at ${ticket.shiftedAt ? new Date(ticket.shiftedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}`}
@@ -836,6 +909,7 @@ export default function KDS() {
               const secs = elapsed(ticket.firedAt);
               const bc = borderColor(secs, prepTime);
               const ot = ORDER_TYPE_COLORS[ticket.orderType] || ORDER_TYPE_COLORS['dine-in'];
+              const guestName = getTicketGuestName(ticket);
 
               return (
                 <div key={ticket.id} className="animate-fade-up" style={{
@@ -858,6 +932,26 @@ export default function KDS() {
                           ? (ticket.tokenNumber ? `Token #${ticket.tokenNumber} (Waiting Table)` : 'Waiting Table')
                           : `Table ${ticket.tableId}`}
                       </span>
+                      {guestName && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            background: 'rgba(59, 130, 246, 0.12)',
+                            color: 'var(--accent-blue)',
+                            border: '1px solid rgba(59, 130, 246, 0.25)',
+                          }}
+                          title={`Guest: ${guestName}`}
+                        >
+                          <User size={11} style={{ flexShrink: 0 }} />
+                          <span>{guestName}</span>
+                        </span>
+                      )}
                       {ticket.tableShiftedFrom && (
                         <span
                           title={`Moved from ${ticket.tableShiftedFrom}`}
@@ -992,7 +1086,7 @@ export default function KDS() {
 
       {/* ── Modals ─────────────────────────────────────────── */}
       {showRecall && (
-        <RecallPanel tickets={kdsTickets} onRecall={handleRecall} onClose={() => setShowRecall(false)} />
+        <RecallPanel tickets={kdsTickets} onRecall={handleRecall} onClose={() => setShowRecall(false)} getTicketGuestName={getTicketGuestName} />
       )}
       {recipeItem && (
         <RecipeModal item={recipeItem} recipes={recipes || []} menu={menu} onClose={() => setRecipeItem(null)} />

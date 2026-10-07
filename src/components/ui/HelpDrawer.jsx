@@ -434,7 +434,10 @@ const HelpDrawer = ({ isOpen, onClose }) => {
 
           // Fire to KDS so kitchen sees the order immediately
           const kdsOrderId = `COPILOT-${tableId}-${Date.now().toString().slice(-4)}`;
-          await fireToKDS(kdsOrderId, posItems, tableId, 'dine-in');
+          const targetTable = (posTables || []).find(t => String(t.id) === String(tableId) || String(t.number) === String(tableId));
+          await fireToKDS(kdsOrderId, posItems, tableId, 'dine-in', {
+            guestName: targetTable?.guestName || null,
+          });
           await broadcastOrderCreated(tableId, kdsOrderId);
           // Supabase does not echo broadcasts to the sender — dispatch locally
           // so KDS mounted in the same tab (e.g. multi-window staff flow) also reacts.

@@ -266,7 +266,9 @@ const QRMenu = () => {
     setPosSavedOrders(prev => ({ ...(prev || {}), [targetTable.id]: mergedItems }));
 
     const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
-    await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in');
+    await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in', {
+      guestName: resolvedName || targetTable.guestName || null,
+    });
     await broadcastOrderCreated(targetTable.id, kdsOrderId);
     // Also dispatch locally so KDS on the same device (e.g. staff tablet) reacts immediately
     window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));

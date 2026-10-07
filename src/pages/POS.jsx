@@ -5286,7 +5286,9 @@ const POS = () => {
             : t
           ));
 
-          await fireToKDS(order.id, posItems, targetTable.id, 'dine-in');
+          await fireToKDS(order.id, posItems, targetTable.id, 'dine-in', {
+            guestName: order.customer || order.customerName || order.guestName || targetTable.guestName || null,
+          });
           await editOnlineOrder(order.id, { status: 'delivered' });
           showSuccess(`Order accepted and added to Table ${tableNum}!`);
         } else {
@@ -5475,6 +5477,7 @@ const POS = () => {
   // Modals
   const [guestModal, setGuestModal] = useState(null);
   const [assignGuestModal, setAssignGuestModal] = useState(false);
+  const [assignGuestModalTable, setAssignGuestModalTable] = useState(null);
   const [noTableModal, setNoTableModal] = useState(false);
   const [assignTableModal, setAssignTableModal] = useState(null);
   const [modifierModal, setModifierModal] = useState(null);
@@ -6022,16 +6025,20 @@ const POS = () => {
   };
 
   const handleAssignGuestToCurrentOrder = async ({ guestId, guestName, guestPhone }) => {
-    // 1. Update activeTable if table dine-in
-    if (activeTable) {
-      const updatedTable = { ...activeTable, guestName, guestPhone, guestId: guestId || null };
-      setActiveTable(updatedTable);
-      setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
+    const targetTable = activeTable || assignGuestModalTable;
+
+    // 1. Update targetTable if table dine-in
+    if (targetTable) {
+      const updatedTable = { ...targetTable, guestName, guestPhone, guestId: guestId || null };
+      if (activeTable && String(activeTable.id) === String(targetTable.id)) {
+        setActiveTable(updatedTable);
+      }
+      setTables(prev => (prev || []).map(t => String(t.id) === String(targetTable.id)
         ? { ...t, guestName, guestPhone, guestId: guestId || null }
         : t
       ));
       if (setPosTables) {
-        setPosTables(prev => (prev || []).map(t => String(t.id) === String(activeTable.id)
+        setPosTables(prev => (prev || []).map(t => String(t.id) === String(targetTable.id)
           ? { ...t, guestName, guestPhone, guestId: guestId || null }
           : t
         ));
@@ -6045,6 +6052,10 @@ const POS = () => {
       setSavedOrders(prev => ({
         ...prev,
         [`tab_${unassignedTab.id}`]: updatedTab,
+        __tabs_meta__: {
+          ...(prev.__tabs_meta__ || {}),
+          [unassignedTab.id]: updatedTab,
+        },
       }));
     }
 
@@ -6052,8 +6063,35 @@ const POS = () => {
     setCustomerName(guestName || '');
     setCustomerPhone(guestPhone || '');
 
-    if (reload) reload();
+    // 4. Update active KDS tickets for this table/tab with new guest name
+    try {
+      const targetTableId = targetTable ? String(targetTable.id) : (unassignedTab ? `tab_${unassignedTab.id}` : null);
+      if (targetTableId) {
+        const allKds = getAll('kds_tickets') || [];
+        const matches = [
+          targetTableId,
+          targetTable?.number ? String(targetTable.number) : null,
+          unassignedTab?.tokenNumber ? String(unassignedTab.tokenNumber) : null,
+        ].filter(Boolean);
+        const relatedTickets = allKds.filter(t =>
+          t.status === 'active' && (
+            matches.includes(String(t.tableId)) ||
+            (t.tokenNumber && matches.includes(String(t.tokenNumber)))
+          )
+        );
+        for (const ticket of relatedTickets) {
+          await update('kds_tickets', ticket.id, { guestName });
+        }
+        if (relatedTickets.length > 0) {
+          window.dispatchEvent(new CustomEvent('kitchgoo_order_created'));
+        }
+      }
+    } catch (e) {
+      console.warn('[POS] Failed to update KDS ticket guest name:', e);
+    }
 
+    setAssignGuestModal(false);
+    setAssignGuestModalTable(null);
     showSuccess(`Assigned ${guestName} to order`);
   };
 
@@ -6323,7 +6361,7 @@ const POS = () => {
       const kdsTableId = unassignedTab ? `tab_${unassignedTab.id}` : (activeTable?.id || null);
       await fireToKDS(orderId, itemsToFire, kdsTableId, orderType, {
         tokenNumber: unassignedTab?.tokenNumber || null,
-        guestName: unassignedTab?.guestName || null,
+        guestName: unassignedTab?.guestName || activeTable?.guestName || customerName || null,
       });
       broadcastOrderCreated(kdsTableId, orderId);
 
@@ -6355,7 +6393,9 @@ const POS = () => {
       setFiredCourses(prev => new Set([...prev, nextCourse]));
       const orderId = activeTable ? `T${activeTable.id}` : 'takeout';
       try {
-        await fireToKDS(orderId, courseItems, activeTable?.id, orderType);
+        await fireToKDS(orderId, courseItems, activeTable?.id, orderType, {
+          guestName: activeTable?.guestName || customerName || null,
+        });
         broadcastOrderCreated(activeTable?.id || null, orderId);
 
         if (settings?.printer?.autoPrintKOT || settings?.operations?.autoKOT) {
@@ -7376,7 +7416,7 @@ const POS = () => {
         try {
           await fireToKDS(kdsOrderId, currentCart, tableId, orderType, {
             tokenNumber: currentUnassignedTab?.tokenNumber || null,
-            guestName: currentUnassignedTab?.guestName || currentCustomerName || null,
+            guestName: currentUnassignedTab?.guestName || currentCustomerName || currentActiveTable?.guestName || null,
           });
           broadcastOrderCreated(tableId, kdsOrderId);
         } catch (err) {
@@ -8485,11 +8525,14 @@ const POS = () => {
         {/* Assign Guest Modal */}
         {assignGuestModal && (
           <AssignGuestModal
-            currentGuest={activeTable?.guestName || unassignedTab?.guestName || customerName}
-            currentPhone={activeTable?.guestPhone || unassignedTab?.guestPhone || customerPhone}
+            currentGuest={(activeTable || assignGuestModalTable)?.guestName || unassignedTab?.guestName || customerName}
+            currentPhone={(activeTable || assignGuestModalTable)?.guestPhone || unassignedTab?.guestPhone || customerPhone}
             guests={guests}
             onAssign={handleAssignGuestToCurrentOrder}
-            onClose={() => setAssignGuestModal(false)}
+            onClose={() => {
+              setAssignGuestModal(false);
+              setAssignGuestModalTable(null);
+            }}
           />
         )}
 
@@ -8707,6 +8750,8 @@ const POS = () => {
                     }
                     setActiveTable(null);
                   }
+                  setAssignGuestModal(false);
+                  setAssignGuestModalTable(null);
                   setView('floor');
                   setCart([]);
                   setDiscountAmount(0);
@@ -8743,7 +8788,10 @@ const POS = () => {
                     color: currentGuest ? 'var(--text-primary)' : 'var(--primary)',
                     background: currentGuest ? 'rgba(0,0,0,0.03)' : 'rgba(30,94,74,0.08)',
                   }}
-                  onClick={() => setAssignGuestModal(true)}
+                  onClick={() => {
+                    setAssignGuestModalTable(activeTable);
+                    setAssignGuestModal(true);
+                  }}
                   title="Assign or change guest for this table/order"
                 >
                   <User size={12} style={{ color: 'var(--primary)' }} />
@@ -8992,7 +9040,10 @@ const POS = () => {
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
             <button
               type="button"
-              onClick={() => setAssignGuestModal(true)}
+              onClick={() => {
+                setAssignGuestModalTable(activeTable);
+                setAssignGuestModal(true);
+              }}
               style={{
                 background: 'none',
                 border: 'none',
@@ -9357,6 +9408,19 @@ const POS = () => {
               prePayStatusRef.current = null;
               setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) && t.status === 'paying' ? { ...t, status: restore } : t));
             }
+          }}
+        />
+      )}
+
+      {assignGuestModal && (
+        <AssignGuestModal
+          currentGuest={(activeTable || assignGuestModalTable)?.guestName || unassignedTab?.guestName || customerName}
+          currentPhone={(activeTable || assignGuestModalTable)?.guestPhone || unassignedTab?.guestPhone || customerPhone}
+          guests={guests}
+          onAssign={handleAssignGuestToCurrentOrder}
+          onClose={() => {
+            setAssignGuestModal(false);
+            setAssignGuestModalTable(null);
           }}
         />
       )}
