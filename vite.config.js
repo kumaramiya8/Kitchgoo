@@ -12,6 +12,8 @@ export default defineConfig(({ mode }) => {
     'VITE_SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'JWT_SECRET',
+    'GROQ_API_KEY',
+    'GROQ_MODEL',
     'ZEENIE_API_KEY',
     'ZEENIE_MODEL',
   ];
@@ -33,6 +35,7 @@ export default defineConfig(({ mode }) => {
           const { default: dataApp } = await import('./api/data.js');
           const { default: publicApp } = await import('./api/public.js');
           const { default: helpHandler } = await import('./api/help.js');
+          const { default: qrAiHandler } = await import('./api/qr-ai.js');
 
           // Express apps act as connect middleware: they handle their own
           // routes and fall through to the next handler for everything else.
@@ -42,7 +45,7 @@ export default defineConfig(({ mode }) => {
 
           server.middlewares.use(async (req, res, next) => {
             const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-            if (url.pathname === '/api/help') {
+            if (url.pathname === '/api/help' || url.pathname === '/api/qr-ai') {
               try {
                 // Mock Vercel response helper methods
                 res.status = (code) => {
@@ -55,9 +58,13 @@ export default defineConfig(({ mode }) => {
                   return res;
                 };
 
-                await helpHandler(req, res);
+                if (url.pathname === '/api/help') {
+                  await helpHandler(req, res);
+                } else {
+                  await qrAiHandler(req, res);
+                }
               } catch (err) {
-                console.error('[DEV API] Error handling /api/help:', err);
+                console.error(`[DEV API] Error handling ${url.pathname}:`, err);
                 res.statusCode = 500;
                 res.end(JSON.stringify({ error: err.message || 'Internal server error' }));
               }

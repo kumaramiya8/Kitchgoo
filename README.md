@@ -64,8 +64,8 @@ Backend (Vercel serverless, Express)          Supabase (Postgres)
    - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (realtime only)
    - `SUPABASE_SERVICE_ROLE_KEY` (backend data access)
    - `JWT_SECRET` (`openssl rand -hex 32`) — required in production
-   - `ZEENIE_API_KEY` for the AI copilot (Zenoti internal LLM gateway;
-     raise a Jira ticket for access)
+   - `GROQ_API_KEY` for the AI copilot (free fast LLM inference;
+     get a key at https://console.groq.com/keys) or `ZEENIE_API_KEY` for Zeenie
 4. `npm run dev` — the Vite dev server mounts the full backend, so the API
    works locally without the vercel CLI.
 

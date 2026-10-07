@@ -1,11 +1,14 @@
 /**
  * QR Menu Guest AI — LLM proxy for the public-facing QR ordering chat.
  *
- * All LLM traffic goes through Zenoti's internal gateway (Zeenie) per org
- * policy — never a provider API directly.
+ * Supports Groq API (free fast inference) via GROQ_API_KEY,
+ * with fallback to Zenoti internal gateway (Zeenie) via ZEENIE_API_KEY.
  */
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
+
 const ZEENIE_URL = 'https://zeenie-llm-api.zenotibeta.com/GenericLLM';
-const MODEL = process.env.ZEENIE_MODEL || 'claude-4.5-haiku';
+const DEFAULT_ZEENIE_MODEL = 'claude-4.5-haiku';
 
 export default async function handler(req, res) {
   // Allow cross-origin requests from QR menu (public page, different origin possible)
@@ -28,10 +31,11 @@ export default async function handler(req, res) {
   const { message, chatHistory, menuItems, restaurantName, topSellers } = body;
   if (!message) return res.status(400).json({ error: 'Message is required' });
 
-  const apiKey = process.env.ZEENIE_API_KEY;
-  if (!apiKey) {
+  const groqApiKey = process.env.GROQ_API_KEY;
+  const zeenieApiKey = process.env.ZEENIE_API_KEY;
+  if (!groqApiKey && !zeenieApiKey) {
     return res.status(500).json({
-      error: 'ZEENIE_API_KEY is not configured. Raise a Jira ticket for Zenoti LLM API access.',
+      error: 'GROQ_API_KEY is not configured on the server. Please set GROQ_API_KEY in your environment.',
     });
   }
 
@@ -79,43 +83,99 @@ Response MUST be a JSON object:
   messagesList.push({ role: 'user', content: message });
 
   try {
-    const callZeenieWithRetry = async () => {
-      let retries = 2;
-      let delay = 800;
-      let lastError = null;
-      while (retries >= 0) {
-        try {
-          const response = await fetch(ZEENIE_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-            body: JSON.stringify({
-              model_name: MODEL,
-              system: systemPrompt,
-              messages: messagesList,
-              temperature: 0.3,
-              max_tokens: 800,
-            }),
-          });
-          if (response.ok) {
-            const data = await response.json();
-            const content = data?.response?.content;
-            const text = Array.isArray(content)
-              ? content.filter(b => b.type === 'text').map(b => b.text).join('')
-              : content;
-            if (text) return text;
-          }
-          const errText = await response.text();
-          lastError = new Error(`Zeenie ${response.status}: ${errText}`);
-          if (response.status !== 500 && response.status !== 429) throw lastError;
-        } catch (err) { lastError = err; }
-        if (retries > 0) await new Promise(r => setTimeout(r, delay));
-        delay *= 2;
-        retries--;
-      }
-      throw lastError || new Error('Zeenie request failed');
-    };
+    let raw;
+    if (groqApiKey) {
+      const groqModel = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
+      const groqMessages = [
+        { role: 'system', content: systemPrompt },
+        ...messagesList,
+      ];
 
-    const raw = await callZeenieWithRetry();
+      const callGroqWithRetry = async () => {
+        let retries = 2;
+        let delay = 800;
+        let lastError = null;
+        while (retries >= 0) {
+          try {
+            console.log(`[QR-AI] Querying Groq model ${groqModel} (retries left: ${retries})`);
+            const response = await fetch(GROQ_URL, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${groqApiKey}`,
+              },
+              body: JSON.stringify({
+                model: groqModel,
+                messages: groqMessages,
+                temperature: 0.3,
+                max_tokens: 800,
+                response_format: { type: 'json_object' },
+              }),
+            });
+            if (response.ok) {
+              const data = await response.json();
+              const content = data?.choices?.[0]?.message?.content;
+              if (content) return content;
+            }
+            const errText = await response.text();
+            lastError = new Error(`Groq API error: ${response.status} - ${errText}`);
+            if (response.status !== 500 && response.status !== 503 && response.status !== 429) {
+              throw lastError;
+            }
+          } catch (err) {
+            lastError = err;
+            if (err.message && err.message.includes('Groq API error: 40')) throw err;
+          }
+          if (retries > 0) await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+          retries--;
+        }
+        throw lastError || new Error('Groq API request failed');
+      };
+
+      raw = await callGroqWithRetry();
+    } else {
+      const zeenieModel = process.env.ZEENIE_MODEL || DEFAULT_ZEENIE_MODEL;
+      const callZeenieWithRetry = async () => {
+        let retries = 2;
+        let delay = 800;
+        let lastError = null;
+        while (retries >= 0) {
+          try {
+            console.log(`[QR-AI] Querying Zeenie model ${zeenieModel} (retries left: ${retries})`);
+            const response = await fetch(ZEENIE_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': zeenieApiKey },
+              body: JSON.stringify({
+                model_name: zeenieModel,
+                system: systemPrompt,
+                messages: messagesList,
+                temperature: 0.3,
+                max_tokens: 800,
+              }),
+            });
+            if (response.ok) {
+              const data = await response.json();
+              const content = data?.response?.content;
+              const text = Array.isArray(content)
+                ? content.filter(b => b.type === 'text').map(b => b.text).join('')
+                : content;
+              if (text) return text;
+            }
+            const errText = await response.text();
+            lastError = new Error(`Zeenie ${response.status}: ${errText}`);
+            if (response.status !== 500 && response.status !== 429) throw lastError;
+          } catch (err) { lastError = err; }
+          if (retries > 0) await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+          retries--;
+        }
+        throw lastError || new Error('Zeenie request failed');
+      };
+
+      raw = await callZeenieWithRetry();
+    }
+
     let result;
     try {
       const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -125,7 +185,7 @@ Response MUST be a JSON object:
     }
     return res.status(200).json(result);
   } catch (err) {
-    console.error('[QR-AI] Zeenie error:', err);
+    console.error('[QR-AI] Error calling LLM API:', err);
     return res.status(500).json({ error: err.message || 'AI unavailable' });
   }
 }
