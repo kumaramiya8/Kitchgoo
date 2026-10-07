@@ -362,78 +362,136 @@ const InvoiceModal = ({ order, onClose, settings, onSettle }) => {
 
 
 // ─── Settle Pending Bill Modal ───────────────────────────────
+// ─── Settle Pending Bill Modal ───────────────────────────────
 const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose, settings }) => {
-  const [selectedMethod, setSelectedMethod] = useState('Cash');
-  const [cashTendered, setCashTendered] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
   const totalAmount = useMemo(() => {
     return ordersToSettle.reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
   }, [ordersToSettle]);
 
   const guestWalletBalance = parseFloat(guest?.walletBalance || 0);
+
+  // If guest has wallet balance, default to 'Wallet', otherwise 'UPI'
+  const [selectedMethod, setSelectedMethod] = useState(() => {
+    return guestWalletBalance > 0 ? 'Wallet' : 'UPI';
+  });
+
+  // When Wallet is selected but doesn't cover 100%, method for the remaining portion
+  const [remainingMethod, setRemainingMethod] = useState('UPI');
+
+  // When Cash / UPI / Card is selected, option to also apply wallet balance
+  const [applyWalletWithOther, setApplyWalletWithOther] = useState(() => guestWalletBalance > 0);
+
+  const [cashTendered, setCashTendered] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Compute how much wallet credit is applied
+  const walletCreditApplied = useMemo(() => {
+    if (guestWalletBalance <= 0) return 0;
+    if (selectedMethod === 'Wallet') {
+      return Math.min(guestWalletBalance, totalAmount);
+    }
+    if (applyWalletWithOther) {
+      return Math.min(guestWalletBalance, totalAmount);
+    }
+    return 0;
+  }, [guestWalletBalance, totalAmount, selectedMethod, applyWalletWithOther]);
+
+  // Remaining payable amount after wallet credit
+  const remainingPayable = Math.max(0, Math.round((totalAmount - walletCreditApplied) * 100) / 100);
+
+  // Effective secondary method for the remaining portion
+  const effectiveSecondaryMethod = selectedMethod === 'Wallet' ? remainingMethod : selectedMethod;
+
+  // Tendered cash calculation
   const tenderVal = parseFloat(cashTendered) || 0;
-  const cashChange = selectedMethod === 'Cash' ? Math.max(0, tenderVal - totalAmount) : 0;
+  const isCashInvolved = (selectedMethod === 'Wallet' && remainingPayable > 0 && remainingMethod === 'Cash') || (selectedMethod === 'Cash' && remainingPayable > 0);
+  const cashPayableTarget = isCashInvolved ? remainingPayable : 0;
+  const cashChange = isCashInvolved ? Math.max(0, tenderVal - cashPayableTarget) : 0;
 
   const handleConfirmSettle = async () => {
     if (isSubmitting || ordersToSettle.length === 0) return;
-    if (selectedMethod === 'Wallet' && guestWalletBalance < totalAmount) {
-      alert(`Insufficient digital wallet balance. Available: ₹${guestWalletBalance.toFixed(2)}, Required: ₹${totalAmount.toFixed(2)}`);
-      return;
-    }
     setIsSubmitting(true);
 
     try {
       const nowIso = new Date().toISOString();
+      let remainingWalletToDeduct = walletCreditApplied;
 
       // Settle each pending order
       for (const order of ordersToSettle) {
+        const orderTotal = parseFloat(order.total) || 0;
+        const orderWalletPortion = Math.min(remainingWalletToDeduct, orderTotal);
+        remainingWalletToDeduct -= orderWalletPortion;
+        const orderRemaining = Math.max(0, Math.round((orderTotal - orderWalletPortion) * 100) / 100);
+
+        let finalMethod = selectedMethod;
+        let splits = null;
+
+        if (orderWalletPortion > 0 && orderRemaining === 0) {
+          finalMethod = 'Wallet';
+          splits = [{ method: 'Wallet', amount: orderWalletPortion }];
+        } else if (orderWalletPortion > 0 && orderRemaining > 0) {
+          finalMethod = `Split (${effectiveSecondaryMethod}: ₹${orderRemaining.toFixed(0)}, Wallet: ₹${orderWalletPortion.toFixed(0)})`;
+          splits = [
+            { method: 'Wallet', amount: orderWalletPortion },
+            { method: effectiveSecondaryMethod, amount: orderRemaining },
+          ];
+        } else {
+          finalMethod = selectedMethod;
+        }
+
         const updatedHistory = [
           ...(order.history || []),
           {
             action: 'payment_settled_from_profile',
             timestamp: nowIso,
             by: 'Cashier / Manager',
-            description: `Pending bill settled via ${selectedMethod} for ₹${(parseFloat(order.total) || 0).toFixed(2)}`,
-            paymentMethod: selectedMethod,
+            description: `Pending bill settled via ${finalMethod} for ₹${orderTotal.toFixed(2)}`,
+            paymentMethod: finalMethod,
+            paymentSplits: splits,
           }
         ];
 
         await update('orders', order.id, {
           status: 'paid',
           paymentStatus: 'paid',
-          paymentMethod: selectedMethod,
+          paymentMethod: finalMethod,
+          paymentSplits: splits,
+          walletRedeemed: orderWalletPortion,
           settledAt: nowIso,
           paidAt: nowIso,
           settledBy: 'Cashier',
           history: updatedHistory,
         });
+      }
 
-        // Redeem wallet if wallet payment
-        if (selectedMethod === 'Wallet') {
-          try {
-            await redeemGiftCardCredit({
-              guestPhone: guest?.phone,
-              guestId: guest?.id,
-              amount: parseFloat(order.total) || 0,
-              orderId: order.id,
-              billNo: order.billNo,
-              staffName: 'Cashier',
-              notes: `Pending bill ${order.billNo} settled from profile`
-            });
-          } catch (err) {
-            console.error('[Guests] Failed to redeem wallet credit:', err);
-          }
+      // Redeem wallet credit if wallet balance was applied
+      if (walletCreditApplied > 0) {
+        try {
+          await redeemGiftCardCredit({
+            guestPhone: guest?.phone,
+            guestId: guest?.id,
+            amount: walletCreditApplied,
+            orderId: ordersToSettle[0]?.id,
+            billNo: ordersToSettle.map(o => o.billNo).join(', '),
+            staffName: 'Cashier',
+            notes: `Pending bill ${ordersToSettle.map(o => o.billNo).join(', ')} settled from profile`
+          });
+        } catch (err) {
+          console.error('[Guests] Failed to redeem wallet credit:', err);
         }
       }
 
-      // Update cash drawer if cash
-      if (selectedMethod === 'Cash') {
+      // Update cash drawer if any cash portion was received
+      const cashPortion = (effectiveSecondaryMethod === 'Cash' && remainingPayable > 0)
+        ? (selectedMethod === 'Cash' && walletCreditApplied === 0 ? totalAmount : remainingPayable)
+        : 0;
+
+      if (cashPortion > 0) {
         try {
           const currentDrawer = getAll('cash_drawer') || {};
           await updateCashDrawer({
             ...currentDrawer,
-            cashIn: (currentDrawer?.cashIn || 0) + totalAmount,
+            cashIn: (currentDrawer?.cashIn || 0) + cashPortion,
           });
         } catch (err) {
           console.warn('[Guests] Could not update cash drawer:', err);
@@ -472,7 +530,7 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
             Bills Being Settled ({ordersToSettle.length})
           </div>
-          <div style={{ maxHeight: 150, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ maxHeight: 140, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
             {ordersToSettle.map(o => (
               <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
                 <div>
@@ -503,7 +561,7 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
               { key: 'Cash', icon: Banknote, color: '#22c55e' },
               { key: 'UPI', icon: Phone, color: '#1e5e4a' },
               { key: 'Card', icon: CreditCard, color: '#3b82f6' },
-              { key: 'Wallet', icon: Wallet, color: '#f59e0b', disabled: guestWalletBalance < totalAmount },
+              { key: 'Wallet', icon: Wallet, color: '#f59e0b', disabled: guestWalletBalance <= 0 },
             ].map(m => {
               const Icon = m.icon;
               const isSelected = selectedMethod === m.key;
@@ -511,7 +569,12 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
                 <button
                   key={m.key}
                   type="button"
-                  onClick={() => setSelectedMethod(m.key)}
+                  onClick={() => {
+                    setSelectedMethod(m.key);
+                    if (m.key !== 'Wallet') {
+                      setApplyWalletWithOther(guestWalletBalance > 0);
+                    }
+                  }}
                   disabled={m.disabled}
                   style={{
                     padding: '12px 8px',
@@ -522,7 +585,7 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
                     fontWeight: isSelected ? 800 : 600,
                     fontSize: '0.8rem',
                     cursor: m.disabled ? 'not-allowed' : 'pointer',
-                    opacity: m.disabled ? 0.4 : 1,
+                    opacity: m.disabled ? 0.35 : 1,
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -533,8 +596,15 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
                   <Icon size={18} />
                   <span>{m.key}</span>
                   {m.key === 'Wallet' && (
-                    <span style={{ fontSize: '0.65rem', fontWeight: 700 }}>
-                      (₹{guestWalletBalance.toFixed(0)})
+                    <span style={{
+                      fontSize: '0.68rem',
+                      fontWeight: 800,
+                      color: guestWalletBalance > 0 ? '#b45309' : 'var(--text-muted)',
+                      background: guestWalletBalance > 0 ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                      padding: '1px 6px',
+                      borderRadius: 8,
+                    }}>
+                      {guestWalletBalance > 0 ? `₹${guestWalletBalance.toFixed(0)}` : '₹0'}
                     </span>
                   )}
                 </button>
@@ -543,8 +613,154 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
           </div>
         </div>
 
-        {/* Cash Tendered & Change */}
-        {selectedMethod === 'Cash' && (
+        {/* WALLET SELECTED: Details and split options if balance < totalAmount */}
+        {selectedMethod === 'Wallet' && (
+          <div>
+            {guestWalletBalance >= totalAmount ? (
+              <div style={{
+                background: 'rgba(245, 158, 11, 0.08)',
+                border: '1.5px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: 10,
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <Gift size={20} style={{ color: '#b45309', flexShrink: 0 }} />
+                <div style={{ fontSize: '0.82rem', color: '#b45309', fontWeight: 600 }}>
+                  Full bill of <strong>{fmtCurrency(totalAmount)}</strong> will be settled from {guest?.name}'s digital wallet.
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                    Remaining balance after settlement: {fmtCurrency(guestWalletBalance - totalAmount)}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                background: 'rgba(245, 158, 11, 0.06)',
+                border: '1.5px solid rgba(245, 158, 11, 0.35)',
+                borderRadius: 10,
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '0.85rem', color: '#b45309' }}>
+                    <Wallet size={18} />
+                    <span>Deduct from Digital Wallet:</span>
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309' }}>
+                    -₹{walletCreditApplied.toFixed(2)}
+                  </div>
+                </div>
+
+                <div style={{
+                  borderTop: '1px dashed rgba(245, 158, 11, 0.3)',
+                  paddingTop: 10,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      Remaining Amount To Pay:
+                    </span>
+                    <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--primary)' }}>
+                      {fmtCurrency(remainingPayable)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                    Select payment method for the remaining {fmtCurrency(remainingPayable)}:
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                    {[
+                      { key: 'UPI', icon: Phone, color: '#1e5e4a' },
+                      { key: 'Cash', icon: Banknote, color: '#22c55e' },
+                      { key: 'Card', icon: CreditCard, color: '#3b82f6' },
+                    ].map(rm => {
+                      const Icon = rm.icon;
+                      const isRemSelected = remainingMethod === rm.key;
+                      return (
+                        <button
+                          key={rm.key}
+                          type="button"
+                          onClick={() => setRemainingMethod(rm.key)}
+                          style={{
+                            padding: '9px 12px',
+                            borderRadius: 8,
+                            border: `1.5px solid ${isRemSelected ? rm.color : 'var(--border-subtle)'}`,
+                            background: isRemSelected ? `${rm.color}15` : 'var(--card-bg, #ffffff)',
+                            color: isRemSelected ? rm.color : 'var(--text-primary)',
+                            fontWeight: isRemSelected ? 800 : 600,
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <Icon size={15} />
+                          <span>{rm.key}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CASH / UPI / CARD SELECTED: Option to also deduct wallet balance */}
+        {selectedMethod !== 'Wallet' && guestWalletBalance > 0 && (
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 10,
+              background: applyWalletWithOther ? 'rgba(245, 158, 11, 0.08)' : 'rgba(0,0,0,0.02)',
+              border: `1.5px solid ${applyWalletWithOther ? '#f59e0b' : 'var(--border-subtle)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+            onClick={() => setApplyWalletWithOther(!applyWalletWithOther)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="checkbox"
+                checked={applyWalletWithOther}
+                onChange={e => setApplyWalletWithOther(e.target.checked)}
+                onClick={e => e.stopPropagation()}
+                style={{ width: 17, height: 17, accentColor: '#d97706', cursor: 'pointer' }}
+              />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.82rem', color: applyWalletWithOther ? '#b45309' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Wallet size={15} />
+                  <span>Use Digital Wallet Balance (₹{guestWalletBalance.toFixed(0)} available)</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  {applyWalletWithOther
+                    ? `Deducting ₹${walletCreditApplied.toFixed(2)} from wallet. Pay remaining ₹${remainingPayable.toFixed(2)} via ${selectedMethod}.`
+                    : `Tap to deduct up to ₹${Math.min(guestWalletBalance, totalAmount).toFixed(2)} from digital wallet.`}
+                </div>
+              </div>
+            </div>
+            {applyWalletWithOther && (
+              <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#b45309' }}>
+                -₹{walletCreditApplied.toFixed(0)}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Cash Tendered & Change (whenever Cash is the primary or remaining method) */}
+        {isCashInvolved && (
           <div style={{
             background: 'rgba(34, 197, 94, 0.05)',
             border: '1px solid rgba(34, 197, 94, 0.2)',
@@ -556,11 +772,13 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
             gap: 12,
           }}>
             <div style={{ flex: 1 }}>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, marginBottom: 4 }}>Cash Tendered (Optional)</label>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, marginBottom: 4 }}>
+                Cash Tendered {cashPayableTarget > 0 ? `(Payable: ₹${cashPayableTarget.toFixed(0)})` : ''}
+              </label>
               <input
                 type="number"
                 className="input-field"
-                placeholder={totalAmount.toFixed(0)}
+                placeholder={cashPayableTarget.toFixed(0)}
                 value={cashTendered}
                 onChange={e => setCashTendered(e.target.value)}
                 style={{ margin: 0, height: 34 }}
@@ -574,23 +792,6 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
             )}
           </div>
         )}
-
-        {selectedMethod === 'Wallet' && guestWalletBalance >= totalAmount && (
-          <div style={{
-            background: 'rgba(245, 158, 11, 0.08)',
-            border: '1px solid rgba(245, 158, 11, 0.25)',
-            borderRadius: 10,
-            padding: '10px 14px',
-            fontSize: '0.78rem',
-            color: '#b45309',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}>
-            <Gift size={16} />
-            <span>₹{totalAmount.toFixed(2)} will be debited from {guest?.name}'s digital wallet (Balance: ₹{guestWalletBalance.toFixed(2)}).</span>
-          </div>
-        )}
       </div>
 
       <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -602,9 +803,15 @@ const SettlePendingBillModal = ({ ordersToSettle = [], guest, onSettled, onClose
           className="btn btn-primary"
           onClick={handleConfirmSettle}
           disabled={isSubmitting}
-          style={{ minWidth: 180, fontWeight: 700 }}
+          style={{ minWidth: 200, fontWeight: 700 }}
         >
-          {isSubmitting ? 'Settling...' : `Confirm Settle (${fmtCurrency(totalAmount)})`}
+          {isSubmitting ? 'Settling...' : (
+            walletCreditApplied > 0 && remainingPayable > 0
+              ? `Confirm Settle (₹${walletCreditApplied.toFixed(0)} Wallet + ₹${remainingPayable.toFixed(0)} ${effectiveSecondaryMethod})`
+              : walletCreditApplied > 0
+              ? `Confirm Settle (${fmtCurrency(totalAmount)} via Wallet)`
+              : `Confirm Settle (${fmtCurrency(totalAmount)} via ${selectedMethod})`
+          )}
         </button>
       </div>
     </Modal>
@@ -796,6 +1003,16 @@ const Guests = () => {
 
   // Profile sub-tab
   const [profileTab, setProfileTab] = useState('orders');
+
+  // Keep selectedGuest in sync with fresh data from database
+  useEffect(() => {
+    if (selectedGuest?.id) {
+      const fresh = allGuests.find(g => g.id === selectedGuest.id);
+      if (fresh && (fresh.walletBalance !== selectedGuest.walletBalance || fresh.totalSpend !== selectedGuest.totalSpend)) {
+        setSelectedGuest(prev => ({ ...fresh, tier: guestTier(fresh) }));
+      }
+    }
+  }, [allGuests, selectedGuest?.id]);
 
   // Segmentation state
   const [segFilters, setSegFilters] = useState({
@@ -1968,7 +2185,7 @@ const Guests = () => {
       {settlePendingModal && (
         <SettlePendingBillModal
           ordersToSettle={settlePendingModal.orders}
-          guest={settlePendingModal.guest}
+          guest={allGuests.find(g => g.id === settlePendingModal.guest?.id) || settlePendingModal.guest}
           onSettled={async () => {
             if (reload) await reload();
             setSettlePendingModal(null);

@@ -344,6 +344,87 @@ describe('Guest Management & Settle Bill Later', () => {
       expect(updatedOrder.paymentMethod).toBe('Wallet');
     });
 
+    it('settles a pending bill when wallet balance is less than total (partial wallet + UPI/Cash split)', async () => {
+      // Exactly the user scenario: Bill is ₹620, wallet has ₹460
+      const guest = await insert('guests', {
+        name: 'Kumar Amiya',
+        phone: '9876500000',
+        walletBalance: 460,
+        visitCount: 10,
+        totalSpend: 8000,
+      });
+
+      const pendingOrder = await createOrder(
+        'T-1',
+        [{ id: 'i-1', name: 'Special Platter', price: 620, qty: 1 }],
+        'Pay Later',
+        {
+          status: 'pending_payment',
+          paymentStatus: 'unpaid',
+          guestId: guest.id,
+          settledAt: null,
+        }
+      );
+
+      const totalAmount = pendingOrder.total; // 620
+      const walletBalance = guest.walletBalance; // 460
+      const walletToApply = Math.min(walletBalance, totalAmount); // 460
+      const remainingAmount = totalAmount - walletToApply; // 160
+      const remainingMethod = 'UPI';
+
+      // 1. Redeem wallet portion
+      const redeemRes = await redeemGiftCardCredit({
+        guestPhone: guest.phone,
+        guestId: guest.id,
+        amount: walletToApply,
+        orderId: pendingOrder.id,
+        billNo: pendingOrder.billNo,
+        staffName: 'Cashier',
+        notes: `Pending bill ${pendingOrder.billNo} settled from profile`,
+      });
+
+      expect(redeemRes).toBeDefined();
+      expect(redeemRes.amountRedeemed).toBe(460);
+      expect(redeemRes.guest.walletBalance).toBe(0);
+
+      // 2. Settle order as split
+      const nowIso = new Date().toISOString();
+      const finalMethod = `Split (${remainingMethod}: ₹${remainingAmount.toFixed(0)}, Wallet: ₹${walletToApply.toFixed(0)})`;
+      const splits = [
+        { method: 'Wallet', amount: walletToApply },
+        { method: remainingMethod, amount: remainingAmount },
+      ];
+
+      await update('orders', pendingOrder.id, {
+        status: 'paid',
+        paymentStatus: 'paid',
+        paymentMethod: finalMethod,
+        paymentSplits: splits,
+        walletRedeemed: walletToApply,
+        settledAt: nowIso,
+        paidAt: nowIso,
+        settledBy: 'Cashier',
+      });
+
+      // 3. Update guest spend
+      await update('guests', guest.id, {
+        totalSpend: guest.totalSpend + totalAmount,
+        lastVisit: nowIso,
+      });
+
+      const updatedOrder = (getAll('orders') || []).find(o => o.id === pendingOrder.id);
+      expect(updatedOrder.status).toBe('paid');
+      expect(updatedOrder.paymentStatus).toBe('paid');
+      expect(updatedOrder.paymentMethod).toContain('Wallet: ₹460');
+      expect(updatedOrder.paymentMethod).toContain('UPI: ₹160');
+      expect(updatedOrder.paymentSplits.length).toBe(2);
+      expect(updatedOrder.walletRedeemed).toBe(460);
+
+      const updatedGuest = (getAll('guests') || []).find(g => g.id === guest.id);
+      expect(updatedGuest.walletBalance).toBe(0);
+      expect(updatedGuest.totalSpend).toBe(8620);
+    });
+
     it('settles all pending bills at once (Batch Settlement)', async () => {
       const guest = await insert('guests', {
         name: 'Rajesh Singhal',
