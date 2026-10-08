@@ -8736,13 +8736,29 @@ const POS = () => {
       flexDirection: 'column',
       height: isMobile ? 'auto' : '100%',
       minHeight: isMobile ? '100%' : 0,
-      overflow: isMobile ? 'visible' : 'hidden'
+      width: '100%',
+      maxWidth: '100%',
+      overflowX: 'hidden',
+      overflowY: isMobile ? 'visible' : 'hidden',
+      boxSizing: 'border-box'
     }}>
       <Toast message={successMsg} />
       <OfflineBanner />
 
       {isMobile && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12, background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid var(--border-subtle)', padding: 4, borderRadius: 12 }}>
+        <div style={{
+          display: 'flex',
+          gap: 6,
+          marginBottom: 10,
+          background: 'rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--border-subtle)',
+          padding: 4,
+          borderRadius: 12,
+          width: '100%',
+          maxWidth: '100%',
+          boxSizing: 'border-box'
+        }}>
           <button 
             type="button"
             className={mobileTab === 'menu' ? 'btn btn-primary' : 'btn btn-secondary'}
@@ -8762,10 +8778,32 @@ const POS = () => {
         </div>
       )}
 
-      <div style={{ display: 'flex', flex: 1, gap: 12, overflow: isMobile ? 'visible' : 'hidden', minHeight: 0 }}>
+      <div style={{
+        display: 'flex',
+        flex: 1,
+        gap: 12,
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        overflowX: 'hidden',
+        overflowY: isMobile ? 'visible' : 'hidden',
+        minHeight: 0,
+        boxSizing: 'border-box'
+      }}>
         {/* ── Left: Menu Panel ── */}
         {(!isMobile || mobileTab === 'menu') && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden', minHeight: 0 }}>
+          <div style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0,
+            overflowX: 'hidden',
+            overflowY: isMobile ? 'visible' : 'hidden',
+            minHeight: 0,
+            boxSizing: 'border-box'
+          }}>
         {/* Header */}
         <div style={{
           display: 'flex',
@@ -8881,11 +8919,11 @@ const POS = () => {
                     fontWeight: 600,
                     color: currentGuest ? 'var(--text-primary)' : 'var(--primary)',
                     background: currentGuest ? 'rgba(0,0,0,0.03)' : 'rgba(30,94,74,0.08)',
-                    maxWidth: isMobile ? 120 : 'none',
+                    maxWidth: isMobile ? 85 : 140,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    flexShrink: 0
+                    flexShrink: 1
                   }}
                   onClick={() => {
                     setAssignGuestModalTable(activeTable);
@@ -9003,15 +9041,15 @@ const POS = () => {
             </div>
 
             {/* Right: Party Size + Card pre-auth */}
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
               {orderType === 'dine-in' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.78rem' }} title="Party Size">
-                  <Users size={13} style={{ color: 'var(--text-muted)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.75rem' }} title="Party Size">
+                  <Users size={12} style={{ color: 'var(--text-muted)' }} />
                   <input type="number" min={1} max={20} value={partySize}
                     onChange={e => setPartySize(parseInt(e.target.value) || 1)}
                     style={{
-                      width: 36, padding: '3px 4px', borderRadius: 'var(--r-sm)',
-                      border: '1px solid var(--border-subtle)', fontSize: '0.8rem',
+                      width: 32, padding: '2px 4px', borderRadius: 'var(--r-sm)',
+                      border: '1px solid var(--border-subtle)', fontSize: '0.78rem',
                       fontWeight: 700, textAlign: 'center', background: 'rgba(255,255,255,0.6)',
                     }}
                   />
@@ -9021,9 +9059,9 @@ const POS = () => {
                 className="btn btn-secondary btn-sm"
                 onClick={() => setHasCardOnFile(prev => !prev)}
                 title={hasCardOnFile ? "Card on file (pre-authorized)" : "Toggle tab pre-auth"}
-                style={{ padding: '4px 8px', height: 26 }}
+                style={{ padding: '3px 6px', height: 24 }}
               >
-                <CreditCard size={13} />
+                <CreditCard size={12} />
               </button>
             </div>
           </div>
@@ -9031,23 +9069,24 @@ const POS = () => {
           {/* Dedicated Operations Bar for Active Table on Mobile */}
           {isMobile && activeTable && orderType === 'dine-in' && (
             <div style={{
-              display: 'flex',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
               gap: 6,
-              alignItems: 'center',
               width: '100%',
+              maxWidth: '100%',
               background: 'rgba(255, 255, 255, 0.4)',
-              padding: '4px 6px',
+              padding: '4px',
               borderRadius: 'var(--r-md)',
               border: '1px solid var(--border-subtle)',
-              marginTop: 4
+              marginTop: 4,
+              boxSizing: 'border-box'
             }}>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 style={{
-                  flex: 1,
-                  padding: '6px 4px',
-                  fontSize: '0.72rem',
+                  padding: '7px 4px',
+                  fontSize: '0.74rem',
                   borderRadius: 'var(--r-sm)',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -9057,45 +9096,49 @@ const POS = () => {
                   background: 'rgba(30, 94, 74, 0.05)',
                   color: 'var(--primary)',
                   cursor: 'pointer',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap'
+                  fontWeight: 700,
+                  width: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box'
                 }}
                 onClick={() => setShiftTableModal(true)}
                 title="Shift guest to another table"
               >
-                <ArrowRightLeft size={12} /> Shift Table
+                <ArrowRightLeft size={13} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Shift</span>
               </button>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 style={{
-                  flex: 1,
-                  padding: '6px 4px',
-                  fontSize: '0.72rem',
+                  padding: '7px 4px',
+                  fontSize: '0.74rem',
                   borderRadius: 'var(--r-sm)',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 4,
-                  border: '1px solid rgba(239, 68, 68, 0.35)',
-                  background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  background: 'rgba(239, 68, 68, 0.1)',
                   color: '#dc2626',
                   cursor: 'pointer',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap'
+                  fontWeight: 700,
+                  width: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box'
                 }}
                 onClick={requestReleaseTable}
                 title="Release and clear table"
               >
-                <UserX size={12} /> Release Table
+                <UserX size={13} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Release</span>
               </button>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 style={{
-                  flex: 1,
-                  padding: '6px 4px',
-                  fontSize: '0.72rem',
+                  padding: '7px 4px',
+                  fontSize: '0.74rem',
                   borderRadius: 'var(--r-sm)',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -9105,22 +9148,25 @@ const POS = () => {
                   background: 'rgba(255, 255, 255, 0.7)',
                   color: 'var(--text-secondary)',
                   cursor: 'pointer',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap'
+                  fontWeight: 700,
+                  width: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box'
                 }}
                 onClick={() => setTableHistoryModal(activeTable)}
                 title={`View past orders and receipts for Table ${activeTable.number || activeTable.id}`}
               >
-                <History size={12} /> Past Orders
+                <History size={13} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>History</span>
               </button>
             </div>
           )}
         </div>
 
         {/* Search */}
-        <div style={{ position: 'relative', marginBottom: 10 }}>
+        <div style={{ position: 'relative', marginBottom: 10, width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
           <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input className="input-field" style={{ paddingLeft: 36 }} placeholder="Search menu items..."
+          <input className="input-field" style={{ paddingLeft: 36, width: '100%', boxSizing: 'border-box' }} placeholder="Search menu items..."
             value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
           />
         </div>
@@ -9132,6 +9178,10 @@ const POS = () => {
             gap: 6,
             marginBottom: 10,
             overflowX: 'auto',
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0,
+            boxSizing: 'border-box',
             paddingBottom: 4,
             flexShrink: 0,
             WebkitOverflowScrolling: 'touch',
@@ -9152,63 +9202,159 @@ const POS = () => {
         <div style={{
           flex: isMobile ? 'none' : 1,
           overflowY: isMobile ? 'visible' : 'auto',
+          overflowX: 'hidden',
           display: 'grid',
-          gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(140px, 1fr))',
-          gap: 8,
+          gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(140px, 1fr))',
+          gap: isMobile ? 8 : 10,
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
+          boxSizing: 'border-box',
           alignContent: 'start',
           paddingBottom: isMobile ? (cart.length > 0 ? 120 : 80) : 8
         }}>
           {filteredItems.map(item => {
             const inCart = cart.find(c => c.id === item.id);
             const totalInCart = cart.filter(c => c.id === item.id).reduce((s, c) => s + c.qty, 0);
+            const hasImage = Boolean(item.image);
+
             return (
-              <button key={item.id} onClick={() => handleAddItem(item)}
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleAddItem(item)}
                 style={{
-                  padding: 0, textAlign: 'left', borderRadius: 'var(--r-lg)', cursor: 'pointer',
-                  background: totalInCart > 0 ? 'rgba(30, 94, 74,0.07)' : 'var(--card-bg)',
+                  padding: 0,
+                  textAlign: 'left',
+                  borderRadius: 'var(--r-lg)',
+                  cursor: 'pointer',
+                  background: totalInCart > 0 ? 'rgba(30, 94, 74, 0.08)' : 'var(--card-bg)',
                   backdropFilter: 'blur(16px)',
-                  border: `1.5px solid ${totalInCart > 0 ? 'rgba(30, 94, 74,0.3)' : 'var(--border-subtle)'}`,
-                  transition: 'all var(--t-fast)', position: 'relative',
-                  display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                  border: `1.5px solid ${totalInCart > 0 ? 'var(--primary)' : 'var(--border-subtle)'}`,
+                  boxShadow: totalInCart > 0 ? '0 2px 8px rgba(30, 94, 74, 0.15)' : '0 1px 4px rgba(0,0,0,0.03)',
+                  transition: 'all var(--t-fast)',
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  width: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
+                  WebkitTapHighlightColor: 'transparent',
                 }}
                 onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
                 onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
               >
-                <div style={{ position: 'relative', height: 70, width: '100%', overflow: 'hidden', background: 'rgba(30, 94, 74,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
-                  {item.image ? (
-                    typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
+                {/* Image header if available */}
+                {hasImage && (
+                  <div style={{
+                    position: 'relative',
+                    height: isMobile ? 65 : 75,
+                    width: '100%',
+                    overflow: 'hidden',
+                    background: 'rgba(30, 94, 74, 0.03)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    flexShrink: 0
+                  }}>
+                    {typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
                       <div 
                         className="svg-img-container" 
                         style={{ width: '100%', height: '100%', overflow: 'hidden' }}
                         dangerouslySetInnerHTML={{ __html: item.image }} 
                       />
                     ) : (
-                      <img src={item.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    )
-                  ) : (
-                    <div style={{ fontSize: '1.5rem', opacity: 0.15 }}>🍳</div>
-                  )}
-                </div>
-                <div style={{ padding: '10px 12px 12px 12px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between', width: '100%' }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>{item.name}</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
-                    <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.88rem' }}>
+                      <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    )}
+                  </div>
+                )}
+
+                {/* Card Content Area */}
+                <div style={{
+                  padding: isMobile ? (hasImage ? '8px 10px' : '10px') : '10px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: 1,
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
+                  gap: 6
+                }}>
+                  <div style={{
+                    fontWeight: 700,
+                    fontSize: isMobile ? '0.82rem' : '0.86rem',
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.3,
+                    overflow: 'hidden',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    minWidth: 0,
+                    wordBreak: 'break-word',
+                  }}>
+                    {item.name}
+                  </div>
+
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginTop: 'auto',
+                    width: '100%',
+                    minWidth: 0
+                  }}>
+                    <span style={{
+                      fontWeight: 800,
+                      color: 'var(--primary)',
+                      fontSize: isMobile ? '0.86rem' : '0.9rem',
+                      letterSpacing: '-0.2px'
+                    }}>
                       {item.price.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
                     </span>
-                    {totalInCart > 0 && (
+
+                    {totalInCart > 0 ? (
                       <span style={{
-                        fontSize: '0.68rem', fontWeight: 700, background: 'var(--primary)',
-                        color: 'white', borderRadius: 20, padding: '2px 7px',
+                        fontSize: '0.7rem',
+                        fontWeight: 800,
+                        background: 'var(--primary)',
+                        color: 'white',
+                        borderRadius: 14,
+                        padding: '2px 7px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 2px 6px rgba(30, 94, 74, 0.3)',
+                        flexShrink: 0
                       }}>
                         x{totalInCart}
+                      </span>
+                    ) : (
+                      <span style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '50%',
+                        background: 'rgba(30, 94, 74, 0.08)',
+                        color: 'var(--primary)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        flexShrink: 0
+                      }}>
+                        +
                       </span>
                     )}
                   </div>
                 </div>
+
                 {item.sold86 && (
                   <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(255,255,255,0.7)',
+                    background: 'rgba(255,255,255,0.75)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontWeight: 800, color: 'var(--danger)', fontSize: '0.82rem',
                     zIndex: 2,
