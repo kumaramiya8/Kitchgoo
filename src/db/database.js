@@ -1086,10 +1086,12 @@ export async function createKDSTicket(orderId, items, tableId, orderType, extra 
     tableId,
     tokenNumber: extra?.tokenNumber || (typeof tableId === 'string' && tableId.startsWith('token_') ? tableId.replace('token_', '') : null),
     guestName: extra?.guestName || null,
+    customerName: extra?.guestName || null,
     orderType: orderType || 'dine-in',
     status: 'active',
     station: ticketStation,
     priority: 'normal',
+    notes: extra?.notes || null,
     allergyAlert: items.some(i => i.allergens?.length > 0),
     allergens: items.flatMap(i => i.allergens || []),
     courseFiring: [],
@@ -1285,6 +1287,16 @@ export function setLocalCollection(collection, data) {
 
 export async function saveTableState(tableId, table) {
   markMutation();
+  const current = getAll('pos_tables') || [];
+  let found = false;
+  const next = current.map(t => {
+    if (String(t.id) === String(tableId)) { found = true; return { ...t, ...table, id: t.id }; }
+    return t;
+  });
+  if (!found) next.push({ ...table, id: table.id ?? tableId });
+  _cache['pos_tables'] = next;
+  localBackup(`${_currentTenant}_pos_tables`, next);
+
   if (!isLive()) return;
   try {
     if (_guestMode) {
@@ -1299,9 +1311,6 @@ export async function saveTableState(tableId, table) {
 
 export async function saveTableOrder(tableId, savedOrder) {
   markMutation();
-  if (!isLive()) return;
-  // Store the ordered lines lean (no menu images) — a table's saved order
-  // otherwise carries a base64 image per line into pos_saved_orders.
   let lean;
   if (Array.isArray(savedOrder)) {
     lean = stripItems(savedOrder);
@@ -1310,6 +1319,18 @@ export async function saveTableOrder(tableId, savedOrder) {
   } else {
     lean = savedOrder ?? null;
   }
+
+  const current = getAll('pos_saved_orders') || {};
+  const next = { ...(current || {}) };
+  if (lean === null) {
+    delete next[tableId];
+  } else {
+    next[tableId] = lean;
+  }
+  _cache['pos_saved_orders'] = next;
+  localBackup(`${_currentTenant}_pos_saved_orders`, next);
+
+  if (!isLive()) return;
   try {
     if (_guestMode) {
       await tracked(api.put(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/table/${encodeURIComponent(tableId)}`, { savedOrder: lean }));

@@ -2,11 +2,39 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
-import { initGuestTenantDB, initTenantDB, exitGuestMode } from '../db/database';
+import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTableOrder } from '../db/database';
 import {
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award,
   Sparkles, Send, Bot, Loader2
 } from 'lucide-react';
+
+export function matchTable(tables, query) {
+  if (!tables || !query) return null;
+  const q = String(query).trim().toLowerCase();
+  if (!q) return null;
+
+  // 1. Exact match on number, id, or name
+  let found = tables.find(t =>
+    String(t.number || '').trim().toLowerCase() === q ||
+    String(t.id || '').trim().toLowerCase() === q ||
+    String(t.name || '').trim().toLowerCase() === q
+  );
+  if (found) return found;
+
+  // 2. Normalized prefix stripping (e.g. "Table 1", "T-1", "T1", "tbl 1", "#1" -> "1")
+  const cleanQ = q.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+  if (cleanQ) {
+    found = tables.find(t => {
+      const cleanNum = String(t.number || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+      const cleanId = String(t.id || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+      const cleanName = String(t.name || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+      return (cleanNum && cleanNum === cleanQ) || (cleanId && cleanId === cleanQ) || (cleanName && cleanName === cleanQ);
+    });
+    if (found) return found;
+  }
+
+  return null;
+}
 
 const QRMenu = () => {
   const { tenantId } = useParams();
@@ -127,8 +155,8 @@ const QRMenu = () => {
   // from THIS table's record — never carry a name across tables.
   useEffect(() => {
     if (customerName) return;
-    if (tableNumber && posTables) {
-      const targetTable = posTables.find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
+    if (tableNumber && posTables && posTables.length > 0) {
+      const targetTable = matchTable(posTables, tableNumber);
       if (targetTable && targetTable.guestName) {
         setCustomerName(targetTable.guestName);
       }
@@ -137,8 +165,8 @@ const QRMenu = () => {
 
   // Sync guest table ID to sessionStorage for concurrency-safe database merging
   useEffect(() => {
-    if (tableNumber && posTables) {
-      const targetTable = posTables.find(t => String(t.number || t.id).trim().toLowerCase() === tableNumber.trim().toLowerCase());
+    if (tableNumber && posTables && posTables.length > 0) {
+      const targetTable = matchTable(posTables, tableNumber);
       if (targetTable) {
         window.sessionStorage.setItem('kitchgoo_guest_table', targetTable.id);
       }
@@ -226,14 +254,27 @@ const QRMenu = () => {
   }, [aiMessages, showAiChat]);
 
   // Core order placement — used by both the cart form and the AI chat flow.
-  const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems) => {
+  const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems, extra = {}) => {
     const resolvedName = (guestName && guestName.trim()) || 'Walk-in';
     const resolvedTable = (tableNum && tableNum.trim()) || tableParam;
     if (!resolvedTable) return { ok: false, error: 'Table number is required.' };
-    const targetTable = (posTables || []).find(
-      t => String(t.number || t.id).trim().toLowerCase() === resolvedTable.trim().toLowerCase()
-    );
-    if (!targetTable) return { ok: false, error: `Table "${resolvedTable}" was not found.` };
+
+    let targetTable = matchTable(posTables || [], resolvedTable);
+    if (!targetTable) {
+      // Dynamic fallback table so orders are NEVER lost if the floor plan table is missing
+      const safeId = `tbl_${resolvedTable.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      targetTable = {
+        id: safeId,
+        number: resolvedTable,
+        name: `Table ${resolvedTable}`,
+        status: 'available',
+        seats: 4,
+        shape: 'square',
+      };
+    }
+
+    const orderNotes = (extra && extra.notes) || notes || '';
+    const guestPhoneNum = (extra && extra.phone) || phone || '';
 
     const newItems = cartItems.map(c => {
       const itemId = c.item.id || `item_${Math.random().toString(36).substring(2, 9)}`;
@@ -244,6 +285,7 @@ const QRMenu = () => {
         qty: c.qty,
         _cartKey: `${itemId}_`,
         modifiers: [],
+        notes: c.notes || '',
         specialInstructions: c.notes || '',
         modifierGroups: c.item.modifierGroups || [],
         course: 1,
@@ -251,30 +293,54 @@ const QRMenu = () => {
       };
     });
 
-    const existingItems = (posSavedOrders || {})[targetTable.id] || [];
-    const mergedItems = [...existingItems];
+    const isFreeOrBussing = !targetTable.status || targetTable.status === 'available' || targetTable.status === 'needs-bussing';
+    const baseItems = isFreeOrBussing ? [] : ((posSavedOrders || {})[targetTable.id] || []);
+    const mergedItems = [...baseItems];
     newItems.forEach(newItem => {
       const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
       if (idx >= 0) mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + newItem.qty };
       else mergedItems.push(newItem);
     });
 
-    setPosTables(prev => prev.map(t => String(t.id) === String(targetTable.id) ? {
-      ...t, status: 'ordered', guestName: resolvedName,
-      seatedAt: t.seatedAt || new Date().toISOString(),
-    } : t));
+    const updatedTable = {
+      ...targetTable,
+      status: 'ordered',
+      guestName: resolvedName,
+      guestPhone: guestPhoneNum || targetTable.guestPhone || null,
+      notes: orderNotes || targetTable.notes || null,
+      seatedAt: isFreeOrBussing ? new Date().toISOString() : (targetTable.seatedAt || new Date().toISOString()),
+    };
+
+    // 1. Immediately store guest table ID in session storage for backend scoping
+    window.sessionStorage.setItem('kitchgoo_guest_table', targetTable.id);
+
+    // 2. Optimistic UI update
+    setPosTables(prev => {
+      const exists = (prev || []).some(t => String(t.id) === String(targetTable.id));
+      if (exists) {
+        return prev.map(t => String(t.id) === String(targetTable.id) ? updatedTable : t);
+      }
+      return [...(prev || []), updatedTable];
+    });
     setPosSavedOrders(prev => ({ ...(prev || {}), [targetTable.id]: mergedItems }));
 
+    // 3. Direct persistence to backend / database
+    await saveTableState(targetTable.id, updatedTable);
+    await saveTableOrder(targetTable.id, mergedItems);
+
+    // 4. Fire to KDS
     const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
     await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in', {
       guestName: resolvedName || targetTable.guestName || null,
+      tokenNumber: targetTable.number || null,
+      notes: orderNotes || null,
     });
     await broadcastOrderCreated(targetTable.id, kdsOrderId);
     // Also dispatch locally so KDS on the same device (e.g. staff tablet) reacts immediately
     window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
 
-    return { ok: true };
-  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated, tableParam]);
+    return { ok: true, tableId: targetTable.id, kdsOrderId };
+  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated, tableParam, notes, phone]);
 
   const sendAiMessage = useCallback(async (text) => {
     if (!text.trim() || aiLoading) return;
@@ -286,30 +352,22 @@ const QRMenu = () => {
       setAiMessages(prev => [...prev, { role: 'user', text: input }]);
 
       if (pendingAiStep === 'table') {
-        // Validate the table exists in this restaurant's floor plan
-        const tableMatch = (posTables || []).find(
-          t => String(t.number || t.id).trim().toLowerCase() === input.toLowerCase()
-        );
-        if (!tableMatch) {
-          setAiMessages(prev => [...prev, {
-            role: 'assistant',
-            text: `I couldn't find table "${input}" in this restaurant. Could you double-check the number on your table? 🙏`,
-          }]);
-          return;
-        }
-        setTableNumber(input);
+        // Validate the table exists in this restaurant's floor plan or match flexibly
+        const tableMatch = matchTable(posTables || [], input);
+        const resolvedTableStr = tableMatch ? String(tableMatch.number || tableMatch.id) : input;
+        setTableNumber(resolvedTableStr);
         // Table confirmed — now check if name is needed
         if (!customerName.trim()) {
           setPendingAiStep('name');
-          setAiMessages(prev => [...prev, { role: 'assistant', text: `Got table ${input}! What name should I put on the order? 😊` }]);
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Got Table ${resolvedTableStr}! What name should I put on the order? 😊` }]);
           return;
         }
         // Have everything — place the order now (pass input directly, state update is async)
         setAiLoading(true);
         try {
-          const result = await doPlaceOrder(customerName, input, pendingAiOrder);
+          const result = await doPlaceOrder(customerName, resolvedTableStr, pendingAiOrder);
           if (result.ok) {
-            setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Order placed for table ${input}! The kitchen is on it. Enjoy! 🍽️` }]);
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Order placed for Table ${resolvedTableStr}! The kitchen is on it. Enjoy! 🍽️` }]);
           } else {
             setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
           }
@@ -465,7 +523,7 @@ const QRMenu = () => {
     setIsSubmitting(true);
     try {
       const cartItems = Object.values(cart).map(c => ({ item: c.item, qty: c.qty, notes: c.notes || '' }));
-      const result = await doPlaceOrder(customerName, tableNumber, cartItems);
+      const result = await doPlaceOrder(customerName, tableNumber, cartItems, { notes, phone });
       if (!result.ok) { alert(result.error); return; }
       setOrderSuccess(true);
       setCart({});

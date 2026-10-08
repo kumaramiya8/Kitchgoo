@@ -757,9 +757,16 @@ export default function KDS() {
                       padding: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '2px 6px' : '0',
                       borderRadius: '4px',
                     }}>
-                      {(!ticket.tableId || String(ticket.tableId).startsWith('tab_'))
-                        ? (ticket.tokenNumber ? `Token #${ticket.tokenNumber}` : 'Waiting Table')
-                        : `T${ticket.tableId}`}
+                      {(() => {
+                        if (!ticket.tableId || String(ticket.tableId).startsWith('tab_')) {
+                          return ticket.tokenNumber ? `Token #${ticket.tokenNumber}` : 'Waiting Table';
+                        }
+                        const tableMatch = (posTables || []).find(t => String(t.id) === String(ticket.tableId) || String(t.number) === String(ticket.tableId));
+                        const label = tableMatch ? (tableMatch.number || tableMatch.name || tableMatch.id) : ticket.tableId;
+                        const str = String(label).trim();
+                        if (/^(table|tbl|token|t\d)/i.test(str)) return str.replace(/^tbl_/i, 'Table ');
+                        return `T${str}`;
+                      })()}
                     </span>
                     {guestName && (
                       <span
@@ -865,9 +872,10 @@ export default function KDS() {
                       </div>
                     );
                   })}
-                  {ticket.items?.some(i => i.notes) && (
-                    <div style={{ marginTop: 6, fontSize: '0.78rem', color: 'var(--warning)', fontStyle: 'italic' }}>
-                      {ticket.items.filter(i => i.notes).map((i, idx) => (
+                  {(ticket.notes || ticket.items?.some(i => i.notes)) && (
+                    <div style={{ marginTop: 6, fontSize: '0.78rem', color: '#ea580c', background: 'rgba(234, 88, 12, 0.08)', padding: '4px 8px', borderRadius: 6, fontStyle: 'italic' }}>
+                      {ticket.notes && <div style={{ fontWeight: 600 }}>📝 Note: {ticket.notes}</div>}
+                      {ticket.items?.filter(i => i.notes).map((i, idx) => (
                         <div key={idx}>{i.name}: {i.notes}</div>
                       ))}
                     </div>

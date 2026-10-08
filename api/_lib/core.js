@@ -235,6 +235,47 @@ export async function broadcastServerOrderCreated(tenant, tableId, kdsOrderId) {
 }
 
 // ── Tenant bootstrap helpers ────────────────────────────────
+export async function resolveAccount(db, tenantIdentifier) {
+  if (!tenantIdentifier) return null;
+  const raw = String(tenantIdentifier).trim();
+  if (!raw) return null;
+
+  // 1. Exact match by id
+  let { data: account } = await db.from('accounts').select('id, name').eq('id', raw).maybeSingle();
+  if (account) return account;
+
+  // 2. Exact match by name
+  ({ data: account } = await db.from('accounts').select('id, name').eq('name', raw).maybeSingle());
+  if (account) return account;
+
+  // 3. Case-insensitive ilike match by id or name
+  ({ data: account } = await db.from('accounts').select('id, name').ilike('id', raw).maybeSingle());
+  if (account) return account;
+
+  ({ data: account } = await db.from('accounts').select('id, name').ilike('name', raw).maybeSingle());
+  if (account) return account;
+
+  // 4. Try unslugged (hyphens/underscores to spaces)
+  const unslugged = raw.replace(/[-_]+/g, ' ');
+  if (unslugged !== raw) {
+    ({ data: account } = await db.from('accounts').select('id, name').ilike('name', unslugged).maybeSingle());
+    if (account) return account;
+    ({ data: account } = await db.from('accounts').select('id, name').ilike('id', unslugged).maybeSingle());
+    if (account) return account;
+  }
+
+  // 5. Try slugged (spaces to hyphens)
+  const slugged = raw.toLowerCase().replace(/\s+/g, '-');
+  if (slugged !== raw) {
+    ({ data: account } = await db.from('accounts').select('id, name').ilike('id', slugged).maybeSingle());
+    if (account) return account;
+    ({ data: account } = await db.from('accounts').select('id, name').ilike('name', slugged).maybeSingle());
+    if (account) return account;
+  }
+
+  return null;
+}
+
 export async function ensureAccount(tenant) {
   const db = getAdminClient();
   const { data } = await db.from('accounts').select('id').eq('id', tenant);

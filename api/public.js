@@ -11,7 +11,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { getAdminClient, broadcastChange, broadcastServerOrderCreated } from './_lib/core.js';
+import { getAdminClient, broadcastChange, broadcastServerOrderCreated, resolveAccount } from './_lib/core.js';
 import { SEEDS } from '../shared/seeds.js';
 
 const app = express();
@@ -20,9 +20,10 @@ app.use(cors({ origin: process.env.NODE_ENV === 'production' ? true : 'http://lo
 app.use(express.json({ limit: '1mb' }));
 app.set('trust proxy', 1);
 
+// Raised limit to safely accommodate shared restaurant Wi-Fi IP across all diners
 const guestWriteLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 180,
   message: { success: false, error: 'Too many requests, please slow down' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -63,35 +64,71 @@ async function getFlex(db, tenant, name, fallback) {
 // GET /api/public/qrmenu/:tenant?table=<number-or-id>
 app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   const db = requireDb();
-  const tenant = req.params.tenant;
+  const tenantParam = req.params.tenant;
 
-  // Unknown tenants 404 — a QR code for a non-existent restaurant must not
-  // create one (the old client-side flow did exactly that).
-  const { data: account } = await db.from('accounts').select('id').eq('id', tenant).maybeSingle();
+  // Resilient account resolution (id, name, case-insensitive, slug/unslug)
+  const account = await resolveAccount(db, tenantParam);
   if (!account) {
     return res.status(404).json({ success: false, error: 'Restaurant not found' });
   }
+  const canonicalTenant = account.id;
 
   const [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers] = await Promise.all([
-    db.from('menu').select('*').eq('account_id', tenant),
-    db.from('settings').select('section_name, value').eq('account_id', tenant).in('section_name', GUEST_SETTINGS_SECTIONS),
-    getFlex(db, tenant, 'floor_plans', SEEDS.floor_plans),
-    getFlex(db, tenant, 'pos_tables', []),
-    getFlex(db, tenant, 'pos_saved_orders', {}),
-    getFlex(db, tenant, 'modifiers', []),
+    db.from('menu').select('*').eq('account_id', canonicalTenant),
+    db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', GUEST_SETTINGS_SECTIONS),
+    getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
+    getFlex(db, canonicalTenant, 'pos_tables', []),
+    getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
+    getFlex(db, canonicalTenant, 'modifiers', []),
   ]);
 
   const settings = {};
   GUEST_SETTINGS_SECTIONS.forEach(s => { settings[s] = SEEDS.settings[s]; });
   (settingsRows || []).forEach(row => { settings[row.section_name] = row.value; });
 
+  // Merge floor_plans layout with saved pos_tables so guest devices always get the full table list
+  const baseTables = ((floorPlans && floorPlans.tables) || []).map(t => ({
+    id: t.id || t.number,
+    number: t.number || t.id,
+    seats: t.seats || t.capacity || 4,
+    shape: t.shape || 'square',
+    section: t.section || t.sectionId || null,
+    status: 'available',
+    guestName: null,
+    guestId: null,
+    seatedAt: null,
+    serverId: t.serverId || null,
+  }));
+  const saved = posTables || [];
+  const tableMap = new Map();
+  baseTables.forEach(t => tableMap.set(String(t.id), t));
+  saved.forEach(t => {
+    const existing = tableMap.get(String(t.id));
+    if (existing) {
+      tableMap.set(String(t.id), { ...existing, ...t });
+    } else {
+      tableMap.set(String(t.id), t);
+    }
+  });
+  const mergedPosTables = Array.from(tableMap.values());
+
   // Scope saved orders to the guest's own table when one is given
   const tableParam = (req.query.table || '').trim().toLowerCase();
   let scopedOrders = {};
   if (tableParam) {
-    const match = (posTables || []).find(t =>
-      String(t.number || t.id).trim().toLowerCase() === tableParam || String(t.id) === req.query.table
-    );
+    const cleanTableParam = tableParam.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+    const match = mergedPosTables.find(t => {
+      const tNum = String(t.number || '').trim().toLowerCase();
+      const tId = String(t.id || '').trim().toLowerCase();
+      const tName = String(t.name || '').trim().toLowerCase();
+      if (tNum === tableParam || tId === tableParam || tName === tableParam) return true;
+      if (cleanTableParam) {
+        const cleanNum = tNum.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+        const cleanId = tId.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+        return cleanNum === cleanTableParam || cleanId === cleanTableParam;
+      }
+      return false;
+    });
     if (match && savedOrders && savedOrders[match.id] !== undefined) {
       scopedOrders = { [match.id]: savedOrders[match.id] };
     }
@@ -99,45 +136,74 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
 
   res.json({
     success: true,
-    tenant,
+    tenant: canonicalTenant,
     menu: menuRows || [],
     settings,
     collections: {
       floor_plans: floorPlans,
-      pos_tables: posTables || [],
+      pos_tables: mergedPosTables,
       pos_saved_orders: scopedOrders,
       modifiers: modifiers || [],
     },
   });
 }));
 
+// Helper to broadcast changes across all aliases of the tenant
+async function broadcastToAll(canonicalTenant, requestedTenant, accountName, table) {
+  await broadcastChange(canonicalTenant, table);
+  if (requestedTenant && requestedTenant !== canonicalTenant) {
+    await broadcastChange(requestedTenant, table);
+  }
+  if (accountName && accountName !== canonicalTenant && accountName !== requestedTenant) {
+    await broadcastChange(accountName, table);
+  }
+}
+
 // PUT /api/public/qrmenu/:tenant/table/:tableId
 // Body: { table: {...} | undefined, savedOrder: <order|null> }
 // Merges ONLY the given table into pos_tables / pos_saved_orders.
 app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(async (req, res) => {
   const db = requireDb();
-  const { tenant, tableId } = req.params;
+  const { tenant: requestedTenant, tableId } = req.params;
   const { table, savedOrder } = req.body || {};
 
-  const { data: account } = await db.from('accounts').select('id').eq('id', tenant).maybeSingle();
+  const account = await resolveAccount(db, requestedTenant);
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
+  const canonicalTenant = account.id;
 
   if (table !== undefined) {
-    const current = (await getFlex(db, tenant, 'pos_tables', [])) || [];
+    const floorPlans = await getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans);
+    const current = (await getFlex(db, canonicalTenant, 'pos_tables', [])) || [];
     let found = false;
     const merged = current.map(t => {
-      if (String(t.id) === String(tableId)) { found = true; return { ...t, ...table, id: t.id }; }
+      const match = String(t.id) === String(tableId) ||
+                    (t.number && String(t.number) === String(tableId)) ||
+                    (table && table.id && String(t.id) === String(table.id)) ||
+                    (table && table.number && String(t.number) === String(table.number));
+      if (match) {
+        found = true;
+        return { ...t, ...table, id: t.id };
+      }
       return t;
     });
-    if (!found) merged.push({ ...table, id: table.id ?? tableId });
+    if (!found) {
+      const fpTable = ((floorPlans && floorPlans.tables) || []).find(t =>
+        String(t.id) === String(tableId) || (t.number && String(t.number) === String(tableId))
+      );
+      if (fpTable) {
+        merged.push({ ...fpTable, ...table, id: fpTable.id || tableId });
+      } else {
+        merged.push({ ...table, id: table.id ?? tableId });
+      }
+    }
     const { error } = await db.from('tenant_data').upsert({
-      account_id: tenant, collection_name: 'pos_tables', value: merged,
+      account_id: canonicalTenant, collection_name: 'pos_tables', value: merged,
     });
     if (error) throw error;
   }
 
   if (savedOrder !== undefined) {
-    const current = await getFlex(db, tenant, 'pos_saved_orders', {});
+    const current = await getFlex(db, canonicalTenant, 'pos_saved_orders', {});
     const merged = { ...(current || {}) };
     if (savedOrder === null) {
       delete merged[tableId];
@@ -145,45 +211,51 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
       merged[tableId] = savedOrder;
     }
     const { error } = await db.from('tenant_data').upsert({
-      account_id: tenant, collection_name: 'pos_saved_orders', value: merged,
+      account_id: canonicalTenant, collection_name: 'pos_saved_orders', value: merged,
     });
     if (error) throw error;
-    // Notify POS computers that saved orders changed so they sync order items
-    broadcastChange(tenant, 'pos_saved_orders');
+    await broadcastToAll(canonicalTenant, requestedTenant, account.name, 'pos_saved_orders');
   }
 
-  broadcastChange(tenant, 'pos_tables');
+  await broadcastToAll(canonicalTenant, requestedTenant, account.name, 'pos_tables');
   res.json({ success: true });
 }));
 
 // POST /api/public/qrmenu/:tenant/kds — append one ticket (server-side merge)
 app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, res) => {
   const db = requireDb();
-  const { tenant } = req.params;
+  const { tenant: requestedTenant } = req.params;
   const ticket = req.body?.ticket;
   if (!ticket || typeof ticket !== 'object') {
     return res.status(400).json({ success: false, error: 'Ticket payload required' });
   }
 
-  const { data: account } = await db.from('accounts').select('id').eq('id', tenant).maybeSingle();
+  const account = await resolveAccount(db, requestedTenant);
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
+  const canonicalTenant = account.id;
 
-  const current = await getFlex(db, tenant, 'kds_tickets', []);
+  const current = await getFlex(db, canonicalTenant, 'kds_tickets', []);
   const withId = {
     ...ticket,
     id: ticket.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     createdAt: ticket.createdAt || new Date().toISOString(),
   };
   const { error } = await db.from('tenant_data').upsert({
-    account_id: tenant, collection_name: 'kds_tickets', value: [...(current || []), withId],
+    account_id: canonicalTenant, collection_name: 'kds_tickets', value: [...(current || []), withId],
   });
   if (error) throw error;
 
-  broadcastChange(tenant, 'kds_tickets');
-  // Server-side order_created broadcast so KDS devices play the chime and
-  // reload immediately, even when the QR guest's Supabase channel isn't
-  // subscribed yet (race: guest placed order before the WS handshake finished).
-  broadcastServerOrderCreated(tenant, withId.tableId || null, withId.id).catch(() => {});
+  await broadcastToAll(canonicalTenant, requestedTenant, account.name, 'kds_tickets');
+
+  // Broadcast order_created across all tenant aliases so KDS chimes and reloads immediately
+  broadcastServerOrderCreated(canonicalTenant, withId.tableId || null, withId.id).catch(() => {});
+  if (requestedTenant && requestedTenant !== canonicalTenant) {
+    broadcastServerOrderCreated(requestedTenant, withId.tableId || null, withId.id).catch(() => {});
+  }
+  if (account.name && account.name !== canonicalTenant && account.name !== requestedTenant) {
+    broadcastServerOrderCreated(account.name, withId.tableId || null, withId.id).catch(() => {});
+  }
+
   res.json({ success: true, ticket: withId });
 }));
 
