@@ -129,8 +129,15 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
       }
       return false;
     });
-    if (match && savedOrders && savedOrders[match.id] !== undefined) {
-      scopedOrders = { [match.id]: savedOrders[match.id] };
+    if (match && savedOrders) {
+      const foundOrder = savedOrders[match.id] ??
+                         (match.number ? savedOrders[String(match.number)] : undefined) ??
+                         savedOrders[cleanTableParam] ??
+                         savedOrders[tableParam];
+      if (foundOrder !== undefined) {
+        scopedOrders[match.id] = foundOrder;
+        if (match.number) scopedOrders[String(match.number)] = foundOrder;
+      }
     }
   }
 
@@ -159,6 +166,39 @@ async function broadcastToAll(canonicalTenant, requestedTenant, accountName, tab
   }
 }
 
+// Helper to merge newly ordered items into an active table's existing saved items
+export function mergeOrderItems(existingItems = [], incomingItems = []) {
+  if (!existingItems || existingItems.length === 0) return incomingItems || [];
+  if (!incomingItems || incomingItems.length === 0) return existingItems || [];
+
+  const merged = [...existingItems];
+
+  incomingItems.forEach(incoming => {
+    // Check if this item is already present in existingItems
+    const idx = merged.findIndex(existing => {
+      if (existing._cartKey && incoming._cartKey && existing._cartKey === incoming._cartKey) {
+        return true;
+      }
+      if (existing.id && incoming.id && existing.id === incoming.id) {
+        const eNotes = (existing.notes || existing.specialInstructions || '').trim().toLowerCase();
+        const iNotes = (incoming.notes || incoming.specialInstructions || '').trim().toLowerCase();
+        return eNotes === iNotes;
+      }
+      return false;
+    });
+
+    if (idx >= 0) {
+      if (incoming.qty > merged[idx].qty) {
+        merged[idx] = { ...merged[idx], qty: incoming.qty };
+      }
+    } else {
+      merged.push(incoming);
+    }
+  });
+
+  return merged;
+}
+
 // PUT /api/public/qrmenu/:tenant/table/:tableId
 // Body: { table: {...} | undefined, savedOrder: <order|null> }
 // Merges ONLY the given table into pos_tables / pos_saved_orders.
@@ -182,7 +222,11 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
                     (table && table.number && String(t.number) === String(table.number));
       if (match) {
         found = true;
-        return { ...t, ...table, id: t.id };
+        // Keep existing seatedAt if table was already active!
+        const keepSeatedAt = (t.status && t.status !== 'available' && t.status !== 'needs-bussing' && t.seatedAt)
+          ? t.seatedAt
+          : (table.seatedAt || t.seatedAt || new Date().toISOString());
+        return { ...t, ...table, id: t.id, seatedAt: keepSeatedAt };
       }
       return t;
     });
@@ -203,15 +247,71 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
   }
 
   if (savedOrder !== undefined) {
-    const current = await getFlex(db, canonicalTenant, 'pos_saved_orders', {});
-    const merged = { ...(current || {}) };
+    const currentOrders = (await getFlex(db, canonicalTenant, 'pos_saved_orders', {})) || {};
+    const mergedOrders = { ...currentOrders };
+
     if (savedOrder === null) {
-      delete merged[tableId];
+      delete mergedOrders[tableId];
+      if (table && table.id) delete mergedOrders[table.id];
+      if (table && table.number) delete mergedOrders[String(table.number)];
     } else {
-      merged[tableId] = savedOrder;
+      const possibleKeys = [
+        tableId,
+        table && table.id,
+        table && table.number && String(table.number),
+        tableId.replace(/^tbl_/i, ''),
+      ].filter(Boolean).map(String);
+
+      const existingKey = possibleKeys.find(k => mergedOrders[k] !== undefined);
+      const existingVal = existingKey ? mergedOrders[existingKey] : null;
+
+      const existingItems = Array.isArray(existingVal)
+        ? existingVal
+        : (existingVal && Array.isArray(existingVal.items) ? existingVal.items : []);
+
+      const incomingItems = Array.isArray(savedOrder)
+        ? savedOrder
+        : (savedOrder && Array.isArray(savedOrder.items) ? savedOrder.items : []);
+
+      // Check current table status in pos_tables
+      const currentTables = (await getFlex(db, canonicalTenant, 'pos_tables', [])) || [];
+      const currentTable = currentTables.find(t =>
+        String(t.id) === String(tableId) ||
+        (t.number && String(t.number) === String(tableId)) ||
+        (table && String(t.id) === String(table.id)) ||
+        (table && table.number && String(t.number) === String(table.number))
+      );
+
+      const isTableCurrentlyActive = currentTable &&
+        currentTable.status &&
+        currentTable.status !== 'available' &&
+        currentTable.status !== 'needs-bussing';
+
+      let finalItems;
+      if (isTableCurrentlyActive && existingItems.length > 0) {
+        finalItems = mergeOrderItems(existingItems, incomingItems);
+      } else {
+        finalItems = incomingItems;
+      }
+
+      const finalSavedOrder = Array.isArray(savedOrder)
+        ? finalItems
+        : { ...(savedOrder || {}), items: finalItems };
+
+      const primaryKey = (table && table.id) ? String(table.id) : String(tableId);
+      mergedOrders[primaryKey] = finalSavedOrder;
+
+      // Also mirror under table number so lookups by table.number or table.id never miss
+      if (table && table.number && String(table.number) !== primaryKey) {
+        mergedOrders[String(table.number)] = finalSavedOrder;
+      }
+      if (tableId !== primaryKey) {
+        mergedOrders[tableId] = finalSavedOrder;
+      }
     }
+
     const { error } = await db.from('tenant_data').upsert({
-      account_id: canonicalTenant, collection_name: 'pos_saved_orders', value: merged,
+      account_id: canonicalTenant, collection_name: 'pos_saved_orders', value: mergedOrders,
     });
     if (error) throw error;
     await broadcastToAll(canonicalTenant, requestedTenant, account.name, 'pos_saved_orders');

@@ -235,6 +235,121 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
     });
   });
 
+  describe('Server-Side & Client-Side Multi-Order Merging (No Lost Orders)', () => {
+    it('mergeOrderItems appends new items while preserving existing items', async () => {
+      const { mergeOrderItems } = await import('../api/public');
+      const existing = [
+        { id: 'item-1', name: 'Margherita Pizza', price: 400, qty: 1, notes: '' },
+      ];
+      const incoming = [
+        { id: 'item-2', name: 'French Fries', price: 150, qty: 1, notes: 'Extra crispy' },
+      ];
+
+      const merged = mergeOrderItems(existing, incoming);
+      expect(merged).toHaveLength(2);
+      expect(merged[0].name).toBe('Margherita Pizza');
+      expect(merged[0].qty).toBe(1);
+      expect(merged[1].name).toBe('French Fries');
+      expect(merged[1].qty).toBe(1);
+    });
+
+    it('mergeOrderItems updates quantity without duplicating when same item is ordered again', async () => {
+      const { mergeOrderItems } = await import('../api/public');
+      const existing = [
+        { id: 'item-1', name: 'Cold Coffee', price: 120, qty: 1, notes: '' },
+      ];
+      const incoming = [
+        { id: 'item-1', name: 'Cold Coffee', price: 120, qty: 2, notes: '' },
+      ];
+
+      const merged = mergeOrderItems(existing, incoming);
+      expect(merged).toHaveLength(1);
+      expect(merged[0].name).toBe('Cold Coffee');
+      expect(merged[0].qty).toBe(2);
+    });
+
+    it('mergeOrderItems keeps distinct line items when same item has different notes', async () => {
+      const { mergeOrderItems } = await import('../api/public');
+      const existing = [
+        { id: 'item-1', name: 'Burger', price: 200, qty: 1, notes: 'No onion' },
+      ];
+      const incoming = [
+        { id: 'item-1', name: 'Burger', price: 200, qty: 1, notes: 'Extra cheese' },
+      ];
+
+      const merged = mergeOrderItems(existing, incoming);
+      expect(merged).toHaveLength(2);
+      expect(merged[0].notes).toBe('No onion');
+      expect(merged[1].notes).toBe('Extra cheese');
+    });
+
+    it('guarantees that repeat orders from the same table NEVER lose older items in table cart', async () => {
+      const { mergeOrderItems } = await import('../api/public');
+      const tableId = 't-kiko-1';
+      const initialTable = {
+        id: tableId,
+        number: 1,
+        name: 'Table 1',
+        status: 'available',
+        guestName: null,
+        seatedAt: null,
+      };
+      setLocalCollection('pos_tables', [initialTable]);
+      setLocalCollection('pos_saved_orders', {});
+
+      // ── Order 1: Customer orders Pizza ──────────────────────────────────
+      const order1Items = [
+        { id: 'pizza-1', _cartKey: 'pizza-1_', name: 'Farmhouse Pizza', price: 450, qty: 1, notes: '' },
+      ];
+      const tableAfterOrder1 = {
+        ...initialTable,
+        status: 'ordered',
+        guestName: 'Ananya',
+        seatedAt: new Date().toISOString(),
+      };
+      await saveTableState(tableId, tableAfterOrder1);
+      await saveTableOrder(tableId, order1Items);
+
+      // Verify Table 1 has Pizza
+      let saved = getAll('pos_saved_orders')[tableId];
+      expect(saved).toHaveLength(1);
+      expect(saved[0].name).toBe('Farmhouse Pizza');
+
+      // ── Order 2: Customer from SAME table orders Garlic Bread ───────────
+      // Customer's second cart only has garlic bread
+      const order2NewItems = [
+        { id: 'bread-1', _cartKey: 'bread-1_', name: 'Garlic Bread', price: 180, qty: 1, notes: 'With dip' },
+      ];
+
+      // Simulate repeat order merge (both client-side and server-side)
+      const currentSavedOrder = getAll('pos_saved_orders')[tableId] || [];
+      const mergedOrder2 = mergeOrderItems(currentSavedOrder, order2NewItems);
+      await saveTableOrder(tableId, mergedOrder2);
+
+      // Verify Table 1 has BOTH Pizza AND Garlic Bread!
+      saved = getAll('pos_saved_orders')[tableId];
+      expect(saved).toHaveLength(2);
+      expect(saved.map(i => i.name)).toEqual(['Farmhouse Pizza', 'Garlic Bread']);
+      expect(saved.find(i => i.name === 'Farmhouse Pizza')?.qty).toBe(1);
+      expect(saved.find(i => i.name === 'Garlic Bread')?.qty).toBe(1);
+
+      // ── Order 3: Customer orders another Farmhouse Pizza ───────────────
+      const order3NewItems = [
+        { id: 'pizza-1', _cartKey: 'pizza-1_', name: 'Farmhouse Pizza', price: 450, qty: 2, notes: '' },
+      ];
+      const mergedOrder3 = mergeOrderItems(saved, order3NewItems);
+      await saveTableOrder(tableId, mergedOrder3);
+
+      // Verify Table 1 retains Garlic Bread and updates Pizza qty to 2!
+      saved = getAll('pos_saved_orders')[tableId];
+      expect(saved).toHaveLength(2);
+      const pizza = saved.find(i => i.name === 'Farmhouse Pizza');
+      const bread = saved.find(i => i.name === 'Garlic Bread');
+      expect(pizza?.qty).toBe(2);
+      expect(bread?.qty).toBe(1);
+    });
+  });
+
   describe('Account & Tenant Resolution for Kiko Cafe', () => {
     const mockAccounts = [
       { id: 'kiko-cafe', name: 'Kiko Cafe', status: 'active', plan: 'pro' },

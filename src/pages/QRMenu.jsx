@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
-import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTableOrder } from '../db/database';
+import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTableOrder, getAll, setGuestTable } from '../db/database';
 import {
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award,
   Sparkles, Send, Bot, Loader2
@@ -163,12 +163,12 @@ const QRMenu = () => {
     }
   }, [tableNumber, posTables, customerName]);
 
-  // Sync guest table ID to sessionStorage for concurrency-safe database merging
+  // Sync guest table ID to sessionStorage and db memory for concurrency-safe database merging
   useEffect(() => {
     if (tableNumber && posTables && posTables.length > 0) {
       const targetTable = matchTable(posTables, tableNumber);
       if (targetTable) {
-        window.sessionStorage.setItem('kitchgoo_guest_table', targetTable.id);
+        setGuestTable(targetTable.id);
       }
     }
   }, [tableNumber, posTables]);
@@ -293,11 +293,22 @@ const QRMenu = () => {
       };
     });
 
-    const isFreeOrBussing = !targetTable.status || targetTable.status === 'available' || targetTable.status === 'needs-bussing';
-    const baseItems = isFreeOrBussing ? [] : ((posSavedOrders || {})[targetTable.id] || []);
+    // Lookup existing items from posSavedOrders or database cache under table.id or table.number
+    const cachedOrders = getAll('pos_saved_orders') || {};
+    const existingItems = ((posSavedOrders && (posSavedOrders[targetTable.id] || (targetTable.number && posSavedOrders[String(targetTable.number)]))) ||
+                           cachedOrders[targetTable.id] ||
+                           (targetTable.number && cachedOrders[String(targetTable.number)]) ||
+                           []);
+
+    const hasExistingItems = existingItems.length > 0;
+    const isFreeOrBussing = !hasExistingItems && (!targetTable.status || targetTable.status === 'available' || targetTable.status === 'needs-bussing');
+    const baseItems = hasExistingItems ? existingItems : [];
     const mergedItems = [...baseItems];
     newItems.forEach(newItem => {
-      const idx = mergedItems.findIndex(i => (i._cartKey || i.id) === (newItem._cartKey || newItem.id));
+      const idx = mergedItems.findIndex(i =>
+        (i._cartKey && newItem._cartKey && i._cartKey === newItem._cartKey) ||
+        (i.id === newItem.id && (i.notes || '') === (newItem.notes || ''))
+      );
       if (idx >= 0) mergedItems[idx] = { ...mergedItems[idx], qty: mergedItems[idx].qty + newItem.qty };
       else mergedItems.push(newItem);
     });
@@ -311,8 +322,8 @@ const QRMenu = () => {
       seatedAt: isFreeOrBussing ? new Date().toISOString() : (targetTable.seatedAt || new Date().toISOString()),
     };
 
-    // 1. Immediately store guest table ID in session storage for backend scoping
-    window.sessionStorage.setItem('kitchgoo_guest_table', targetTable.id);
+    // 1. Immediately pin guest table ID in session storage and db memory for scoped syncing
+    setGuestTable(targetTable.id);
 
     // 2. Optimistic UI update
     setPosTables(prev => {
@@ -322,7 +333,12 @@ const QRMenu = () => {
       }
       return [...(prev || []), updatedTable];
     });
-    setPosSavedOrders(prev => ({ ...(prev || {}), [targetTable.id]: mergedItems }));
+    setPosSavedOrders(prev => {
+      const next = { ...(prev || {}) };
+      next[targetTable.id] = mergedItems;
+      if (targetTable.number) next[String(targetTable.number)] = mergedItems;
+      return next;
+    });
 
     // 3. Direct persistence to backend / database
     await saveTableState(targetTable.id, updatedTable);

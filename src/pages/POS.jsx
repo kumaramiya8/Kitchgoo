@@ -6274,7 +6274,7 @@ const POS = () => {
         }
       }
       setActiveTable(currentTable);
-      const items = savedOrders[table.id] || savedOrders[String(table.id)] || [];
+      const items = savedOrders[table.id] || savedOrders[String(table.id)] || (table.number && (savedOrders[table.number] || savedOrders[String(table.number)])) || [];
       setCart(items);
       setPartySize(table.partySize || 1);
       setView('order');
@@ -6292,7 +6292,7 @@ const POS = () => {
     const table = tables.find(t => String(t.id) === String(tableId));
     const updatedTable = { ...table, status: 'seated', guestName: guest.name, guestId: guest.id || null, seatedAt: new Date().toISOString() };
     setActiveTable(updatedTable);
-    const items = savedOrders[tableId] || savedOrders[String(tableId)] || [];
+    const items = savedOrders[tableId] || savedOrders[String(tableId)] || (updatedTable.number && (savedOrders[updatedTable.number] || savedOrders[String(updatedTable.number)])) || [];
     setCart(items);
     setGuestModal(null);
     setView('order');

@@ -92,6 +92,13 @@ function guestTableId() {
   }
 }
 
+export function setGuestTable(tableIdOrNumber) {
+  _guestTableParam = tableIdOrNumber ? String(tableIdOrNumber) : '';
+  if (typeof window !== 'undefined' && tableIdOrNumber) {
+    try { window.sessionStorage.setItem('kitchgoo_guest_table', String(tableIdOrNumber)); } catch {}
+  }
+}
+
 // In-memory cache — populated from the backend or LocalStorage
 const _cache = {};
 
@@ -242,7 +249,14 @@ function applyTenantPayload(payload) {
   if (payload.collections) {
     FLEX_COLLECTIONS.forEach(col => {
       if (payload.collections[col] !== undefined) {
-        _cache[col] = payload.collections[col];
+        if (_guestMode && col === 'pos_saved_orders') {
+          // In guest mode, do not wipe out cached table order if remote returned empty
+          const remoteOrders = payload.collections[col] || {};
+          const currentCached = _cache[col] || {};
+          _cache[col] = { ...currentCached, ...remoteOrders };
+        } else {
+          _cache[col] = payload.collections[col];
+        }
       } else if (_cache[col] === undefined) {
         _cache[col] = JSON.parse(JSON.stringify(SEEDS[col] !== undefined ? SEEDS[col] : []));
       }
@@ -274,7 +288,8 @@ export async function syncTenantDataFromSupabase(tenantName) {
     const mutationsBefore = lastDbMutationAt;
     let payload;
     if (_guestMode) {
-      const q = _guestTableParam ? `?table=${encodeURIComponent(_guestTableParam)}` : '';
+      const activeTable = _guestTableParam || guestTableId() || '';
+      const q = activeTable ? `?table=${encodeURIComponent(activeTable)}` : '';
       payload = await api.get(`/api/public/qrmenu/${encodeURIComponent(tenantName)}${q}`);
     } else {
       payload = await api.get('/api/data/sync', { tenant: tenantName });
