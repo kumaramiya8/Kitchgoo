@@ -24,7 +24,7 @@ const BottomNav = ({ onMoreClick }) => {
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
 
   const allItems = [
-    { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: 'dashboard' },
+    { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: null },
     { name: 'POS',        path: '/pos',         icon: ShoppingCart,    perm: 'pos' },
     { name: 'Kitchen',    path: '/kds',         icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Attendance', path: '/attendance',  icon: Clock,           perm: null },

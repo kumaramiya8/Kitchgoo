@@ -770,21 +770,7 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
 // ─── Roles & Permissions ──────────────────────────────────
 const RolesSection = ({ data, onChange, isMobile }) => {
   const [newRole, setNewRole] = useState('');
-  const allPerms = ['dashboard', 'pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings'];
-
-  const permLabels = {
-    dashboard: 'Dashboard',
-    pos: 'POS',
-    kds: 'KDS',
-    inventory: 'Inventory',
-    menu: 'Menu',
-    delivery: 'Delivery',
-    staff: 'Staff',
-    guests: 'Guests',
-    reservations: 'Reservations',
-    reports: 'Reports',
-    settings: 'Settings',
-  };
+  const allPerms = ['pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings'];
 
   const togglePerm = (roleId, perm) => {
     const updated = (data || []).map(r => {
@@ -812,12 +798,12 @@ const RolesSection = ({ data, onChange, isMobile }) => {
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: 780 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
           <thead>
             <tr>
               <th style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem' }}>Role</th>
               {allPerms.map(p => (
-                <th key={p} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.7rem', textAlign: 'center' }}>{permLabels[p] || p}</th>
+                <th key={p} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'capitalize', fontSize: '0.7rem', textAlign: 'center' }}>{p}</th>
               ))}
               <th style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }} />
             </tr>

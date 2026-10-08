@@ -8,11 +8,10 @@ import HelpDrawer from '../ui/HelpDrawer';
 import Tooltip from '../ui/Tooltip';
 import { toggleThemeWithReveal } from '../../lib/theme';
 import { isModuleEnabled } from '../../../shared/seeds';
-import { usePermissions } from '../../db/usePermissions';
 
 const SEARCHABLE_ITEMS = [
   // Pages
-  { name: 'Dashboard', type: 'page', path: '/', perm: 'dashboard', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'] },
+  { name: 'Dashboard', type: 'page', path: '/', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'] },
   { name: 'POS & Billing', type: 'page', path: '/pos', allowedRoles: ['Owner', 'Manager', 'Cashier', 'Waiter'] },
   { name: 'Kitchen Display System', type: 'page', path: '/kds', module: 'kds', allowedRoles: ['Owner', 'Manager', 'Chef'] },
   { name: 'Menu Management', type: 'page', path: '/menu', allowedRoles: ['Owner', 'Manager', 'Chef'] },
@@ -44,7 +43,6 @@ const SEARCHABLE_ITEMS = [
 const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const { user, logout } = useAuth();
   const { settings, updateSettingsSection } = useApp();
-  const can = usePermissions();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -92,20 +90,17 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
       const nameMatches = item.name.toLowerCase().includes(query);
       if (!nameMatches) return false;
 
-      // 2. Check granular permission if specified
-      if (item.perm && !can(item.perm)) return false;
-
-      // 3. Match role permission
+      // 2. Match role permission
       if (!item.allowedRoles.some(r => r.toLowerCase() === userRole)) return false;
 
-      // 4. Match module toggle
+      // 3. Match module toggle
       if (item.module && !isModuleEnabled(settings, item.module)) return false;
 
       return true;
     });
 
     setSearchResults(filtered);
-  }, [searchQuery, user, settings, can]);
+  }, [searchQuery, user, settings]);
 
   // Position dropdown relative to button
   const openDropdown = () => {

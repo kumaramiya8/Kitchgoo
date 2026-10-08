@@ -212,7 +212,7 @@ export const SEEDS = {
     },
     roles: [
       { id: 'owner',   name: 'Owner',   permissions: ['all'] },
-      { id: 'manager', name: 'Manager', permissions: ['dashboard', 'pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds', 'reservations', 'guests', 'settings.view'] },
+      { id: 'manager', name: 'Manager', permissions: ['pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds', 'reservations', 'guests', 'settings.view'] },
       { id: 'cashier', name: 'Cashier', permissions: ['pos', 'delivery', 'guests.view'] },
       { id: 'chef',    name: 'Chef',    permissions: ['inventory', 'menu', 'kds'] },
       { id: 'waiter',  name: 'Waiter',  permissions: ['pos', 'kds.view', 'reservations.view'] },
