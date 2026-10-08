@@ -871,7 +871,7 @@ tbody tr:hover {
   position: fixed;
   inset: 0;
   background: rgba(17, 22, 19, 0.45);
-  z-index: 100;
+  z-index: 1200;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1199,6 +1199,8 @@ tbody tr:hover {
     height: 100vh;
     height: 100dvh;
     width: 100vw;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   .header-menu-btn {
@@ -1258,12 +1260,51 @@ tbody tr:hover {
 
   .main-content {
     width: 100%;
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .page-body {
-    padding: 14px 14px 84px; /* clearance for bottom nav */
+    padding: 12px 12px calc(80px + env(safe-area-inset-bottom, 0px)); /* clearance for bottom nav */
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-backdrop {
+    z-index: 1200;
+    padding: 10px;
+    align-items: center;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 24px);
+    border-radius: var(--r-xl);
+  }
+
+  .modal-header {
+    padding: 14px 16px 12px;
+  }
+
+  .modal-body {
+    padding: 14px 16px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-footer {
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    flex-wrap: wrap;
+  }
+
+  .page-title-row {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
   }
 
   .dashboard-grid { grid-template-columns: 1fr 1fr; gap: 10px; }

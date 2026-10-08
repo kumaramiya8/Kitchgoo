@@ -2915,8 +2915,9 @@ const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) 
 const PaymentModal = ({
   cart, cartTotal, tax, gstRate, pricesIncludeGst = true, grandTotal, serviceCharge, autoGratuity,
   discount, activeTable, unassignedTab, currentGuest, onConfirm, onClose, settings, packagingCharge = 0,
-  initialPhone = '', guests = []
+  initialPhone = '', guests = [], isMobile: isMobileProp
 }) => {
+  const isMobile = isMobileProp ?? (typeof window !== 'undefined' && window.innerWidth <= 768);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
   const [isSplit, setIsSplit] = useState(false);
@@ -3245,7 +3246,7 @@ const PaymentModal = ({
               </div>
             )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 10 }}>
             <div style={{ position: 'relative' }}>
               <Phone size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
@@ -3279,8 +3280,10 @@ const PaymentModal = ({
               background: 'rgba(34,197,94,0.08)',
               border: '1px solid rgba(34,197,94,0.25)',
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: isMobile ? 'column' : 'row',
+              alignItems: isMobile ? 'flex-start' : 'center',
               justifyContent: 'space-between',
+              gap: isMobile ? 8 : 4,
               fontSize: '0.78rem'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -3290,7 +3293,7 @@ const PaymentModal = ({
                 </span>
               </div>
               {effectiveWalletApplied > 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'space-between' : 'flex-end' }}>
                   <span style={{ fontWeight: 700, color: '#15803d' }}>
                     Applied: ₹{effectiveWalletApplied.toFixed(2)}
                   </span>
@@ -3311,7 +3314,7 @@ const PaymentModal = ({
                     const toApply = Math.min(availableWalletBalance, rawBaseTotal);
                     setWalletCreditApplied(toApply);
                   }}
-                  style={{ fontSize: '0.72rem', padding: '3px 10px', height: 26, fontWeight: 700 }}
+                  style={{ fontSize: '0.72rem', padding: '3px 10px', height: 26, fontWeight: 700, width: isMobile ? '100%' : 'auto' }}
                 >
                   Apply ₹{Math.min(availableWalletBalance, rawBaseTotal).toFixed(0)} Credit
                 </button>
@@ -3320,7 +3323,7 @@ const PaymentModal = ({
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 12 : 16 }}>
           {/* Left: Summary */}
           <div>
             <div style={{
@@ -3765,10 +3768,30 @@ const PaymentModal = ({
         </div>
       </div>
 
-      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+      <div className="modal-footer" style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column-reverse' : 'row',
+        justifyContent: 'space-between',
+        alignItems: isMobile ? 'stretch' : 'center',
+        gap: isMobile ? 8 : 10,
+        width: '100%'
+      }}>
+        <button
+          className="btn btn-secondary"
+          onClick={onClose}
+          disabled={isSubmitting}
+          style={{ width: isMobile ? '100%' : 'auto' }}
+        >
+          Cancel
+        </button>
 
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column-reverse' : 'row',
+          gap: 8,
+          alignItems: isMobile ? 'stretch' : 'center',
+          width: isMobile ? '100%' : 'auto'
+        }}>
           <button
             type="button"
             className="btn"
@@ -3781,7 +3804,9 @@ const PaymentModal = ({
               fontWeight: 700,
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 6,
+              width: isMobile ? '100%' : 'auto'
             }}
             title="Record bill as pending and charge to guest's profile"
           >
@@ -3792,7 +3817,15 @@ const PaymentModal = ({
             className="btn btn-success"
             disabled={isSubmitting || (isSplit && !isSplitValid) || (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim())}
             onClick={paymentMethod === 'Pay Later' ? handleSettleLater : handleSettle}
-            style={{ minWidth: 200, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            style={{
+              minWidth: isMobile ? 0 : 200,
+              width: isMobile ? '100%' : 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: isMobile ? '10px 14px' : undefined
+            }}
           >
             {isSubmitting ? (
               <>
@@ -8661,7 +8694,13 @@ const POS = () => {
   if (shouldBlockPOSComplete) return registerClosedScreen;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: isMobile ? 'auto' : '100%',
+      minHeight: isMobile ? '100%' : 0,
+      overflow: isMobile ? 'visible' : 'hidden'
+    }}>
       <Toast message={successMsg} />
       <OfflineBanner />
 
@@ -8686,10 +8725,10 @@ const POS = () => {
         </div>
       )}
 
-      <div style={{ display: 'flex', flex: 1, gap: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, gap: 12, overflow: isMobile ? 'visible' : 'hidden', minHeight: 0 }}>
         {/* ── Left: Menu Panel ── */}
         {(!isMobile || mobileTab === 'menu') && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden', minHeight: 0 }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -8944,7 +8983,15 @@ const POS = () => {
         )}
 
         {/* Menu Grid */}
-        <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, alignContent: 'start', paddingBottom: 8 }}>
+        <div style={{
+          flex: isMobile ? 'none' : 1,
+          overflowY: isMobile ? 'visible' : 'auto',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+          gap: 8,
+          alignContent: 'start',
+          paddingBottom: isMobile ? 80 : 8
+        }}>
           {filteredItems.map(item => {
             const inCart = cart.find(c => c.id === item.id);
             const totalInCart = cart.filter(c => c.id === item.id).reduce((s, c) => s + c.qty, 0);
@@ -9020,7 +9067,10 @@ const POS = () => {
         <div style={{
           width: isMobile ? '100%' : 330, flexShrink: 0, display: 'flex', flexDirection: 'column',
           background: 'var(--card-bg)', backdropFilter: 'blur(20px)',
-          border: '1px solid var(--border-subtle)', borderRadius: 'var(--r-2xl)', overflow: 'hidden',
+          border: '1px solid var(--border-subtle)', borderRadius: 'var(--r-2xl)',
+          overflow: isMobile ? 'visible' : 'hidden',
+          minHeight: 0,
+          marginBottom: isMobile ? 16 : 0,
         }}>
         {/* Cart Header */}
         <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.5)' }}>
@@ -9068,7 +9118,12 @@ const POS = () => {
         </div>
 
         {/* Cart Items */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+        <div style={{
+          flex: isMobile ? 'none' : 1,
+          overflowY: isMobile ? 'visible' : 'auto',
+          padding: 8,
+          minHeight: 0
+        }}>
           {cart.length === 0 ? (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', gap: 8 }}>
               <ShoppingCart size={32} strokeWidth={1.2} />
@@ -9279,7 +9334,7 @@ const POS = () => {
         </div>
 
         {/* Totals */}
-        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.6)' }}>
+        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.6)', paddingBottom: isMobile ? 18 : 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: '0.8rem' }}>
             <span style={{ color: 'var(--text-muted)' }}>{pricesIncludeGst ? 'Subtotal (Net)' : 'Subtotal'}</span>
             <span style={{ fontWeight: 600 }}>{subtotalNet.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}</span>
@@ -9409,6 +9464,7 @@ const POS = () => {
               setTables(prev => prev.map(t => String(t.id) === String(activeTable.id) && t.status === 'paying' ? { ...t, status: restore } : t));
             }
           }}
+          isMobile={isMobile}
         />
       )}
 
