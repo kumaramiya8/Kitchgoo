@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getOrderPaymentSplits, getWalletAmountFromOrder } from '../src/pages/Reports.jsx';
+import { getOrderPaymentSplits, getWalletAmountFromOrder, getWalletCreditedFromOrder } from '../src/pages/Reports.jsx';
 
 describe('Payment Reconciliation Report Calculations', () => {
   it('correctly aggregates direct UPI orders for bank statement matching', () => {
@@ -122,5 +122,46 @@ describe('Payment Reconciliation Report Calculations', () => {
     const actualDrawerCount = 2280; // short by ₹20
     const cashDiff = Math.round((actualDrawerCount - expectedDrawerCash) * 100) / 100;
     expect(cashDiff).toBe(-20);
+  });
+
+  it('correctly extracts walletCredited from order history or giftCards for invoice INV-KIK6Y-1573', () => {
+    // Exactly reproducing invoice INV-KIK6Y-1573: ₹500 tendered on ₹130 bill, ₹370 sent to wallet
+    const orderFromDatabase = {
+      id: 'ord_kik_1573',
+      billNo: 'INV-KIK6Y-1573',
+      total: 130,
+      paymentMethod: 'Cash',
+      status: 'paid',
+      // Notice: walletCredited field is undefined as fetched from relational database
+      history: [
+        { action: 'created', timestamp: '2026-10-08T07:36:54Z', by: 'Admin (Kiko Cafe)' },
+        { action: 'payment_settled', timestamp: '2026-10-08T10:26:30Z', description: 'Settled via Cash for ₹130.00' },
+        {
+          action: 'wallet_credit_issued',
+          timestamp: '2026-10-08T10:26:30Z',
+          amount: 370,
+          description: 'Converted ₹370.00 extra cash change to digital wallet credit (linked to 9555604867)'
+        }
+      ]
+    };
+
+    const giftCards = [
+      {
+        id: 'gc_kik_1',
+        type: 'issue',
+        amount: 370,
+        billNo: 'INV-KIK6Y-1573',
+        orderId: 'ord_kik_1573',
+        guestPhone: '9555604867',
+        paymentMethod: 'Cash'
+      }
+    ];
+
+    const extraCash = getWalletCreditedFromOrder(orderFromDatabase, giftCards);
+    expect(extraCash).toBe(370);
+
+    const billCash = orderFromDatabase.total;
+    const totalCashCollected = billCash + extraCash;
+    expect(totalCashCollected).toBe(500);
   });
 });

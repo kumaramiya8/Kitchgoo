@@ -157,6 +157,42 @@ export function getWalletAmountFromOrder(order) {
   return 0;
 }
 
+export function getWalletCreditedFromOrder(order, giftCards = []) {
+  if (!order) return 0;
+  // 1. Direct field on order object or timestamps
+  const direct = parseFloat(order.walletCredited || order.timestamps?.walletCredited || 0);
+  if (direct > 0) return direct;
+
+  // 2. Check history in order or order.timestamps.history (e.g. action === 'wallet_credit_issued')
+  const hist = Array.isArray(order.history) ? order.history : (order.timestamps?.history || []);
+  const entry = hist.find(h => h && (h.action === 'wallet_credit_issued' || h.action === 'wallet_credited'));
+  if (entry) {
+    const val = parseFloat(entry.amount || (typeof entry.description === 'string' && entry.description.match(/₹([0-9.]+)/)?.[1]) || 0);
+    if (val > 0) return val;
+  }
+
+  // 3. Check matching giftCards / store credit records by orderId or billNo
+  if (Array.isArray(giftCards) && giftCards.length > 0) {
+    const gc = giftCards.find(g => g && g.type === 'issue' && (
+      (g.orderId && order.id && String(g.orderId) === String(order.id)) ||
+      (g.billNo && order.billNo && String(g.billNo).trim().toUpperCase() === String(order.billNo).trim().toUpperCase())
+    ));
+    if (gc) {
+      const val = parseFloat(gc.amount || 0);
+      if (val > 0) return val;
+    }
+  }
+
+  // 4. Check if cashTendered > total
+  const tendered = parseFloat(order.cashTendered || order.timestamps?.cashTendered || 0);
+  const total = parseFloat(order.total || 0);
+  if (tendered > total) {
+    return Math.round((tendered - total) * 100) / 100;
+  }
+
+  return 0;
+}
+
 export function getOrderPaymentSplits(order) {
   if (!order) return null;
   let rawSplits = order.paymentSplits || order.timestamps?.paymentSplits;
@@ -722,7 +758,7 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans, posTables }) => {
 // TAB 2 -- SALES & INVOICING REPORT
 // =================================================================
 
-const DailySalesSummaryReport = ({ orders, settings }) => {
+const DailySalesSummaryReport = ({ orders, settings, giftCards = [] }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -839,7 +875,7 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
       }
 
       // Cash calculation includes any extra cash change deposited to wallet
-      const extraWalletCash = parseFloat(o.walletCredited || 0);
+      const extraWalletCash = getWalletCreditedFromOrder(o, giftCards);
       if (extraWalletCash > 0) {
         day.cash += extraWalletCash;
       }
@@ -965,7 +1001,7 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
   );
 };
 
-const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
+const DetailedInvoiceRegisterReport = ({ orders, settings, giftCards = [] }) => {
   const [range, setRange]       = useState('This Month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
@@ -1046,7 +1082,7 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       } else if ((o.paymentMethod || '').toLowerCase().includes('cash')) {
         c = Math.max(0, (parseFloat(o.total) || 0) - getWalletAmountFromOrder(o));
       }
-      return sum + c + (parseFloat(o.walletCredited) || 0);
+      return sum + c + getWalletCreditedFromOrder(o, giftCards);
     }, 0);
     const upiTotal = validOrders.reduce((sum, o) => {
       const splits = getOrderPaymentSplits(o);
@@ -1277,8 +1313,8 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
                             </>
                           );
                         })()}
-                        {parseFloat(o.walletCredited || 0) > 0 && (
-                          <Badge label={`Credited ₹${parseFloat(o.walletCredited).toFixed(0)}`} color="#f59e0b" />
+                        {getWalletCreditedFromOrder(o, giftCards) > 0 && (
+                          <Badge label={`Credited ₹${getWalletCreditedFromOrder(o, giftCards).toFixed(0)}`} color="#f59e0b" />
                         )}
                       </div>
                     </Td>
@@ -2156,7 +2192,7 @@ const SalesAccrualReport = ({ orders, settings }) => {
   );
 };
 
-const SalesInvoicingTab = ({ orders, settings }) => {
+const SalesInvoicingTab = ({ orders, settings, giftCards }) => {
   const [subTab, setSubTab] = useState('daily');
 
   return (
@@ -2181,9 +2217,9 @@ const SalesInvoicingTab = ({ orders, settings }) => {
       </div>
 
       {subTab === 'daily' ? (
-        <DailySalesSummaryReport orders={orders} settings={settings} />
+        <DailySalesSummaryReport orders={orders} settings={settings} giftCards={giftCards} />
       ) : subTab === 'register' ? (
-        <DetailedInvoiceRegisterReport orders={orders} settings={settings} />
+        <DetailedInvoiceRegisterReport orders={orders} settings={settings} giftCards={giftCards} />
       ) : subTab === 'closures' ? (
         <RegisterClosuresReport />
       ) : (
@@ -6228,7 +6264,7 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
 
       const splits = getOrderPaymentSplits(o);
       const wRedeemed = getWalletAmountFromOrder(o);
-      const extraCash = parseFloat(o.walletCredited || 0);
+      const extraCash = getWalletCreditedFromOrder(o, giftCards);
 
       let cPart = 0;
       let uPart = 0;
@@ -6317,7 +6353,10 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
     (rangedGiftCards || []).forEach(g => {
       if (g.type !== 'issue') return;
       if (g.orderId || g.billNo) {
-        const linked = activeOrders.some(o => o.id === g.orderId || o.billNo === g.billNo);
+        const linked = activeOrders.some(o =>
+          (o.id && g.orderId && String(o.id) === String(g.orderId)) ||
+          (o.billNo && g.billNo && String(o.billNo).trim().toUpperCase() === String(g.billNo).trim().toUpperCase())
+        );
         if (linked) return;
       }
 
@@ -7040,7 +7079,7 @@ const Reports = () => {
 
       {/* Tab Content */}
       {activeTab === 'dashboard'              && <DashboardTab orders={orders} inventory={inventory} staff={staff} floorPlans={floorPlans} posTables={posTables} />}
-      {activeTab === 'sales_invoicing'        && <SalesInvoicingTab orders={orders} settings={settings} />}
+      {activeTab === 'sales_invoicing'        && <SalesInvoicingTab orders={orders} settings={settings} giftCards={giftCards} />}
       {activeTab === 'payment_reconciliation' && <PaymentReconciliationTab orders={orders} settings={settings} giftCards={giftCards} />}
       {activeTab === 'tax_compliance'         && <TaxComplianceTab orders={orders} settings={settings} />}
       {activeTab === 'inventory_mgmt'         && <InventoryMgmtTab inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}

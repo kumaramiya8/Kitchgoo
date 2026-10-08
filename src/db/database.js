@@ -201,6 +201,35 @@ function mapUserRow(row) {
   return u;
 }
 
+export function hydrateOrderRow(o) {
+  if (!o) return o;
+  const camel = toCamelCase(o);
+  if (!camel.paymentSplits && camel.timestamps?.paymentSplits) {
+    camel.paymentSplits = camel.timestamps.paymentSplits;
+  }
+  if (!camel.history && camel.timestamps?.history) {
+    camel.history = camel.timestamps.history;
+  }
+  if (!camel.walletCredited) {
+    if (camel.timestamps?.walletCredited) {
+      camel.walletCredited = parseFloat(camel.timestamps.walletCredited);
+    } else {
+      const hist = Array.isArray(camel.history) ? camel.history : (camel.timestamps?.history || []);
+      const entry = hist.find(h => h && (h.action === 'wallet_credit_issued' || h.action === 'wallet_credited'));
+      if (entry) {
+        camel.walletCredited = parseFloat(entry.amount || (typeof entry.description === 'string' && entry.description.match(/₹([0-9.]+)/)?.[1]) || 0);
+      }
+    }
+  }
+  if (!camel.walletRedeemed && camel.timestamps?.walletRedeemed) {
+    camel.walletRedeemed = parseFloat(camel.timestamps.walletRedeemed);
+  }
+  if (!camel.cashTendered && camel.timestamps?.cashTendered) {
+    camel.cashTendered = parseFloat(camel.timestamps.cashTendered);
+  }
+  return camel;
+}
+
 // Oldest → newest, the order the app has always assumed
 function sortByCreatedAt(list) {
   return [...list].sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
@@ -221,16 +250,7 @@ function applyTenantPayload(payload) {
   if (payload.menu) _cache['menu'] = payload.menu.map(toCamelCase);
   if (payload.inventory) _cache['inventory'] = payload.inventory.map(toCamelCase);
   if (payload.orders) {
-    let orders = payload.orders.map(o => {
-      const camel = toCamelCase(o);
-      if (!camel.paymentSplits && camel.timestamps?.paymentSplits) {
-        camel.paymentSplits = camel.timestamps.paymentSplits;
-      }
-      if (!camel.history && camel.timestamps?.history) {
-        camel.history = camel.timestamps.history;
-      }
-      return camel;
-    });
+    let orders = payload.orders.map(hydrateOrderRow);
     if (payload.ordersFrom) {
       // Bounded window from the server: keep any older rows already fetched
       const existing = (_cache['orders'] || []).filter(o =>
@@ -317,16 +337,7 @@ export async function syncOneCollection(name) {
       if (name === 'users') {
         _cache['users'] = (res.rows || []).map(mapUserRow);
       } else if (name === 'orders') {
-        const windowRows = (res.rows || []).map(o => {
-          const camel = toCamelCase(o);
-          if (!camel.paymentSplits && camel.timestamps?.paymentSplits) {
-            camel.paymentSplits = camel.timestamps.paymentSplits;
-          }
-          if (!camel.history && camel.timestamps?.history) {
-            camel.history = camel.timestamps.history;
-          }
-          return camel;
-        });
+        const windowRows = (res.rows || []).map(hydrateOrderRow);
         const from = res.ordersFrom;
         // Keep any older orders already fetched for a report view
         const older = (_cache['orders'] || []).filter(o => o.createdAt && from && o.createdAt < from);
@@ -513,7 +524,7 @@ export async function ensureOrdersSince(fromDayStr) {
     const to = _ordersLoadedFrom || undefined;
     const q = to ? `?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(to)}` : `?from=${encodeURIComponent(fromIso)}`;
     const { orders } = await api.get(`/api/data/orders${q}`, { tenant: _currentTenant });
-    const older = (orders || []).map(toCamelCase);
+    const older = (orders || []).map(hydrateOrderRow);
     const existing = _cache['orders'] || [];
     const ids = new Set(existing.map(o => o.id));
     _cache['orders'] = sortByCreatedAt([...existing, ...older.filter(o => !ids.has(o.id))]);
@@ -929,6 +940,9 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
       foodBumped: extra.foodBumpedAt || null,
       paid: extra.status === 'voided' ? null : nowIso,
       paymentSplits: extra.paymentSplits || null,
+      walletCredited: extra.walletCredited || 0,
+      walletRedeemed: extra.walletRedeemed || 0,
+      cashTendered: extra.cashTendered || 0,
       history: Array.isArray(extra.history) ? extra.history : [],
       ...(extra.timestamps || {})
     },
