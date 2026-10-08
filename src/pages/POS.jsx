@@ -495,7 +495,7 @@ const ModifierModal = ({ item, modifierGroups, onConfirm, onClose }) => {
                 {currentGroup.maxSelections === 1 ? 'Choose one' : `Choose up to ${currentGroup.maxSelections}`}
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
               {(currentGroup.options || []).map(opt => {
                 const sel = isSelected(currentGroup.id, opt);
                 return (
@@ -1336,6 +1336,7 @@ const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) =
 
 // ─── Shift / Transfer Table Modal ──────────────────────────────────────────
 const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShift, onClose }) => {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
   const [selectedTableId, setSelectedTableId] = useState(null);
   const [markNeedsCleaning, setMarkNeedsCleaning] = useState(true);
   const [printNotice, setPrintNotice] = useState(true);
@@ -1366,9 +1367,14 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
       <div className="modal-body" style={{ maxHeight: '68vh', overflowY: 'auto' }}>
         {/* Source Table Summary Banner */}
         <div style={{
-          padding: '12px 16px', borderRadius: 'var(--r-md)',
+          padding: '12px 14px', borderRadius: 'var(--r-md)',
           background: 'rgba(30, 94, 74,0.06)', border: '1px solid rgba(30, 94, 74,0.2)',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'flex-start' : 'center',
+          gap: isMobile ? 8 : 12,
+          marginBottom: 16,
         }}>
           <div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
@@ -1379,7 +1385,7 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
               {currentTable?.guestName && <span style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-secondary)' }}> — {currentTable.guestName}</span>}
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
             <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '1.05rem' }}>
               {totalAmount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
             </div>
@@ -1516,8 +1522,15 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
         </div>
       </div>
 
-      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="btn btn-secondary" onClick={onClose}>
+      <div className="modal-footer" style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column-reverse' : 'row',
+        justifyContent: 'space-between',
+        alignItems: isMobile ? 'stretch' : 'center',
+        gap: isMobile ? 8 : 10,
+        width: '100%'
+      }}>
+        <button className="btn btn-secondary" onClick={onClose} style={{ width: isMobile ? '100%' : 'auto' }}>
           Cancel
         </button>
         <button
@@ -1533,6 +1546,13 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
             }
           }}
           disabled={!selectedTableId}
+          style={{
+            width: isMobile ? '100%' : 'auto',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6
+          }}
         >
           <ArrowRightLeft size={15} />
           {isTargetOccupied
@@ -2230,12 +2250,13 @@ const AssignGuestModal = ({ currentGuest, currentPhone, guests = [], onAssign, o
 
 // ─── Release / Clear Table Modal ──────────────────────────────────────────
 const ReleaseTableModal = ({ table, hasItems, itemCount, onConfirm, onClose }) => {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
   const [markStatus, setMarkStatus] = useState('available'); // 'available' | 'needs-bussing'
   const [cancelKds, setCancelKds] = useState(true);
 
   return (
     <Modal title={`Release Table ${table?.number || table?.id}`} onClose={onClose}>
-      <div className="modal-body" style={{ padding: '20px 16px' }}>
+      <div className="modal-body" style={{ padding: isMobile ? '16px 12px' : '20px 16px' }}>
         <div style={{
           padding: '12px 14px', borderRadius: 'var(--r-md)',
           background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)',
@@ -2258,7 +2279,7 @@ const ReleaseTableModal = ({ table, hasItems, itemCount, onConfirm, onClose }) =
           <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
             Table Status After Release:
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, flexDirection: isMobile ? 'column' : 'row' }}>
             <label style={{
               flex: 1, padding: '10px 12px', borderRadius: 'var(--r-md)', cursor: 'pointer',
               border: `1.5px solid ${markStatus === 'available' ? 'var(--primary)' : 'var(--border-subtle)'}`,
@@ -2307,8 +2328,15 @@ const ReleaseTableModal = ({ table, hasItems, itemCount, onConfirm, onClose }) =
         )}
       </div>
 
-      <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="btn btn-secondary" onClick={onClose}>
+      <div className="modal-footer" style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column-reverse' : 'row',
+        justifyContent: 'space-between',
+        alignItems: isMobile ? 'stretch' : 'center',
+        gap: isMobile ? 8 : 10,
+        width: '100%'
+      }}>
+        <button className="btn btn-secondary" onClick={onClose} style={{ width: isMobile ? '100%' : 'auto' }}>
           Cancel
         </button>
         <button
@@ -2317,7 +2345,16 @@ const ReleaseTableModal = ({ table, hasItems, itemCount, onConfirm, onClose }) =
             onConfirm({ markStatus, cancelKds });
             onClose();
           }}
-          style={{ background: '#dc2626', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+          style={{
+            background: '#dc2626',
+            color: '#fff',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            width: isMobile ? '100%' : 'auto'
+          }}
         >
           <UserX size={15} /> Release Table
         </button>
@@ -8730,86 +8767,105 @@ const POS = () => {
         {(!isMobile || mobileTab === 'menu') && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden', minHeight: 0 }}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {isTableManagementEnabled ? (
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  const items = (cart && cart.length > 0) ? cart : (activeTable ? (savedOrders[activeTable.id] || savedOrders[String(activeTable.id)] || []) : []);
-                  if (activeTable && items.length === 0 && (activeTable.status === 'seated' || activeTable.guestName)) {
-                    if (window.confirm(`Table ${activeTable.number || activeTable.id} has no orders. Release table and mark it available?`)) {
-                      handleReleaseTable({ markStatus: 'available', cancelKds: false });
-                      return;
-                    }
-                  }
-                  if (unassignedTab) {
-                    if (cart.length > 0) {
-                      const updatedTab = {
-                        ...unassignedTab,
-                        items: cart,
-                        firedItems: unassignedTab.firedItems || [],
-                      };
-                      setSavedOrders(prev => ({
-                        ...prev,
-                        [`tab_${unassignedTab.id}`]: updatedTab,
-                        __tabs_meta__: {
-                          ...(prev.__tabs_meta__ || {}),
-                          [unassignedTab.id]: updatedTab,
-                        },
-                      }));
-                    } else {
-                      const existing = savedOrders[`tab_${unassignedTab.id}`];
-                      const existingItems = Array.isArray(existing) ? existing : (existing?.items || []);
-                      if (existingItems.length === 0) {
-                        setSavedOrders(prev => {
-                          const next = { ...prev };
-                          delete next[`tab_${unassignedTab.id}`];
-                          if (next.__tabs_meta__) {
-                            const nextMeta = { ...next.__tabs_meta__ };
-                            delete nextMeta[unassignedTab.id];
-                            next.__tabs_meta__ = nextMeta;
-                          }
-                          return next;
-                        });
+        <div style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? 8 : 12,
+          marginBottom: 12
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            width: '100%',
+            flexWrap: isMobile ? 'nowrap' : 'wrap'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+              {isTableManagementEnabled ? (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ flexShrink: 0, padding: isMobile ? '5px 8px' : '6px 10px' }}
+                  onClick={() => {
+                    const items = (cart && cart.length > 0) ? cart : (activeTable ? (savedOrders[activeTable.id] || savedOrders[String(activeTable.id)] || []) : []);
+                    if (activeTable && items.length === 0 && (activeTable.status === 'seated' || activeTable.guestName)) {
+                      if (window.confirm(`Table ${activeTable.number || activeTable.id} has no orders. Release table and mark it available?`)) {
+                        handleReleaseTable({ markStatus: 'available', cancelKds: false });
+                        return;
                       }
                     }
-                    setUnassignedTab(null);
-                  } else if (activeTable) {
-                    if (cart.length > 0) {
-                      setSavedOrders(prev => ({
-                        ...prev,
-                        [activeTable.id]: cart,
-                        [String(activeTable.id)]: cart,
-                      }));
-                      setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
-                        ? { ...t, status: t.status === 'available' ? 'ordered' : t.status }
-                        : t
-                      ));
+                    if (unassignedTab) {
+                      if (cart.length > 0) {
+                        const updatedTab = {
+                          ...unassignedTab,
+                          items: cart,
+                          firedItems: unassignedTab.firedItems || [],
+                        };
+                        setSavedOrders(prev => ({
+                          ...prev,
+                          [`tab_${unassignedTab.id}`]: updatedTab,
+                          __tabs_meta__: {
+                            ...(prev.__tabs_meta__ || {}),
+                            [unassignedTab.id]: updatedTab,
+                          },
+                        }));
+                      } else {
+                        const existing = savedOrders[`tab_${unassignedTab.id}`];
+                        const existingItems = Array.isArray(existing) ? existing : (existing?.items || []);
+                        if (existingItems.length === 0) {
+                          setSavedOrders(prev => {
+                            const next = { ...prev };
+                            delete next[`tab_${unassignedTab.id}`];
+                            if (next.__tabs_meta__) {
+                              const nextMeta = { ...next.__tabs_meta__ };
+                              delete nextMeta[unassignedTab.id];
+                              next.__tabs_meta__ = nextMeta;
+                            }
+                            return next;
+                          });
+                        }
+                      }
+                      setUnassignedTab(null);
+                    } else if (activeTable) {
+                      if (cart.length > 0) {
+                        setSavedOrders(prev => ({
+                          ...prev,
+                          [activeTable.id]: cart,
+                          [String(activeTable.id)]: cart,
+                        }));
+                        setTables(prev => prev.map(t => String(t.id) === String(activeTable.id)
+                          ? { ...t, status: t.status === 'available' ? 'ordered' : t.status }
+                          : t
+                        ));
+                      }
+                      setActiveTable(null);
                     }
-                    setActiveTable(null);
-                  }
-                  setAssignGuestModal(false);
-                  setAssignGuestModalTable(null);
-                  setView('floor');
-                  setCart([]);
-                  setDiscountAmount(0);
-                }}
-              >
-                <ChevronLeft size={15} /> {getNoun(settings, 'tables', 'Tables')}
-              </button>
-            ) : (
-              <button className="btn btn-secondary btn-sm" onClick={() => { setCart([]); setDiscountAmount(0); }}>
-                <RotateCcw size={15} /> Clear Cart
-              </button>
-            )}
-            <div>
-              <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {activeTable
-                  ? `${getNoun(settings, 'tables', 'Table')} ${activeTable.number || activeTable.id}`
-                  : (unassignedTab
-                      ? `Dine-In • Token #${unassignedTab.tokenNumber}`
-                      : (orderType === 'takeout' ? 'Takeout' : 'Delivery'))}
+                    setAssignGuestModal(false);
+                    setAssignGuestModalTable(null);
+                    setView('floor');
+                    setCart([]);
+                    setDiscountAmount(0);
+                  }}
+                >
+                  <ChevronLeft size={15} /> {getNoun(settings, 'tables', 'Tables')}
+                </button>
+              ) : (
+                <button className="btn btn-secondary btn-sm" onClick={() => { setCart([]); setDiscountAmount(0); }} style={{ flexShrink: 0 }}>
+                  <RotateCcw size={15} /> Clear Cart
+                </button>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
+                <span style={{ fontWeight: 800, fontSize: isMobile ? '0.92rem' : '1rem', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                  {activeTable
+                    ? `${getNoun(settings, 'tables', 'Table')} ${activeTable.number || activeTable.id}`
+                    : (unassignedTab
+                        ? `Dine-In • Token #${unassignedTab.tokenNumber}`
+                        : (orderType === 'takeout' ? 'Takeout' : 'Delivery'))}
+                </span>
+
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -8817,15 +8873,19 @@ const POS = () => {
                     padding: '2px 8px',
                     fontSize: '0.74rem',
                     borderRadius: 'var(--r-sm)',
-                    marginLeft: 6,
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 5,
+                    gap: 4,
                     border: '1px solid var(--border-subtle)',
                     cursor: 'pointer',
                     fontWeight: 600,
                     color: currentGuest ? 'var(--text-primary)' : 'var(--primary)',
                     background: currentGuest ? 'rgba(0,0,0,0.03)' : 'rgba(30,94,74,0.08)',
+                    maxWidth: isMobile ? 120 : 'none',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
                   }}
                   onClick={() => {
                     setAssignGuestModalTable(activeTable);
@@ -8833,23 +8893,27 @@ const POS = () => {
                   }}
                   title="Assign or change guest for this table/order"
                 >
-                  <User size={12} style={{ color: 'var(--primary)' }} />
-                  <span>{currentGuest ? (currentGuest === 'Walk-in Guest' ? 'Walk-in (Change)' : currentGuest) : '+ Assign Guest'}</span>
-                  <Edit2 size={10} style={{ opacity: 0.6 }} />
+                  <User size={12} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {currentGuest ? (currentGuest === 'Walk-in Guest' ? 'Walk-in' : currentGuest) : '+ Guest'}
+                  </span>
+                  <Edit2 size={9} style={{ opacity: 0.6, flexShrink: 0 }} />
                 </button>
+
                 {unassignedTab && !activeTable && (
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
                     style={{
-                      padding: '3px 10px',
+                      padding: '3px 8px',
                       fontSize: '0.72rem',
                       borderRadius: 'var(--r-sm)',
-                      marginLeft: 6,
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
                       fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0
                     }}
                     onClick={() => setAssignTableModal(unassignedTab)}
                     title="Assign order to a table"
@@ -8857,16 +8921,18 @@ const POS = () => {
                     <UtensilsCrossed size={12} /> Assign Table
                   </button>
                 )}
+
                 {hasCardOnFile && (
                   <span style={{
                     background: 'rgba(59,130,246,0.1)', color: 'var(--accent-blue)',
-                    padding: '2px 8px', borderRadius: 'var(--r-sm)', fontSize: '0.68rem', fontWeight: 700,
-                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                    padding: '2px 6px', borderRadius: 'var(--r-sm)', fontSize: '0.68rem', fontWeight: 700,
+                    display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap', flexShrink: 0
                   }}>
-                    <CreditCard size={10} /> Card on file
+                    <CreditCard size={10} /> Card
                   </span>
                 )}
-                {activeTable && orderType === 'dine-in' && (
+
+                {!isMobile && activeTable && orderType === 'dine-in' && (
                   <>
                     <button
                       type="button"
@@ -8934,30 +9000,121 @@ const POS = () => {
                   </>
                 )}
               </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                {cart.reduce((s, i) => s + i.qty, 0)} items in cart
-                {isHeld && <span style={{ color: 'var(--warning)', fontWeight: 700 }}> | HELD {holdTimer}m</span>}
-              </div>
+            </div>
+
+            {/* Right: Party Size + Card pre-auth */}
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+              {orderType === 'dine-in' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.78rem' }} title="Party Size">
+                  <Users size={13} style={{ color: 'var(--text-muted)' }} />
+                  <input type="number" min={1} max={20} value={partySize}
+                    onChange={e => setPartySize(parseInt(e.target.value) || 1)}
+                    style={{
+                      width: 36, padding: '3px 4px', borderRadius: 'var(--r-sm)',
+                      border: '1px solid var(--border-subtle)', fontSize: '0.8rem',
+                      fontWeight: 700, textAlign: 'center', background: 'rgba(255,255,255,0.6)',
+                    }}
+                  />
+                </div>
+              )}
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setHasCardOnFile(prev => !prev)}
+                title={hasCardOnFile ? "Card on file (pre-authorized)" : "Toggle tab pre-auth"}
+                style={{ padding: '4px 8px', height: 26 }}
+              >
+                <CreditCard size={13} />
+              </button>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {orderType === 'dine-in' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.78rem' }}>
-                <Users size={13} style={{ color: 'var(--text-muted)' }} />
-                <input type="number" min={1} max={20} value={partySize}
-                  onChange={e => setPartySize(parseInt(e.target.value) || 1)}
-                  style={{
-                    width: 38, padding: '4px 6px', borderRadius: 'var(--r-sm)',
-                    border: '1px solid var(--border-subtle)', fontSize: '0.82rem',
-                    fontWeight: 700, textAlign: 'center', background: 'rgba(255,255,255,0.6)',
-                  }}
-                />
-              </div>
-            )}
-            <button className="btn btn-secondary btn-sm" onClick={() => setHasCardOnFile(prev => !prev)} title="Toggle tab pre-auth">
-              <CreditCard size={14} />
-            </button>
-          </div>
+
+          {/* Dedicated Operations Bar for Active Table on Mobile */}
+          {isMobile && activeTable && orderType === 'dine-in' && (
+            <div style={{
+              display: 'flex',
+              gap: 6,
+              alignItems: 'center',
+              width: '100%',
+              background: 'rgba(255, 255, 255, 0.4)',
+              padding: '4px 6px',
+              borderRadius: 'var(--r-md)',
+              border: '1px solid var(--border-subtle)',
+              marginTop: 4
+            }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{
+                  flex: 1,
+                  padding: '6px 4px',
+                  fontSize: '0.72rem',
+                  borderRadius: 'var(--r-sm)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4,
+                  border: '1px solid rgba(30, 94, 74, 0.25)',
+                  background: 'rgba(30, 94, 74, 0.05)',
+                  color: 'var(--primary)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap'
+                }}
+                onClick={() => setShiftTableModal(true)}
+                title="Shift guest to another table"
+              >
+                <ArrowRightLeft size={12} /> Shift Table
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{
+                  flex: 1,
+                  padding: '6px 4px',
+                  fontSize: '0.72rem',
+                  borderRadius: 'var(--r-sm)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4,
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  color: '#dc2626',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap'
+                }}
+                onClick={requestReleaseTable}
+                title="Release and clear table"
+              >
+                <UserX size={12} /> Release Table
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{
+                  flex: 1,
+                  padding: '6px 4px',
+                  fontSize: '0.72rem',
+                  borderRadius: 'var(--r-sm)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4,
+                  border: '1px solid var(--border-subtle)',
+                  background: 'rgba(255, 255, 255, 0.7)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap'
+                }}
+                onClick={() => setTableHistoryModal(activeTable)}
+                title={`View past orders and receipts for Table ${activeTable.number || activeTable.id}`}
+              >
+                <History size={12} /> Past Orders
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Search */}
@@ -8970,11 +9127,20 @@ const POS = () => {
 
         {/* Category Tabs */}
         {!searchQuery && (
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto', paddingBottom: 4, flexShrink: 0 }}>
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            marginBottom: 10,
+            overflowX: 'auto',
+            paddingBottom: 4,
+            flexShrink: 0,
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'none'
+          }}>
             {categories.map(cat => (
               <button key={cat} onClick={() => setActiveCategory(cat)}
                 className={activeCategory === cat ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
-                style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}
+                style={{ whiteSpace: 'nowrap', fontSize: '0.78rem', flexShrink: 0 }}
               >
                 {cat}
               </button>
@@ -8987,10 +9153,10 @@ const POS = () => {
           flex: isMobile ? 'none' : 1,
           overflowY: isMobile ? 'visible' : 'auto',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+          gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(140px, 1fr))',
           gap: 8,
           alignContent: 'start',
-          paddingBottom: isMobile ? 80 : 8
+          paddingBottom: isMobile ? (cart.length > 0 ? 120 : 80) : 8
         }}>
           {filteredItems.map(item => {
             const inCart = cart.find(c => c.id === item.id);
@@ -9423,6 +9589,54 @@ const POS = () => {
       </div>
       )}
       </div>
+
+      {/* Floating Quick-Cart Bar for Mobile when items are in cart */}
+      {isMobile && mobileTab === 'menu' && cart.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: 'calc(68px + env(safe-area-inset-bottom, 0px))',
+          left: 12,
+          right: 12,
+          zIndex: 850
+        }}>
+          <button
+            type="button"
+            onClick={() => setMobileTab('cart')}
+            style={{
+              width: '100%',
+              padding: '11px 16px',
+              background: 'var(--primary)',
+              color: '#fff',
+              borderRadius: 'var(--r-xl)',
+              border: 'none',
+              boxShadow: '0 8px 24px rgba(30, 94, 74, 0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.88rem'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                background: 'rgba(255,255,255,0.22)',
+                padding: '2px 8px',
+                borderRadius: 12,
+                fontSize: '0.78rem',
+                fontWeight: 800
+              }}>
+                {cart.reduce((s, i) => s + i.qty, 0)} {cart.reduce((s, i) => s + i.qty, 0) === 1 ? 'item' : 'items'}
+              </span>
+              <span>{activeTable ? `Table ${activeTable.number || activeTable.id}` : 'Order'}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>{grandTotal.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}</span>
+              <span style={{ fontSize: '0.78rem', opacity: 0.9 }}>View Cart →</span>
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* ── Modals ── */}
       {modifierModal && (
