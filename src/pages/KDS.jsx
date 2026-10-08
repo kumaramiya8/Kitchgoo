@@ -78,25 +78,27 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
 /* ── Shared inline style fragments ─────────────────────── */
 const s = {
   page: (mob) => ({
-    padding: mob ? '12px 14px' : '24px 28px', minHeight: '100vh',
+    padding: mob ? '0 0 24px 0' : '8px 12px', minHeight: mob ? 'auto' : '100%',
+    width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', overflowX: 'hidden',
   }),
   statsBar: (mob) => mob ? {
-    display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto',
-    scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch',
+    display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6,
+    marginBottom: 10, width: '100%', boxSizing: 'border-box',
   } : {
     display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap',
   },
   statBox: (mob) => mob ? {
-    flexShrink: 0, background: 'var(--card-bg)', borderRadius: 'var(--r-md)',
-    padding: '8px 12px', boxShadow: 'var(--shadow-card)', border: '1px solid var(--border)',
-    display: 'flex', alignItems: 'center', gap: 8, minWidth: 100,
+    background: 'var(--card-bg)', borderRadius: 'var(--r-md)',
+    padding: '7px 4px', boxShadow: 'var(--shadow-card)', border: '1px solid var(--border-subtle)',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2,
+    minWidth: 0, boxSizing: 'border-box',
   } : {
     flex: '1 1 160px', background: 'var(--card-bg)',
     borderRadius: 'var(--r-lg)', padding: '14px 18px', boxShadow: 'var(--shadow-card)',
     border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12,
   },
   statIcon: (mob) => ({
-    width: mob ? 30 : 42, height: mob ? 30 : 42, borderRadius: 'var(--r-md)',
+    width: mob ? 24 : 42, height: mob ? 24 : 42, borderRadius: 'var(--r-md)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   }),
   tabs: (scroll) => scroll ? {
@@ -124,35 +126,55 @@ const s = {
   grid: (mob) => ({
     display: 'grid',
     gridTemplateColumns: mob ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))',
-    gap: mob ? 12 : 16, marginTop: mob ? 10 : 16,
+    gap: mob ? 12 : 16, marginTop: mob ? 8 : 16,
+    width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box'
   }),
-  card: (borderCol, overdue) => ({
+  card: (borderCol, overdue, mob) => ({
     background: 'var(--card-bg)', borderRadius: 'var(--r-xl)',
     border: '1px solid var(--border)', borderTop: `4px solid ${borderCol}`,
     padding: 0, overflow: 'hidden', color: 'var(--text-primary)',
     boxShadow: 'var(--shadow-card)',
     animation: overdue ? 'kds-pulse 1.5s infinite' : 'none',
     transition: 'border-color .3s, box-shadow .3s, transform var(--t-fast)',
+    width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box',
   }),
-  cardHeader: {
-    padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  cardHeader: (mob) => ({
+    padding: mob ? '10px 12px' : '12px 16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
     borderBottom: '1px solid var(--border-subtle)',
-  },
-  cardBody: { padding: '10px 16px 14px' },
-  itemRow: {
-    display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0',
-    borderBottom: '1px solid var(--border-subtle)', fontSize: '0.95rem',
-  },
-  checkbox: (checked) => ({
-    width: 22, height: 22, borderRadius: 5, border: `2px solid ${checked ? 'var(--success)' : 'var(--border)'}`,
+    boxSizing: 'border-box',
+  }),
+  cardBody: (mob) => ({
+    padding: mob ? '8px 12px 12px' : '10px 16px 14px',
+    boxSizing: 'border-box',
+  }),
+  itemRow: (mob) => ({
+    display: 'flex', alignItems: 'center', gap: 10,
+    padding: mob ? '10px 4px' : '6px 0',
+    borderBottom: '1px solid var(--border-subtle)',
+    fontSize: mob ? '0.92rem' : '0.95rem',
+    minHeight: mob ? 44 : 34,
+    boxSizing: 'border-box',
+    cursor: 'pointer',
+    WebkitTapHighlightColor: 'transparent',
+  }),
+  checkbox: (checked, mob) => ({
+    width: mob ? 24 : 22, height: mob ? 24 : 22, borderRadius: 6,
+    border: `2px solid ${checked ? 'var(--success)' : 'var(--border)'}`,
     background: checked ? 'var(--success)' : 'transparent', cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .1s',
   }),
-  bumpBtn: {
-    width: '100%', padding: '12px', border: 'none', borderRadius: '0 0 var(--r-xl) var(--r-xl)',
-    background: 'var(--success)', color: '#fff', fontWeight: 800, fontSize: '1.05rem',
-    cursor: 'pointer', letterSpacing: '0.08em', transition: 'background .15s',
-  },
+  bumpBtn: (mob) => ({
+    width: '100%', padding: mob ? '13px 16px' : '12px', minHeight: mob ? 48 : 42,
+    border: 'none', borderRadius: '0 0 var(--r-xl) var(--r-xl)',
+    background: 'var(--success)', color: '#fff', fontWeight: 800,
+    fontSize: mob ? '0.98rem' : '1.05rem',
+    cursor: 'pointer', letterSpacing: '0.06em', transition: 'background .15s',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    boxSizing: 'border-box',
+  }),
   allergenBanner: {
     background: 'var(--danger-light)', color: '#dc2626', padding: '6px 14px',
     fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
@@ -181,13 +203,13 @@ const s = {
 };
 
 /* ── Recipe Modal ──────────────────────────────────────── */
-const RecipeModal = ({ item, recipes, menu, onClose }) => {
+const RecipeModal = ({ item, recipes, menu, onClose, isMobile }) => {
   const menuItem = menu.find(m => m.name === item?.name);
   const recipe = recipes.find(r => r.menuItemId === menuItem?.id || r.name === item?.name);
 
   return (
     <div style={s.modal} onClick={onClose}>
-      <div style={s.modalContent} onClick={e => e.stopPropagation()}>
+      <div style={{ ...s.modalContent, width: isMobile ? '95%' : '90%', padding: isMobile ? '16px 14px' : '24px 28px' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)' }}>
             <BookOpen size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
@@ -247,7 +269,7 @@ const RecipeModal = ({ item, recipes, menu, onClose }) => {
 };
 
 /* ── Recall Panel ──────────────────────────────────────── */
-const RecallPanel = ({ tickets, onRecall, onClose, getTicketGuestName }) => {
+const RecallPanel = ({ tickets, onRecall, onClose, getTicketGuestName, isMobile }) => {
   const completed = tickets
     .filter(t => t.status === 'completed')
     .sort((a, b) => new Date(b.firedAt) - new Date(a.firedAt))
@@ -255,7 +277,7 @@ const RecallPanel = ({ tickets, onRecall, onClose, getTicketGuestName }) => {
 
   return (
     <div style={s.modal} onClick={onClose}>
-      <div style={{ ...s.modalContent, maxWidth: 600 }} onClick={e => e.stopPropagation()}>
+      <div style={{ ...s.modalContent, maxWidth: 600, width: isMobile ? '95%' : '90%', padding: isMobile ? '16px 14px' : '24px 28px' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
             <RotateCcw size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
@@ -614,25 +636,41 @@ export default function KDS() {
   return (
     <div style={s.page(isMobile)}>
       {/* Header */}
-      <div className="page-title-row" style={{ marginBottom: isMobile ? 10 : 16 }}>
-        <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Monitor size={26} /> Kitchen Display
+      <div className="page-title-row" style={{
+        marginBottom: isMobile ? 10 : 16,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        width: '100%',
+        boxSizing: 'border-box'
+      }}>
+        <h1 className="page-title" style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: isMobile ? '1.2rem' : '1.5rem',
+          margin: 0
+        }}>
+          <Monitor size={isMobile ? 22 : 26} /> Kitchen Display
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Keyboard shortcut hint */}
-          <button
-            onClick={() => setShowShortcuts(!showShortcuts)}
-            style={{
-              ...s.tab(false), gap: 4, fontSize: '0.76rem', padding: '6px 10px',
-              background: 'rgba(255,255,255,0.45)',
-            }}
-          >
-            <Keyboard size={14} /> Shortcuts
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 10, flexShrink: 0 }}>
+          {/* Keyboard shortcut hint - Desktop only */}
+          {!isMobile && (
+            <button
+              onClick={() => setShowShortcuts(!showShortcuts)}
+              style={{
+                ...s.tab(false), gap: 4, fontSize: '0.76rem', padding: '6px 10px',
+                background: 'rgba(255,255,255,0.45)',
+              }}
+            >
+              <Keyboard size={14} /> Shortcuts
+            </button>
+          )}
           {/* Bell icon with badge */}
-          <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setNewTicketCount(0)}>
+          <div style={{ position: 'relative', cursor: 'pointer', padding: 4 }} onClick={() => setNewTicketCount(0)}>
             <Bell
-              size={22}
+              size={isMobile ? 20 : 22}
               style={{
                 color: newTicketCount > 0 ? 'var(--warning)' : 'var(--text-muted)',
                 animation: newTicketCount > 0 ? 'kds-bell-shake 0.6s ease' : 'none',
@@ -640,8 +678,8 @@ export default function KDS() {
             />
             {newTicketCount > 0 && (
               <span style={{
-                position: 'absolute', top: -6, right: -8, background: 'var(--danger)',
-                color: '#fff', borderRadius: '50%', width: 18, height: 18, fontSize: '0.65rem',
+                position: 'absolute', top: -3, right: -3, background: 'var(--danger)',
+                color: '#fff', borderRadius: '50%', width: 17, height: 17, fontSize: '0.62rem',
                 fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 {newTicketCount}
@@ -649,14 +687,24 @@ export default function KDS() {
             )}
           </div>
           {/* Recall button */}
-          <button className="btn btn-secondary btn-sm" onClick={() => setShowRecall(true)} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <RotateCcw size={14} /> Recall
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowRecall(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: isMobile ? '5px 10px' : '6px 12px',
+              fontSize: isMobile ? '0.78rem' : '0.85rem'
+            }}
+          >
+            <RotateCcw size={13} /> Recall
           </button>
         </div>
       </div>
 
-      {/* Shortcuts tooltip */}
-      {showShortcuts && (
+      {/* Shortcuts tooltip - Desktop only */}
+      {!isMobile && showShortcuts && (
         <div className="card animate-fade-up" style={{ marginBottom: 14, padding: '12px 18px', display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
           <span><span style={s.kbd}><ArrowLeft size={10} /></span> <span style={s.kbd}><ArrowRight size={10} /></span> Navigate tickets</span>
           <span><span style={s.kbd}>Enter</span> Bump highlighted ticket</span>
@@ -667,42 +715,128 @@ export default function KDS() {
       {/* Stats bar */}
       <div style={s.statsBar(isMobile)}>
         {[
-          { label: 'Active', value: stats.active, icon: <Flame size={isMobile ? 14 : 20} color="var(--primary)" />, bg: 'var(--primary-light)', col: 'var(--text-primary)' },
-          { label: 'Avg Time', value: fmtTime(stats.avgTime), icon: <Clock size={isMobile ? 14 : 20} color="var(--accent-blue)" />, bg: 'rgba(59,130,246,0.12)', col: 'var(--text-primary)' },
-          { label: 'Overdue', value: stats.overdue, icon: <AlertTriangle size={isMobile ? 14 : 20} color="var(--danger)" />, bg: 'rgba(239,68,68,0.12)', col: stats.overdue > 0 ? 'var(--danger)' : 'var(--text-primary)' },
-          { label: 'Bumped', value: stats.bumpedToday, icon: <CheckCircle size={isMobile ? 14 : 20} color="var(--success)" />, bg: 'rgba(34,197,94,0.12)', col: 'var(--text-primary)' },
+          { label: isMobile ? 'Active' : 'Active', value: stats.active, icon: <Flame size={isMobile ? 12 : 20} color="var(--primary)" />, bg: 'var(--primary-light)', col: 'var(--text-primary)' },
+          { label: isMobile ? 'Avg' : 'Avg Time', value: fmtTime(stats.avgTime), icon: <Clock size={isMobile ? 12 : 20} color="var(--accent-blue)" />, bg: 'rgba(59,130,246,0.12)', col: 'var(--text-primary)' },
+          { label: isMobile ? 'Late' : 'Overdue', value: stats.overdue, icon: <AlertTriangle size={isMobile ? 12 : 20} color="var(--danger)" />, bg: 'rgba(239,68,68,0.12)', col: stats.overdue > 0 ? 'var(--danger)' : 'var(--text-primary)' },
+          { label: isMobile ? 'Done' : 'Bumped', value: stats.bumpedToday, icon: <CheckCircle size={isMobile ? 12 : 20} color="var(--success)" />, bg: 'rgba(34,197,94,0.12)', col: 'var(--text-primary)' },
         ].map(({ label, value, icon, bg, col }) => (
           <div key={label} className="animate-fade-up" style={s.statBox(isMobile)}>
             <div style={{ ...s.statIcon(isMobile), background: bg }}>{icon}</div>
             <div>
-              <div style={{ fontSize: isMobile ? '0.64rem' : '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-              <div style={{ fontSize: isMobile ? '1.05rem' : '1.4rem', fontWeight: 800, color: col, fontFamily: 'var(--font-mono)' }}>{value}</div>
+              <div style={{ fontSize: isMobile ? '0.58rem' : '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+              <div style={{ fontSize: isMobile ? '0.88rem' : '1.4rem', fontWeight: 800, color: col, fontFamily: 'var(--font-mono)' }}>{value}</div>
             </div>
           </div>
         ))}
       </div>
 
       {/* Station filter + View mode tabs */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 4, overflow: 'hidden' }}>
-        <div style={s.tabs(true)}>
-          {STATIONS.map(st => {
-            const Icon = STATION_ICONS[st] || Grid3X3;
-            const label = isMobile ? (st === 'All' ? 'All' : st.split(' ')[0]) : st;
-            return (
-              <button key={st} style={s.tab(station === st)} onClick={() => setStation(st)}>
-                <Icon size={14} /> {label}
+      {isMobile ? (
+        <div style={{ width: '100%', marginBottom: 8, boxSizing: 'border-box' }}>
+          {/* Mobile 3-tab segmented control for view modes */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: 4,
+            background: 'rgba(0,0,0,0.04)',
+            padding: 3,
+            borderRadius: 'var(--r-md)',
+            marginBottom: 8,
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
+            {VIEW_MODES.map(vm => {
+              const active = viewMode === vm.key;
+              return (
+                <button
+                  key={vm.key}
+                  onClick={() => setViewMode(vm.key)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    padding: '7px 4px',
+                    borderRadius: 'var(--r-sm)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: '0.78rem',
+                    background: active ? 'var(--primary)' : 'transparent',
+                    color: active ? '#fff' : 'var(--text-secondary)',
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  <vm.icon size={13} />
+                  <span>{vm.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Mobile horizontal scroll pill bar for stations */}
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+            WebkitOverflowScrolling: 'touch',
+            paddingBottom: 4,
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
+            {STATIONS.map(st => {
+              const Icon = STATION_ICONS[st] || Grid3X3;
+              const active = station === st;
+              return (
+                <button
+                  key={st}
+                  onClick={() => setStation(st)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '5px 12px',
+                    borderRadius: 20,
+                    border: active ? '1.5px solid var(--primary)' : '1px solid var(--border-subtle)',
+                    background: active ? 'rgba(30, 94, 74, 0.1)' : 'var(--card-bg)',
+                    color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                    fontWeight: active ? 700 : 600,
+                    fontSize: '0.74rem',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Icon size={12} />
+                  <span>{st}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 4, overflow: 'hidden' }}>
+          <div style={s.tabs(true)}>
+            {STATIONS.map(st => {
+              const Icon = STATION_ICONS[st] || Grid3X3;
+              return (
+                <button key={st} style={s.tab(station === st)} onClick={() => setStation(st)}>
+                  <Icon size={14} /> {st}
+                </button>
+              );
+            })}
+          </div>
+          <div style={s.tabs(true)}>
+            {VIEW_MODES.map(vm => (
+              <button key={vm.key} style={s.viewTab(viewMode === vm.key, false)} onClick={() => setViewMode(vm.key)} title={vm.label}>
+                <vm.icon size={14} /><span>{vm.label}</span>
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
-        <div style={s.tabs(true)}>
-          {VIEW_MODES.map(vm => (
-            <button key={vm.key} style={s.viewTab(viewMode === vm.key, isMobile)} onClick={() => setViewMode(vm.key)} title={vm.label}>
-              <vm.icon size={14} />{!isMobile && <span>{vm.label}</span>}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* ── TICKETS VIEW ──────────────────────────────────── */}
       {viewMode === 'tickets' && (
@@ -722,13 +856,23 @@ export default function KDS() {
             const isHighlighted = tIdx === highlightIdx;
             const ot = ORDER_TYPE_COLORS[ticket.orderType] || ORDER_TYPE_COLORS['dine-in'];
             const guestName = getTicketGuestName(ticket);
+            const tableLabel = (() => {
+              if (!ticket.tableId || String(ticket.tableId).startsWith('tab_')) {
+                return ticket.tokenNumber ? `Token #${ticket.tokenNumber}` : 'Waiting Table';
+              }
+              const tableMatch = (posTables || []).find(t => String(t.id) === String(ticket.tableId) || String(t.number) === String(ticket.tableId));
+              const label = tableMatch ? (tableMatch.number || tableMatch.name || tableMatch.id) : ticket.tableId;
+              const str = String(label).trim();
+              if (/^(table|tbl|token|t\d)/i.test(str)) return str.replace(/^tbl_/i, 'Table ');
+              return `Table ${str}`;
+            })();
 
             return (
               <div
                 key={ticket.id}
                 className="animate-fade-up"
                 style={{
-                  ...s.card(bc, overdue),
+                  ...s.card(bc, overdue, isMobile),
                   outline: isHighlighted ? '2px solid var(--accent-blue)' : 'none',
                   outlineOffset: 2,
                 }}
@@ -743,52 +887,65 @@ export default function KDS() {
                 )}
 
                 {/* Header */}
-                <div style={s.cardHeader}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                      <Hash size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />
-                      {ticket.orderId}
-                    </span>
-                    <span style={{
-                      fontSize: '0.82rem',
-                      fontWeight: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 800 : 600,
-                      color: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '#d97706' : 'var(--text-muted)',
-                      background: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 'rgba(245, 158, 11, 0.12)' : 'transparent',
-                      padding: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '2px 6px' : '0',
-                      borderRadius: '4px',
+                <div style={s.cardHeader(isMobile)}>
+                  {/* Row 1: Order # + Table + Live Timer */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <span style={{ fontWeight: 800, fontSize: isMobile ? '1rem' : '1.05rem', color: 'var(--text-primary)' }}>
+                        <Hash size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} />
+                        {ticket.orderId}
+                      </span>
+                      <span style={{
+                        fontSize: '0.8rem',
+                        fontWeight: 800,
+                        color: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '#b45309' : 'var(--primary)',
+                        background: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 'rgba(245, 158, 11, 0.12)' : 'rgba(30, 94, 74, 0.1)',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                      }}>
+                        {tableLabel}
+                      </span>
+                    </div>
+
+                    <div style={{
+                      fontWeight: 800,
+                      fontSize: isMobile ? '1.05rem' : '1.15rem',
+                      fontFamily: 'monospace',
+                      color: timerColor(secs),
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      flexShrink: 0
                     }}>
-                      {(() => {
-                        if (!ticket.tableId || String(ticket.tableId).startsWith('tab_')) {
-                          return ticket.tokenNumber ? `Token #${ticket.tokenNumber}` : 'Waiting Table';
-                        }
-                        const tableMatch = (posTables || []).find(t => String(t.id) === String(ticket.tableId) || String(t.number) === String(ticket.tableId));
-                        const label = tableMatch ? (tableMatch.number || tableMatch.name || tableMatch.id) : ticket.tableId;
-                        const str = String(label).trim();
-                        if (/^(table|tbl|token|t\d)/i.test(str)) return str.replace(/^tbl_/i, 'Table ');
-                        return `T${str}`;
-                      })()}
-                    </span>
+                      <Clock size={13} style={{ opacity: 0.8 }} />
+                      {fmtTime(secs)}
+                    </div>
+                  </div>
+
+                  {/* Row 2: Badges: Type + Guest + Shifted + Paid/Pending */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
                     {guestName && (
                       <span
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: 4,
-                          padding: '2px 8px',
+                          gap: 3,
+                          padding: '2px 6px',
                           borderRadius: '4px',
-                          fontSize: '0.8rem',
+                          fontSize: '0.74rem',
                           fontWeight: 700,
                           background: 'rgba(59, 130, 246, 0.12)',
                           color: 'var(--accent-blue)',
                           border: '1px solid rgba(59, 130, 246, 0.25)',
-                          maxWidth: 160,
+                          maxWidth: isMobile ? 120 : 160,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
                         }}
                         title={`Guest: ${guestName}`}
                       >
-                        <User size={12} style={{ flexShrink: 0 }} />
+                        <User size={10} style={{ flexShrink: 0 }} />
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{guestName}</span>
                       </span>
                     )}
@@ -811,50 +968,38 @@ export default function KDS() {
                         <ArrowRightLeft size={10} /> {String(ticket.tableShiftedFrom).startsWith('Token') ? ticket.tableShiftedFrom : `T${ticket.tableShiftedFrom}`} ➔ {String(ticket.tableShiftedTo || ticket.tableId).startsWith('Token') ? (ticket.tableShiftedTo || ticket.tableId) : `T${ticket.tableShiftedTo || ticket.tableId}`}
                       </span>
                     )}
-                    <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
                     {isPaymentPending(ticket) ? (
                       <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
                     ) : (
                       <span style={s.badge('rgba(34,197,94,0.15)', '#22c55e')}>PAID</span>
                     )}
                   </div>
-                  <div style={{
-                    fontWeight: 800, fontSize: '1.15rem', fontFamily: 'monospace',
-                    color: timerColor(secs),
-                  }}>
-                    {fmtTime(secs)}
-                  </div>
                 </div>
 
                 {/* Items */}
-                <div style={s.cardBody}>
+                <div style={s.cardBody(isMobile)}>
                   {(ticket.items || []).map((item, iIdx) => {
                     const bumped = item.status === 'bumped';
                     return (
-                      <div key={iIdx} style={{ ...s.itemRow, opacity: bumped ? 0.45 : 1 }}>
-                        <div
-                          style={{
-                            padding: '6px',
-                            margin: '-6px 0 -6px -6px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!bumped) handleBumpItem(ticket.id, iIdx, ticket.items.length);
-                          }}
-                        >
-                          <div style={s.checkbox(bumped)}>
-                            {bumped && <CheckCircle size={14} color="#fff" />}
-                          </div>
+                      <div
+                        key={iIdx}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!bumped) handleBumpItem(ticket.id, iIdx, ticket.items.length);
+                        }}
+                        style={{
+                          ...s.itemRow(isMobile),
+                          opacity: bumped ? 0.45 : 1,
+                        }}
+                      >
+                        <div style={s.checkbox(bumped, isMobile)}>
+                          {bumped && <CheckCircle size={14} color="#fff" />}
                         </div>
                         <span
                           style={{
-                            flex: 1, cursor: 'pointer', textDecoration: bumped ? 'line-through' : 'none',
+                            flex: 1, textDecoration: bumped ? 'line-through' : 'none',
                             fontWeight: 600, color: bumped ? 'var(--text-muted)' : 'var(--text-primary)',
+                            lineHeight: 1.3
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -863,17 +1008,19 @@ export default function KDS() {
                         >
                           {item.name}
                         </span>
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                        <span style={{ fontSize: isMobile ? '0.9rem' : '0.85rem', color: 'var(--text-primary)', fontWeight: 700, padding: '2px 6px', background: 'rgba(0,0,0,0.04)', borderRadius: 4 }}>
                           x{item.qty || 1}
                         </span>
                         {item.modifiers?.length > 0 && (
-                          <span style={{ fontSize: '0.72rem', color: 'var(--warning)', fontWeight: 600 }}>MOD</span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--warning)', fontWeight: 700, background: 'rgba(245,158,11,0.1)', padding: '2px 5px', borderRadius: 4 }}>
+                            MOD
+                          </span>
                         )}
                       </div>
                     );
                   })}
                   {(ticket.notes || ticket.items?.some(i => i.notes)) && (
-                    <div style={{ marginTop: 6, fontSize: '0.78rem', color: '#ea580c', background: 'rgba(234, 88, 12, 0.08)', padding: '4px 8px', borderRadius: 6, fontStyle: 'italic' }}>
+                    <div style={{ marginTop: 6, fontSize: '0.78rem', color: '#ea580c', background: 'rgba(234, 88, 12, 0.08)', padding: '6px 10px', borderRadius: 6, fontStyle: 'italic' }}>
                       {ticket.notes && <div style={{ fontWeight: 600 }}>📝 Note: {ticket.notes}</div>}
                       {ticket.items?.filter(i => i.notes).map((i, idx) => (
                         <div key={idx}>{i.name}: {i.notes}</div>
@@ -884,7 +1031,7 @@ export default function KDS() {
 
                 {/* Bump button */}
                 <button
-                  style={s.bumpBtn}
+                  style={s.bumpBtn(isMobile)}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleBumpTicket(ticket.id, (ticket.items || []).length);
@@ -892,7 +1039,7 @@ export default function KDS() {
                   onMouseEnter={e => e.target.style.background = '#16a34a'}
                   onMouseLeave={e => e.target.style.background = 'var(--success)'}
                 >
-                  BUMP ORDER
+                  <CheckCircle size={18} /> BUMP ORDER
                 </button>
               </div>
             );
@@ -902,7 +1049,7 @@ export default function KDS() {
 
       {/* ── EXPO CONSOLE ─────────────────────────────────── */}
       {viewMode === 'expo' && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: isMobile ? 10 : 16 }}>
           {activeTickets.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)' }}>
               <Eye size={48} style={{ opacity: 0.25, marginBottom: 12 }} />
@@ -922,74 +1069,72 @@ export default function KDS() {
               return (
                 <div key={ticket.id} className="animate-fade-up" style={{
                   background: 'var(--card-bg)', borderRadius: 'var(--r-lg)',
-                  border: `2px solid ${bc}`, padding: '14px 20px',
+                  border: `2px solid ${bc}`, padding: isMobile ? '12px 14px' : '14px 20px',
                   boxShadow: 'var(--shadow-card)', color: 'var(--text-primary)',
-                  display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+                  display: 'flex', flexDirection: isMobile ? 'column' : 'row',
+                  alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 16,
+                  width: '100%', boxSizing: 'border-box'
                 }}>
-                  {/* Order info */}
-                  <div style={{ minWidth: 120 }}>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                      #{ticket.orderId}
+                  {/* Top row in mobile: Order info + Timer */}
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                    width: isMobile ? '100%' : 'auto', minWidth: isMobile ? 0 : 120
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
+                        #{ticket.orderId}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                        <span style={{
+                          fontWeight: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 800 : 600,
+                          color: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '#d97706' : 'var(--text-muted)',
+                        }}>
+                          {(!ticket.tableId || String(ticket.tableId).startsWith('tab_'))
+                            ? (ticket.tokenNumber ? `Token #${ticket.tokenNumber}` : 'Waiting Table')
+                            : `Table ${ticket.tableId}`}
+                        </span>
+                        <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
+                        {guestName && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 3,
+                            padding: '1px 5px', borderRadius: 4, fontSize: '0.72rem',
+                            fontWeight: 700, background: 'rgba(59, 130, 246, 0.12)',
+                            color: 'var(--accent-blue)', border: '1px solid rgba(59, 130, 246, 0.25)',
+                          }}>
+                            <User size={10} style={{ flexShrink: 0 }} />
+                            <span>{guestName}</span>
+                          </span>
+                        )}
+                        {ticket.tableShiftedFrom && (
+                          <span style={{
+                            background: 'rgba(239, 68, 68, 0.15)', color: '#dc2626',
+                            border: '1px solid rgba(239, 68, 68, 0.35)', borderRadius: 4,
+                            padding: '1px 5px', fontSize: '0.68rem', fontWeight: 800,
+                            display: 'inline-flex', alignItems: 'center', gap: 3,
+                          }}>
+                            <ArrowRightLeft size={9} /> Moved
+                          </span>
+                        )}
+                        {isPaymentPending(ticket) ? (
+                          <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
+                        ) : (
+                          <span style={s.badge('rgba(34,197,94,0.15)', '#22c55e')}>PAID</span>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+
+                    {isMobile && (
                       <span style={{
-                        fontWeight: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? 800 : 600,
-                        color: (!ticket.tableId || String(ticket.tableId).startsWith('tab_') || ticket.tokenNumber) ? '#d97706' : 'var(--text-muted)',
+                        fontFamily: 'monospace', fontWeight: 800, fontSize: '1.1rem',
+                        color: timerColor(secs), flexShrink: 0
                       }}>
-                        {(!ticket.tableId || String(ticket.tableId).startsWith('tab_'))
-                          ? (ticket.tokenNumber ? `Token #${ticket.tokenNumber} (Waiting Table)` : 'Waiting Table')
-                          : `Table ${ticket.tableId}`}
+                        {fmtTime(secs)}
                       </span>
-                      {guestName && (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            fontSize: '0.74rem',
-                            fontWeight: 700,
-                            background: 'rgba(59, 130, 246, 0.12)',
-                            color: 'var(--accent-blue)',
-                            border: '1px solid rgba(59, 130, 246, 0.25)',
-                          }}
-                          title={`Guest: ${guestName}`}
-                        >
-                          <User size={11} style={{ flexShrink: 0 }} />
-                          <span>{guestName}</span>
-                        </span>
-                      )}
-                      {ticket.tableShiftedFrom && (
-                        <span
-                          title={`Moved from ${ticket.tableShiftedFrom}`}
-                          style={{
-                            background: 'rgba(239, 68, 68, 0.15)',
-                            color: '#dc2626',
-                            border: '1px solid rgba(239, 68, 68, 0.35)',
-                            borderRadius: '4px',
-                            padding: '1px 5px',
-                            fontSize: '0.68rem',
-                            fontWeight: 800,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 3,
-                          }}
-                        >
-                          <ArrowRightLeft size={10} /> Moved: {String(ticket.tableShiftedFrom).startsWith('Token') ? ticket.tableShiftedFrom : `T${ticket.tableShiftedFrom}`} ➔ {String(ticket.tableShiftedTo || ticket.tableId).startsWith('Token') ? (ticket.tableShiftedTo || ticket.tableId) : `T${ticket.tableShiftedTo || ticket.tableId}`}
-                        </span>
-                      )}
-                      <span style={s.badge(ot.bg, ot.text)}>{ticket.orderType?.toUpperCase()}</span>
-                      {isPaymentPending(ticket) ? (
-                        <span style={s.badge('rgba(245,158,11,0.15)', '#f59e0b')}>PENDING</span>
-                      ) : (
-                        <span style={s.badge('rgba(34,197,94,0.15)', '#22c55e')}>PAID</span>
-                      )}
-                    </div>
+                    )}
                   </div>
 
                   {/* Progress bar */}
-                  <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ flex: 1, minWidth: isMobile ? 0 : 200, width: isMobile ? '100%' : 'auto' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '0.78rem' }}>
                       <span style={{ color: 'var(--text-muted)' }}>{done}/{total} items</span>
                       <span style={{ fontWeight: 700, color: pct === 100 ? 'var(--success)' : 'var(--text-primary)' }}>{pct}%</span>
@@ -1006,7 +1151,7 @@ export default function KDS() {
                   </div>
 
                   {/* Items */}
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1, minWidth: 200 }}>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: 1, minWidth: isMobile ? 0 : 200, width: isMobile ? '100%' : 'auto' }}>
                     {(ticket.items || []).map((item, idx) => (
                       <span key={idx} style={{
                         padding: '3px 8px', borderRadius: 'var(--r-sm)', fontSize: '0.75rem', fontWeight: 600,
@@ -1019,28 +1164,43 @@ export default function KDS() {
                     ))}
                   </div>
 
-                  {/* Timer + Bump */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{
-                      fontFamily: 'monospace', fontWeight: 800, fontSize: '1.1rem',
-                      color: timerColor(secs),
-                    }}>
-                      {fmtTime(secs)}
-                    </span>
+                  {/* Bottom Action in mobile / Desktop timer + button */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center',
+                    justifyContent: isMobile ? 'stretch' : 'flex-end',
+                    gap: 12, width: isMobile ? '100%' : 'auto'
+                  }}>
+                    {!isMobile && (
+                      <span style={{
+                        fontFamily: 'monospace', fontWeight: 800, fontSize: '1.1rem',
+                        color: timerColor(secs),
+                      }}>
+                        {fmtTime(secs)}
+                      </span>
+                    )}
                     {pct < 100 && (
                       <button
                         onClick={() => handleBumpTicket(ticket.id, (ticket.items || []).length)}
                         style={{
-                          padding: '8px 18px', borderRadius: 'var(--r-md)', border: 'none',
+                          padding: isMobile ? '10px 16px' : '8px 18px',
+                          borderRadius: 'var(--r-md)', border: 'none',
                           background: 'var(--success)', color: '#fff', fontWeight: 800,
-                          fontSize: '0.82rem', cursor: 'pointer', letterSpacing: '0.06em',
+                          fontSize: '0.84rem', cursor: 'pointer', letterSpacing: '0.06em',
+                          width: isMobile ? '100%' : 'auto', textAlign: 'center'
                         }}
                       >
                         BUMP ALL
                       </button>
                     )}
                     {pct === 100 && (
-                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--success)' }}>READY</span>
+                      <div style={{
+                        fontSize: '0.82rem', fontWeight: 800, color: 'var(--success)',
+                        width: isMobile ? '100%' : 'auto', textAlign: 'center',
+                        padding: isMobile ? '8px' : 0, background: isMobile ? 'rgba(34,197,94,0.1)' : 'transparent',
+                        borderRadius: 6
+                      }}>
+                        READY FOR EXPEDITION
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1052,7 +1212,7 @@ export default function KDS() {
 
       {/* ── ALL-DAY DISPLAY ──────────────────────────────── */}
       {viewMode === 'allday' && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: isMobile ? 10 : 16 }}>
           {allDaySummary.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-muted)' }}>
               <BarChart3 size={48} style={{ opacity: 0.25, marginBottom: 12 }} />
@@ -1060,28 +1220,33 @@ export default function KDS() {
             </div>
           )}
           <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14,
+            display: 'grid',
+            gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: isMobile ? 8 : 14,
+            width: '100%',
+            boxSizing: 'border-box'
           }}>
             {allDaySummary.map(item => (
               <div key={item.name} className="animate-fade-up" style={{
                 background: 'var(--card-bg)', borderRadius: 'var(--r-lg)',
-                padding: '20px 22px', border: '1px solid var(--border-subtle)',
+                padding: isMobile ? '14px 10px' : '20px 22px', border: '1px solid var(--border-subtle)',
                 boxShadow: 'var(--shadow-card)', textAlign: 'center',
+                boxSizing: 'border-box'
               }}>
                 <div style={{
-                  fontSize: '2.4rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1,
+                  fontSize: isMobile ? '1.8rem' : '2.4rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1,
                   marginBottom: 6,
                 }}>
                   {item.count}
                 </div>
                 <div style={{
-                  fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)',
-                  marginBottom: 4,
+                  fontSize: isMobile ? '0.85rem' : '0.95rem', fontWeight: 700, color: 'var(--text-primary)',
+                  marginBottom: 4, lineHeight: 1.3
                 }}>
                   {item.name}
                 </div>
                 <div style={{
-                  fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)',
+                  fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)',
                   textTransform: 'uppercase', letterSpacing: '0.05em',
                 }}>
                   {item.station}
@@ -1094,10 +1259,10 @@ export default function KDS() {
 
       {/* ── Modals ─────────────────────────────────────────── */}
       {showRecall && (
-        <RecallPanel tickets={kdsTickets} onRecall={handleRecall} onClose={() => setShowRecall(false)} getTicketGuestName={getTicketGuestName} />
+        <RecallPanel tickets={kdsTickets} onRecall={handleRecall} onClose={() => setShowRecall(false)} getTicketGuestName={getTicketGuestName} isMobile={isMobile} />
       )}
       {recipeItem && (
-        <RecipeModal item={recipeItem} recipes={recipes || []} menu={menu} onClose={() => setRecipeItem(null)} />
+        <RecipeModal item={recipeItem} recipes={recipes || []} menu={menu} onClose={() => setRecipeItem(null)} isMobile={isMobile} />
       )}
     </div>
   );
