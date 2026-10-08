@@ -8,7 +8,7 @@ import {
   Timer, Utensils, Boxes, Star, HelpCircle, Award, Target,
   Printer, X, Gauge, LayoutDashboard, Receipt, CalendarCheck,
   TableProperties, Armchair, Eye, Layers, History, ShieldCheck,
-  Building2, FileSpreadsheet, Flame, Gift, Wallet, Phone, Banknote
+  Building2, FileSpreadsheet, Flame, Gift, Wallet, Phone, Banknote, Smartphone
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { getAll } from '../db/database';
@@ -837,6 +837,12 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
         else if (pMethod.includes('online')) day.online = (day.online || 0) + totalAmount;
         else if (pMethod) day.other = (day.other || 0) + totalAmount;
       }
+
+      // Cash calculation includes any extra cash change deposited to wallet
+      const extraWalletCash = parseFloat(o.walletCredited || 0);
+      if (extraWalletCash > 0) {
+        day.cash += extraWalletCash;
+      }
     });
 
     return Object.values(map);
@@ -896,10 +902,12 @@ const DailySalesSummaryReport = ({ orders, settings }) => {
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
         <StatCard label="Gross Sales" value={fmt(totals.gross)} color="#1e5e4a" icon={IndianRupee} />
-        <StatCard label="Discounts Applied" value={fmt(totals.discounts)} color="#ef4444" icon={TrendingDown} />
         <StatCard label="Net Sales" value={fmt(totals.gross - totals.discounts)} color="#22c55e" icon={TrendingUp} />
+        <StatCard label="Total Cash Received" value={fmt(totals.cash)} color="#16a34a" icon={Banknote} sub="Bills & Wallet Cash" />
+        <StatCard label="Total UPI Received" value={fmt(totals.upi)} color="#0284c7" icon={Smartphone} sub="Bank QR Settlements" />
+        <StatCard label="Discounts Applied" value={fmt(totals.discounts)} color="#ef4444" icon={TrendingDown} />
         <StatCard label="Tax Collected" value={fmt(totals.tax)} color="#f59e0b" icon={Receipt} />
       </div>
 
@@ -1030,10 +1038,32 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
       }
       return sum + (parseFloat(o.total) || 0);
     }, 0);
+    const cashTotal = validOrders.reduce((sum, o) => {
+      const splits = getOrderPaymentSplits(o);
+      let c = 0;
+      if (Array.isArray(splits) && splits.length > 0) {
+        c = splits.filter(s => (s.method || '').toLowerCase().includes('cash')).reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
+      } else if ((o.paymentMethod || '').toLowerCase().includes('cash')) {
+        c = Math.max(0, (parseFloat(o.total) || 0) - getWalletAmountFromOrder(o));
+      }
+      return sum + c + (parseFloat(o.walletCredited) || 0);
+    }, 0);
+    const upiTotal = validOrders.reduce((sum, o) => {
+      const splits = getOrderPaymentSplits(o);
+      let u = 0;
+      if (Array.isArray(splits) && splits.length > 0) {
+        u = splits.filter(s => (s.method || '').toLowerCase().includes('upi')).reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
+      } else if ((o.paymentMethod || '').toLowerCase().includes('upi')) {
+        u = Math.max(0, (parseFloat(o.total) || 0) - getWalletAmountFromOrder(o));
+      }
+      return sum + u;
+    }, 0);
     const count = validOrders.length;
     const voidedCount = isExplicitVoided ? 0 : sortedInvoices.length - count;
     return {
       totalAmount,
+      cashTotal,
+      upiTotal,
       count,
       voidedCount,
       isExplicitVoided
@@ -1176,6 +1206,12 @@ const DetailedInvoiceRegisterReport = ({ orders, settings }) => {
         </Select>
         <div style={{ marginLeft: 'auto' }}><ExportBtn onClick={handleExport} /></div>
       </FilterBar>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <StatCard label="Total Invoiced" value={fmt(totals.totalAmount)} color="#1e5e4a" icon={Receipt} sub={`${totals.count} orders`} />
+        <StatCard label="Total Cash Received" value={fmt(totals.cashTotal)} color="#16a34a" icon={Banknote} sub="Bills & Wallet Cash" />
+        <StatCard label="Total UPI Received" value={fmt(totals.upiTotal)} color="#0284c7" icon={Smartphone} sub="Bank QR Settlements" />
+      </div>
 
       <div className="card">
         <SectionTitle>Detailed Invoice Register ({sortedInvoices.length} Invoices)</SectionTitle>
@@ -6085,22 +6121,877 @@ const GiftCardWalletReport = ({ giftCards = [], guests = [], orders = [] }) => {
 };
 
 // =================================================================
+// PAYMENT RECONCILIATION TAB (CASH & UPI END-OF-DAY MATCHER)
+// =================================================================
+
+const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }) => {
+  const [range, setRange] = useState('Today');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+
+  // Filters
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState('All');
+  const [orderTypeFilter, setOrderTypeFilter] = useState('All');
+  const [cashierFilter, setCashierFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('Paid');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Live EOD Matcher inputs
+  const [actualBankUpi, setActualBankUpi] = useState('');
+  const [openingFloat, setOpeningFloat] = useState('');
+  const [actualCashCounted, setActualCashCounted] = useState('');
+
+  // Selected order for detailed modal
+  const [selectedOrder, setSelectedOrder] = useState(null);
+
+  // Sorting
+  const [sortField, setSortField] = useState('createdAt');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  useHistoricalOrders(range, dateFrom || dateFilter);
+
+  const rangedOrders = useMemo(() => {
+    if (dateFilter) {
+      return (orders || []).filter(o => localDayStr(o.createdAt) === dateFilter);
+    }
+    return filterByRange(orders || [], range, dateFrom, dateTo, 'createdAt');
+  }, [orders, range, dateFilter, dateFrom, dateTo]);
+
+  const rangedGiftCards = useMemo(() => {
+    if (dateFilter) {
+      return (giftCards || []).filter(g => localDayStr(g.createdAt) === dateFilter);
+    }
+    return filterByRange(giftCards || [], range, dateFrom, dateTo, 'createdAt');
+  }, [giftCards, range, dateFilter, dateFrom, dateTo]);
+
+  // Cashiers list
+  const cashiers = useMemo(() => {
+    const list = new Set();
+    (orders || []).forEach(o => { if (o.serverName) list.add(o.serverName); });
+    (giftCards || []).forEach(g => { if (g.staffName) list.add(g.staffName); });
+    return ['All', ...Array.from(list)];
+  }, [orders, giftCards]);
+
+  const { reconciledItems, totals } = useMemo(() => {
+    // 1. Process orders
+    const activeOrders = (rangedOrders || []).filter(o => {
+      // Status filter
+      if (statusFilter === 'Paid') {
+        const s = (o.status || '').toLowerCase();
+        if (s === 'voided' || o.isVoided) return false;
+        if (s === 'refunded') return false;
+      } else if (statusFilter === 'Voided') {
+        const s = (o.status || '').toLowerCase();
+        if (s !== 'voided' && !o.isVoided) return false;
+      } else if (statusFilter === 'Refunded') {
+        const s = (o.status || '').toLowerCase();
+        if (s !== 'refunded') return false;
+      }
+
+      // Order type filter
+      if (orderTypeFilter !== 'All') {
+        const type = o.orderType || (o.tableId ? 'Dine-in' : 'Takeout');
+        if (orderTypeFilter === 'Wallet Top-up') return false;
+        if (type.toLowerCase() !== orderTypeFilter.toLowerCase()) return false;
+      }
+
+      // Cashier filter
+      if (cashierFilter !== 'All' && o.serverName !== cashierFilter) return false;
+
+      // Search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const b = (o.billNo || o.id || '').toLowerCase();
+        const p = (o.customerPhone || o.guestPhone || '').toLowerCase();
+        const n = (o.customerName || o.guestName || '').toLowerCase();
+        const s = (o.serverName || '').toLowerCase();
+        if (!b.includes(q) && !p.includes(q) && !n.includes(q) && !s.includes(q)) return false;
+      }
+
+      return true;
+    });
+
+    let billCash = 0;
+    let extraWalletCash = 0;
+    let billUpi = 0;
+    let cardTotal = 0;
+    let walletRedeemedTotal = 0;
+    let otherTotal = 0;
+    let grossTotal = 0;
+
+    const items = [];
+
+    activeOrders.forEach(o => {
+      const total = parseFloat(o.total || 0);
+      grossTotal += total;
+
+      const splits = getOrderPaymentSplits(o);
+      const wRedeemed = getWalletAmountFromOrder(o);
+      const extraCash = parseFloat(o.walletCredited || 0);
+
+      let cPart = 0;
+      let uPart = 0;
+      let crdPart = 0;
+      let wPart = 0;
+      let othPart = 0;
+
+      if (Array.isArray(splits) && splits.length > 0) {
+        splits.forEach(s => {
+          const amt = parseFloat(s.amount || 0);
+          const sm = (s.method || '').toLowerCase();
+          if (sm.includes('cash')) cPart += amt;
+          else if (sm.includes('upi') || sm.includes('qr')) uPart += amt;
+          else if (sm.includes('card')) crdPart += amt;
+          else if (sm.includes('wallet')) wPart += amt;
+          else if (sm.includes('online')) uPart += amt;
+          else othPart += amt;
+        });
+      } else {
+        const pm = (o.paymentMethod || '').toLowerCase();
+        if (pm.includes('cash')) {
+          cPart = Math.max(0, total - wRedeemed);
+          wPart = wRedeemed;
+        } else if (pm.includes('upi') || pm.includes('qr') || pm.includes('online')) {
+          uPart = Math.max(0, total - wRedeemed);
+          wPart = wRedeemed;
+        } else if (pm.includes('card')) {
+          crdPart = Math.max(0, total - wRedeemed);
+          wPart = wRedeemed;
+        } else if (pm.includes('wallet')) {
+          wPart = total;
+        } else {
+          othPart = Math.max(0, total - wRedeemed);
+          wPart = wRedeemed;
+        }
+      }
+
+      billCash += cPart;
+      extraWalletCash += extraCash;
+      billUpi += uPart;
+      cardTotal += crdPart;
+      walletRedeemedTotal += wPart;
+      otherTotal += othPart;
+
+      const cashCollected = cPart + extraCash;
+
+      // Payment Method filter check
+      let matchesPayment = true;
+      if (paymentMethodFilter !== 'All') {
+        const pf = paymentMethodFilter.toLowerCase();
+        if (pf === 'cash') matchesPayment = cashCollected > 0;
+        else if (pf === 'upi') matchesPayment = uPart > 0;
+        else if (pf === 'card') matchesPayment = crdPart > 0;
+        else if (pf === 'wallet') matchesPayment = wPart > 0 || extraCash > 0;
+        else if (pf === 'split') matchesPayment = (Array.isArray(splits) && splits.length > 1) || (o.paymentMethod || '').toLowerCase().startsWith('split');
+      }
+
+      if (matchesPayment) {
+        items.push({
+          id: o.id,
+          billNo: o.billNo || o.id?.slice(0, 8),
+          createdAt: o.createdAt,
+          orderType: o.orderType || (o.tableId ? 'Dine-in' : 'Takeout'),
+          serverName: o.serverName || '—',
+          total,
+          cashBill: cPart,
+          extraWalletCash: extraCash,
+          cashCollected,
+          upiPart: uPart,
+          cardPart: crdPart,
+          walletRedeemed: wPart,
+          otherPart: othPart,
+          paymentMethod: o.paymentMethod || '—',
+          status: o.status || 'Paid',
+          notes: extraCash > 0 ? `₹${extraCash.toFixed(0)} change saved to wallet` : '',
+          rawOrder: o,
+          isStandaloneWallet: false
+        });
+      }
+    });
+
+    // 2. Standalone wallet top-ups (counter deposits) from giftCards
+    let standaloneCash = 0;
+    let standaloneUpi = 0;
+
+    (rangedGiftCards || []).forEach(g => {
+      if (g.type !== 'issue') return;
+      if (g.orderId || g.billNo) {
+        const linked = activeOrders.some(o => o.id === g.orderId || o.billNo === g.billNo);
+        if (linked) return;
+      }
+
+      const amt = parseFloat(g.amount || 0);
+      if (amt <= 0) return;
+
+      const pMethod = (g.paymentMethod || 'Cash').toLowerCase();
+      const isUpi = pMethod.includes('upi') || pMethod.includes('online');
+      const isCash = !isUpi;
+
+      if (isCash) standaloneCash += amt;
+      else if (isUpi) standaloneUpi += amt;
+
+      if (orderTypeFilter !== 'All' && orderTypeFilter !== 'Wallet Top-up') return;
+      if (cashierFilter !== 'All' && g.staffName !== cashierFilter) return;
+
+      let matchesPayment = true;
+      if (paymentMethodFilter !== 'All') {
+        const pf = paymentMethodFilter.toLowerCase();
+        if (pf === 'cash' && !isCash) matchesPayment = false;
+        if (pf === 'upi' && !isUpi) matchesPayment = false;
+        if (pf === 'card' || pf === 'split') matchesPayment = false;
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const n = (g.guestName || '').toLowerCase();
+        const p = (g.guestPhone || '').toLowerCase();
+        const s = (g.staffName || '').toLowerCase();
+        if (!n.includes(q) && !p.includes(q) && !s.includes(q)) matchesPayment = false;
+      }
+
+      if (matchesPayment) {
+        items.push({
+          id: g.id || `gc_${Math.random()}`,
+          billNo: `TOPUP-${(g.id || '').slice(0, 6)}`,
+          createdAt: g.createdAt,
+          orderType: 'Wallet Top-up',
+          serverName: g.staffName || 'Cashier',
+          total: amt,
+          cashBill: 0,
+          extraWalletCash: 0,
+          cashCollected: isCash ? amt : 0,
+          upiPart: isUpi ? amt : 0,
+          cardPart: 0,
+          walletRedeemed: 0,
+          otherPart: 0,
+          paymentMethod: isCash ? 'Cash (Wallet Deposit)' : 'UPI (Wallet Deposit)',
+          status: 'Completed',
+          notes: `Direct counter wallet credit for ${g.guestName || g.guestPhone || 'Guest'}`,
+          rawOrder: null,
+          isStandaloneWallet: true
+        });
+      }
+    });
+
+    const totalCash = billCash + extraWalletCash + standaloneCash;
+    const totalUpi = billUpi + standaloneUpi;
+
+    return {
+      reconciledItems: items,
+      totals: {
+        billCash,
+        extraWalletCash,
+        standaloneCash,
+        cash: totalCash,
+        billUpi,
+        standaloneUpi,
+        upi: totalUpi,
+        card: cardTotal,
+        walletRedeemed: walletRedeemedTotal,
+        other: otherTotal,
+        gross: grossTotal,
+        count: activeOrders.length
+      }
+    };
+  }, [rangedOrders, rangedGiftCards, statusFilter, orderTypeFilter, cashierFilter, searchQuery, paymentMethodFilter]);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const sortedItems = useMemo(() => {
+    return [...reconciledItems].sort((a, b) => {
+      let va = a[sortField];
+      let vb = b[sortField];
+      if (sortField === 'createdAt') {
+        va = new Date(va || 0).getTime();
+        vb = new Date(vb || 0).getTime();
+      } else if (typeof va === 'string') {
+        va = va.toLowerCase();
+        vb = (vb || '').toLowerCase();
+      }
+      if (va < vb) return sortDirection === 'asc' ? -1 : 1;
+      if (va > vb) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [reconciledItems, sortField, sortDirection]);
+
+  // Bank UPI live calculation
+  const bankVariance = useMemo(() => {
+    if (actualBankUpi === '') return null;
+    const actual = parseFloat(actualBankUpi) || 0;
+    return Math.round((actual - totals.upi) * 100) / 100;
+  }, [actualBankUpi, totals.upi]);
+
+  // Cash Drawer live calculation
+  const cashVariance = useMemo(() => {
+    if (actualCashCounted === '') return null;
+    const actual = parseFloat(actualCashCounted) || 0;
+    const expected = totals.cash + (parseFloat(openingFloat) || 0);
+    return Math.round((actual - expected) * 100) / 100;
+  }, [actualCashCounted, openingFloat, totals.cash]);
+
+  const handlePrintEODChit = () => {
+    const w = window.open('', '_blank', 'width=420,height=650');
+    if (!w) return;
+    const storeName = settings?.restaurantName || settings?.name || 'Kitchgoo Restaurant';
+    const storeAddress = settings?.address || '';
+    const storeGst = settings?.gstin || settings?.taxNumber || '';
+    const periodLabel = dateFilter ? `Date: ${dateFilter}` : `Period: ${range}`;
+    const printTime = new Date().toLocaleString('en-IN');
+
+    w.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>EOD Payment Reconciliation</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; padding: 16px; font-size: 12px; color: #111; line-height: 1.4; }
+    h2, h3, p { margin: 0; padding: 0; text-align: center; }
+    h2 { font-size: 16px; font-weight: bold; margin-bottom: 2px; }
+    .muted { color: #555; font-size: 11px; }
+    .divider { border-top: 1px dashed #777; margin: 10px 0; }
+    .double-divider { border-top: 2px solid #000; margin: 10px 0; }
+    .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .row.bold { font-weight: bold; }
+    .row.large { font-size: 13px; font-weight: bold; }
+    .section-title { font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 8px 0 4px 0; background: #eee; padding: 2px 4px; }
+    .signature-area { margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; }
+    .sig-line { border-top: 1px solid #333; width: 45%; text-align: center; padding-top: 4px; }
+  </style>
+</head>
+<body>
+  <h2>${storeName}</h2>
+  ${storeAddress ? `<p class="muted">${storeAddress}</p>` : ''}
+  ${storeGst ? `<p class="muted">GSTIN: ${storeGst}</p>` : ''}
+  <p class="muted" style="margin-top: 4px; font-weight: 600;">*** END OF DAY PAYMENT RECONCILIATION ***</p>
+  <p class="muted">${periodLabel} | Printed: ${printTime}</p>
+  
+  <div class="divider"></div>
+  
+  <div class="section-title">1. BANK / UPI RECONCILIATION</div>
+  <div class="row"><span>Bill UPI Collections:</span><span>₹${totals.billUpi.toFixed(2)}</span></div>
+  ${totals.standaloneUpi > 0 ? `<div class="row"><span>UPI Wallet Deposits:</span><span>₹${totals.standaloneUpi.toFixed(2)}</span></div>` : ''}
+  <div class="row large"><span>TOTAL UPI EXPECTED IN BANK:</span><span>₹${totals.upi.toFixed(2)}</span></div>
+  ${actualBankUpi !== '' ? `
+    <div class="row"><span>Bank Statement Actual:</span><span>₹${parseFloat(actualBankUpi || 0).toFixed(2)}</span></div>
+    <div class="row bold" style="color: ${bankVariance === 0 ? '#16a34a' : '#dc2626'};">
+      <span>UPI Variance:</span>
+      <span>${bankVariance === 0 ? '₹0.00 (MATCHED)' : `${bankVariance > 0 ? '+' : ''}₹${bankVariance.toFixed(2)}`}</span>
+    </div>
+  ` : ''}
+
+  <div class="divider"></div>
+
+  <div class="section-title">2. CASH DRAWER RECONCILIATION</div>
+  <div class="row"><span>Bill Cash Collected:</span><span>₹${totals.billCash.toFixed(2)}</span></div>
+  <div class="row"><span>+ Change Kept in Wallet:</span><span>₹${totals.extraWalletCash.toFixed(2)}</span></div>
+  ${totals.standaloneCash > 0 ? `<div class="row"><span>+ Counter Cash Top-ups:</span><span>₹${totals.standaloneCash.toFixed(2)}</span></div>` : ''}
+  <div class="row large"><span>TOTAL CASH COLLECTED:</span><span>₹${totals.cash.toFixed(2)}</span></div>
+  ${openingFloat > 0 ? `<div class="row"><span>+ Opening Drawer Float:</span><span>₹${parseFloat(openingFloat || 0).toFixed(2)}</span></div>` : ''}
+  ${openingFloat > 0 ? `<div class="row bold"><span>Total Expected in Drawer:</span><span>₹${(totals.cash + (parseFloat(openingFloat) || 0)).toFixed(2)}</span></div>` : ''}
+  ${actualCashCounted !== '' ? `
+    <div class="row"><span>Physical Cash Counted:</span><span>₹${parseFloat(actualCashCounted || 0).toFixed(2)}</span></div>
+    <div class="row bold" style="color: ${cashVariance === 0 ? '#16a34a' : '#dc2626'};">
+      <span>Cash Variance:</span>
+      <span>${cashVariance === 0 ? '₹0.00 (MATCHED)' : `${cashVariance > 0 ? '+' : ''}₹${cashVariance.toFixed(2)}`}</span>
+    </div>
+  ` : ''}
+
+  <div class="divider"></div>
+
+  <div class="section-title">3. OTHER PAYMENT MODES</div>
+  <div class="row"><span>Card / EDC Swipes:</span><span>₹${totals.card.toFixed(2)}</span></div>
+  <div class="row"><span>Wallet Credit Redeemed:</span><span>₹${totals.walletRedeemed.toFixed(2)}</span></div>
+  ${totals.other > 0 ? `<div class="row"><span>Other Payments:</span><span>₹${totals.other.toFixed(2)}</span></div>` : ''}
+
+  <div class="double-divider"></div>
+
+  <div class="row large"><span>TOTAL SETTLED ORDERS:</span><span>${totals.count}</span></div>
+  <div class="row large"><span>GROSS INVOICED REVENUE:</span><span>₹${totals.gross.toFixed(2)}</span></div>
+
+  <div class="signature-area">
+    <div class="sig-line">Cashier Signature</div>
+    <div class="sig-line">Manager / Owner</div>
+  </div>
+
+  <script>window.print();</script>
+</body>
+</html>`);
+  };
+
+  const handleExportCSV = () => {
+    const rows = [
+      'Ref / Bill No,Date & Time,Order Type,Cashier,Invoice Total,Cash Collected (incl Wallet Change),UPI Received,Card Amount,Wallet Redeemed,Other,Payment Mode,Status,Notes',
+      ...sortedItems.map(item => {
+        return `"${item.billNo}","${fmtDateTime(item.createdAt)}","${item.orderType}","${item.serverName || ''}",${item.total.toFixed(2)},${item.cashCollected.toFixed(2)},${item.upiPart.toFixed(2)},${item.cardPart.toFixed(2)},${item.walletRedeemed.toFixed(2)},${item.otherPart.toFixed(2)},"${item.paymentMethod || ''}","${item.status || 'Paid'}","${(item.notes || '').replace(/"/g, '""')}"`;
+      }),
+      `"TOTAL (${totals.count} Orders)","","","",${totals.gross.toFixed(2)},${totals.cash.toFixed(2)},${totals.upi.toFixed(2)},${totals.card.toFixed(2)},${totals.walletRedeemed.toFixed(2)},${totals.other.toFixed(2)},"","",""`
+    ];
+    downloadCSV(`payment_reconciliation_${(dateFilter || range).toLowerCase().replace(/\s+/g, '_')}.csv`, rows);
+  };
+
+  return (
+    <div className="animate-fade-up">
+      {/* Filters Bar */}
+      <FilterBar>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Period:</span>
+        <RangePicker
+          range={range}
+          setRange={r => { setRange(r); setDateFilter(''); }}
+          dateFrom={dateFrom}
+          setDateFrom={setDateFrom}
+          dateTo={dateTo}
+          setDateTo={setDateTo}
+        />
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Date:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => {
+              setDateFilter(e.target.value);
+              if (e.target.value) setRange('Custom');
+            }}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 8,
+              border: dateFilter ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+              background: dateFilter ? 'rgba(30, 94, 74, 0.05)' : 'white',
+              fontSize: '0.8rem',
+              color: 'var(--text-primary)',
+              cursor: 'pointer'
+            }}
+          />
+          {dateFilter && (
+            <button
+              type="button"
+              onClick={() => setDateFilter('')}
+              title="Clear specific date"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                padding: '2px 4px',
+                fontWeight: 700
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Payment Mode:</span>
+        <Select value={paymentMethodFilter} onChange={setPaymentMethodFilter}>
+          <option value="All">All Payment Modes</option>
+          <option value="UPI">UPI (Bank / QR)</option>
+          <option value="Cash">Cash (Physical Drawer)</option>
+          <option value="Card">Card (POS Terminal)</option>
+          <option value="Wallet">Wallet / Store Credit</option>
+          <option value="Split">Split Payments</option>
+        </Select>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Order Type:</span>
+        <Select value={orderTypeFilter} onChange={setOrderTypeFilter}>
+          <option value="All">All Order Types</option>
+          <option value="Dine-in">Dine-in</option>
+          <option value="Takeout">Takeout</option>
+          <option value="Delivery">Delivery</option>
+          <option value="Wallet Top-up">Wallet Top-up</option>
+        </Select>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Cashier:</span>
+        <Select value={cashierFilter} onChange={setCashierFilter}>
+          {cashiers.map(c => <option key={c} value={c}>{c === 'All' ? 'All Cashiers' : c}</option>)}
+        </Select>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Status:</span>
+        <Select value={statusFilter} onChange={setStatusFilter}>
+          <option value="Paid">Paid / Completed</option>
+          <option value="All">All Statuses</option>
+          <option value="Voided">Voided</option>
+          <option value="Refunded">Refunded</option>
+        </Select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handlePrintEODChit}
+            style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 5 }}
+            title="Print thermal End-Of-Day reconciliation chit"
+          >
+            <Printer size={14} /> Print Chit
+          </button>
+          <ExportBtn onClick={handleExportCSV} />
+        </div>
+      </FilterBar>
+
+      {/* KPI Stat Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <StatCard
+          label="Total Cash Received"
+          value={fmt(totals.cash)}
+          color="#16a34a"
+          icon={Banknote}
+          sub={`Bills ₹${totals.billCash.toFixed(0)} + Wallet ₹${totals.extraWalletCash.toFixed(0)}`}
+        />
+        <StatCard
+          label="Total UPI Received"
+          value={fmt(totals.upi)}
+          color="#0284c7"
+          icon={Smartphone}
+          sub="Bank QR & Netbanking"
+        />
+        <StatCard
+          label="Card / POS Swipes"
+          value={fmt(totals.card)}
+          color="#8b5cf6"
+          icon={CreditCard}
+          sub="EDC Terminal settlements"
+        />
+        <StatCard
+          label="Wallet Credit Spent"
+          value={fmt(totals.walletRedeemed)}
+          color="#f59e0b"
+          icon={Wallet}
+          sub="Store credit deducted"
+        />
+        <StatCard
+          label="Total Revenue Invoiced"
+          value={fmt(totals.gross)}
+          color="#1e5e4a"
+          icon={Receipt}
+          sub={`${totals.count} orders`}
+        />
+      </div>
+
+      {/* Live EOD Matcher Calculator */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 20 }}>
+        {/* UPI Bank Matcher */}
+        <div className="card" style={{ padding: 18, borderLeft: '4px solid #0284c7', background: 'var(--card-bg)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(2, 132, 199, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7' }}>
+                <Smartphone size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Bank UPI Settlement Matcher</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Match today's QR / Netbanking / App collections</div>
+              </div>
+            </div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0284c7', background: 'rgba(2, 132, 199, 0.1)', padding: '2px 8px', borderRadius: 12 }}>
+              Bank QR
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10, padding: '8px 12px', background: 'var(--bg-subtle, rgba(0,0,0,0.02))', borderRadius: 8 }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Expected UPI In Bank:</span>
+            <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0284c7' }}>₹{totals.upi.toFixed(2)}</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+              Actual Received In Bank (₹):
+            </label>
+            <input
+              type="number"
+              placeholder="Enter amount from bank app"
+              value={actualBankUpi}
+              onChange={e => setActualBankUpi(e.target.value)}
+              style={{
+                flex: 1,
+                padding: '6px 10px',
+                borderRadius: 8,
+                border: '1px solid var(--border-subtle)',
+                background: 'white',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: 'var(--text-primary)'
+              }}
+            />
+          </div>
+
+          {actualBankUpi !== '' && (
+            <div style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: bankVariance === 0 ? 'rgba(34, 197, 94, 0.1)' : bankVariance > 0 ? 'rgba(234, 179, 8, 0.12)' : 'rgba(239, 68, 68, 0.1)',
+              color: bankVariance === 0 ? '#16a34a' : bankVariance > 0 ? '#b45309' : '#dc2626'
+            }}>
+              <span>
+                {bankVariance === 0
+                  ? '✓ Bank account perfectly matched!'
+                  : bankVariance > 0
+                    ? `⚠️ Surplus in Bank: +₹${bankVariance.toFixed(2)}`
+                    : `⚠️ Shortfall in Bank: -₹${Math.abs(bankVariance).toFixed(2)}`}
+              </span>
+              <span>Diff: ₹{bankVariance.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Cash Drawer Matcher */}
+        <div className="card" style={{ padding: 18, borderLeft: '4px solid #16a34a', background: 'var(--card-bg)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(22, 163, 74, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+                <Banknote size={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Physical Cash Drawer Matcher</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Includes bill cash + change deposited in wallet</div>
+              </div>
+            </div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#16a34a', background: 'rgba(22, 163, 74, 0.1)', padding: '2px 8px', borderRadius: 12 }}>
+              Physical Cash
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10, padding: '8px 12px', background: 'var(--bg-subtle, rgba(0,0,0,0.02))', borderRadius: 8 }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Expected Cash In Drawer:
+            </span>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#16a34a' }}>
+                ₹{(totals.cash + (parseFloat(openingFloat) || 0)).toFixed(2)}
+              </span>
+              {parseFloat(openingFloat) > 0 && (
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  (₹{totals.cash.toFixed(2)} sales + ₹{parseFloat(openingFloat).toFixed(2)} float)
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>
+                Opening Float (₹):
+              </label>
+              <input
+                type="number"
+                placeholder="0"
+                value={openingFloat}
+                onChange={e => setOpeningFloat(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border-subtle)',
+                  background: 'white',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)'
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>
+                Physical Cash Counted (₹):
+              </label>
+              <input
+                type="number"
+                placeholder="Count in drawer"
+                value={actualCashCounted}
+                onChange={e => setActualCashCounted(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border-subtle)',
+                  background: 'white',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)'
+                }}
+              />
+            </div>
+          </div>
+
+          {actualCashCounted !== '' && (
+            <div style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: cashVariance === 0 ? 'rgba(34, 197, 94, 0.1)' : cashVariance > 0 ? 'rgba(234, 179, 8, 0.12)' : 'rgba(239, 68, 68, 0.1)',
+              color: cashVariance === 0 ? '#16a34a' : cashVariance > 0 ? '#b45309' : '#dc2626'
+            }}>
+              <span>
+                {cashVariance === 0
+                  ? '✓ Cash drawer perfectly matched!'
+                  : cashVariance > 0
+                    ? `⚠️ Cash Over: +₹${cashVariance.toFixed(2)}`
+                    : `⚠️ Cash Short: -₹${Math.abs(cashVariance).toFixed(2)}`}
+              </span>
+              <span>Diff: ₹{cashVariance.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Reconciled Payments Register Table */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <SectionTitle>Payment Reconciliation Register ({sortedItems.length} Records)</SectionTitle>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+              Individual invoices and deposits with accurate drawer Cash and bank UPI apportionments.
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                placeholder="Search bill, phone, cashier..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{
+                  padding: '5px 10px 5px 28px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: '0.78rem',
+                  width: 200,
+                  background: 'white'
+                }}
+              />
+              <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            </div>
+          </div>
+        </div>
+
+        {sortedItems.length === 0 ? <Empty text="No transactions match the selected filters." /> : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th sortField={sortField} currentField="billNo" sortDirection={sortDirection} onSort={handleSort}>Bill / Ref #</Th>
+                <Th sortField={sortField} currentField="createdAt" sortDirection={sortDirection} onSort={handleSort}>Timestamp</Th>
+                <Th sortField={sortField} currentField="orderType" sortDirection={sortDirection} onSort={handleSort}>Order Type</Th>
+                <Th sortField={sortField} currentField="serverName" sortDirection={sortDirection} onSort={handleSort}>Handled By</Th>
+                <Th right sortField={sortField} currentField="total" sortDirection={sortDirection} onSort={handleSort}>Invoice Total</Th>
+                <Th right sortField={sortField} currentField="cashCollected" sortDirection={sortDirection} onSort={handleSort}>Cash In Drawer</Th>
+                <Th right sortField={sortField} currentField="upiPart" sortDirection={sortDirection} onSort={handleSort}>UPI Received</Th>
+                <Th right sortField={sortField} currentField="cardPart" sortDirection={sortDirection} onSort={handleSort}>Card</Th>
+                <Th right sortField={sortField} currentField="walletRedeemed" sortDirection={sortDirection} onSort={handleSort}>Wallet Spent</Th>
+                <Th sortField={sortField} currentField="paymentMethod" sortDirection={sortDirection} onSort={handleSort}>Payment Details</Th>
+                <Th>Action</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedItems.map(item => {
+                const hasExtraWallet = item.extraWalletCash > 0;
+                return (
+                  <tr
+                    key={item.id}
+                    style={{ cursor: item.rawOrder ? 'pointer' : 'default', borderBottom: '1px solid var(--border-subtle)' }}
+                    onClick={() => { if (item.rawOrder) setSelectedOrder(item.rawOrder); }}
+                  >
+                    <Td bold style={{ color: 'var(--primary)' }}>{item.billNo}</Td>
+                    <Td>{fmtDateTime(item.createdAt)}</Td>
+                    <Td><Badge label={item.orderType} color="#1e5e4a" /></Td>
+                    <Td muted>{item.serverName}</Td>
+                    <Td right bold>{fmt(item.total)}</Td>
+                    <Td right bold style={{ color: item.cashCollected > 0 ? '#16a34a' : 'inherit' }}>
+                      {item.cashCollected > 0 ? (
+                        <div>
+                          <div>₹{item.cashCollected.toFixed(2)}</div>
+                          {hasExtraWallet && (
+                            <div style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 600 }}>
+                              (₹{item.cashBill.toFixed(0)} bill + ₹{item.extraWalletCash.toFixed(0)} wallet)
+                            </div>
+                          )}
+                        </div>
+                      ) : '—'}
+                    </Td>
+                    <Td right bold style={{ color: item.upiPart > 0 ? '#0284c7' : 'inherit' }}>
+                      {item.upiPart > 0 ? `₹${item.upiPart.toFixed(2)}` : '—'}
+                    </Td>
+                    <Td right>{item.cardPart > 0 ? `₹${item.cardPart.toFixed(2)}` : '—'}</Td>
+                    <Td right style={{ color: item.walletRedeemed > 0 ? '#d97706' : 'inherit' }}>
+                      {item.walletRedeemed > 0 ? `₹${item.walletRedeemed.toFixed(2)}` : '—'}
+                    </Td>
+                    <Td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{item.paymentMethod}</span>
+                        {item.notes && (
+                          <span style={{ fontSize: '0.68rem', color: '#d97706' }}>{item.notes}</span>
+                        )}
+                      </div>
+                    </Td>
+                    <Td>
+                      {item.rawOrder ? (
+                        <button
+                          className="btn btn-secondary"
+                          onClick={(e) => { e.stopPropagation(); setSelectedOrder(item.rawOrder); }}
+                          style={{ padding: '3px 8px', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                          title="View Invoice Details"
+                        >
+                          <Eye size={12} /> View
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Deposit</span>
+                      )}
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--bg-subtle, rgba(0,0,0,0.03))', fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                <Td colSpan={4}>TOTALS ({totals.count} Orders)</Td>
+                <Td right>{fmt(totals.gross)}</Td>
+                <Td right style={{ color: '#16a34a' }}>₹{totals.cash.toFixed(2)}</Td>
+                <Td right style={{ color: '#0284c7' }}>₹{totals.upi.toFixed(2)}</Td>
+                <Td right>₹{totals.card.toFixed(2)}</Td>
+                <Td right style={{ color: '#d97706' }}>₹{totals.walletRedeemed.toFixed(2)}</Td>
+                <Td colSpan={2} />
+              </tr>
+            </tfoot>
+          </TableWrap>
+        )}
+      </div>
+
+      {/* Invoice History Modal */}
+      {selectedOrder && (
+        <InvoiceHistoryModal
+          order={selectedOrder}
+          onClose={() => setSelectedOrder(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+// =================================================================
 // MAIN REPORTS COMPONENT
 // =================================================================
 
 const TABS = [
-  { id: 'dashboard',         label: 'Dashboard',            icon: LayoutDashboard },
-  { id: 'sales_invoicing',   label: 'Sales & Invoicing',    icon: TrendingUp },
-  { id: 'tax_compliance',    label: 'Tax & Compliance',     icon: Receipt },
-  { id: 'inventory_mgmt',    label: 'Inventory Mgmt',       icon: Boxes },
-  { id: 'menu_mgmt',         label: 'Menu Management',      icon: Utensils },
-  { id: 'table_analytics',   label: 'Table Analytics',      icon: TableProperties },
-  { id: 'operational_eff',   label: 'Operational Efficiency', icon: Clock },
-  { id: 'speed',             label: 'Speed of Service',     icon: Zap },
-  { id: 'labor',             label: 'Labor & Staffing',     icon: Users },
-  { id: 'attendance',        label: 'Attendance',           icon: CalendarCheck },
-  { id: 'gift_cards',        label: 'Gift Cards & Wallet',  icon: Gift },
-  { id: 'register_closure',  label: 'Register Closure',     icon: CreditCard },
+  { id: 'dashboard',              label: 'Dashboard',                 icon: LayoutDashboard },
+  { id: 'sales_invoicing',        label: 'Sales & Invoicing',         icon: TrendingUp },
+  { id: 'payment_reconciliation', label: 'Payment Reconciliation',    icon: Banknote },
+  { id: 'tax_compliance',         label: 'Tax & Compliance',          icon: Receipt },
+  { id: 'inventory_mgmt',         label: 'Inventory Mgmt',            icon: Boxes },
+  { id: 'menu_mgmt',              label: 'Menu Management',           icon: Utensils },
+  { id: 'table_analytics',        label: 'Table Analytics',           icon: TableProperties },
+  { id: 'operational_eff',        label: 'Operational Efficiency',    icon: Clock },
+  { id: 'speed',                  label: 'Speed of Service',          icon: Zap },
+  { id: 'labor',                  label: 'Labor & Staffing',          icon: Users },
+  { id: 'attendance',             label: 'Attendance',                icon: CalendarCheck },
+  { id: 'gift_cards',             label: 'Gift Cards & Wallet',       icon: Gift },
+  { id: 'register_closure',       label: 'Register Closure',          icon: CreditCard },
 ];
 
 const Reports = () => {
@@ -6148,18 +7039,19 @@ const Reports = () => {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'dashboard'        && <DashboardTab orders={orders} inventory={inventory} staff={staff} floorPlans={floorPlans} posTables={posTables} />}
-      {activeTab === 'sales_invoicing'  && <SalesInvoicingTab orders={orders} settings={settings} />}
-      {activeTab === 'tax_compliance'   && <TaxComplianceTab orders={orders} settings={settings} />}
-      {activeTab === 'inventory_mgmt'   && <InventoryMgmtTab inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}
-      {activeTab === 'menu_mgmt'        && <MenuManagementTab orders={orders} menu={menu} />}
-      {activeTab === 'table_analytics'  && <TableAnalyticsTab orders={orders} floorPlans={floorPlans} posTables={posTables} kdsTickets={kdsTickets} staff={staff} />}
-      {activeTab === 'operational_eff'  && <OperationalEfficiencyTab orders={orders} />}
-      {activeTab === 'speed'            && <SpeedOfService orders={orders} kdsTickets={kdsTickets} menu={menu} />}
-      {activeTab === 'labor'            && <LaborReport orders={orders} staff={staff} />}
-      {activeTab === 'attendance'       && <AttendanceReportTab staff={staff} attendance={attendance} />}
-      {activeTab === 'gift_cards'       && <GiftCardWalletReport giftCards={giftCards} guests={guests} orders={orders} />}
-      {activeTab === 'register_closure' && <RegisterClosuresReport />}
+      {activeTab === 'dashboard'              && <DashboardTab orders={orders} inventory={inventory} staff={staff} floorPlans={floorPlans} posTables={posTables} />}
+      {activeTab === 'sales_invoicing'        && <SalesInvoicingTab orders={orders} settings={settings} />}
+      {activeTab === 'payment_reconciliation' && <PaymentReconciliationTab orders={orders} settings={settings} giftCards={giftCards} />}
+      {activeTab === 'tax_compliance'         && <TaxComplianceTab orders={orders} settings={settings} />}
+      {activeTab === 'inventory_mgmt'         && <InventoryMgmtTab inventory={inventory} wasteLog={wasteLog} orders={orders} menu={menu} />}
+      {activeTab === 'menu_mgmt'              && <MenuManagementTab orders={orders} menu={menu} />}
+      {activeTab === 'table_analytics'        && <TableAnalyticsTab orders={orders} floorPlans={floorPlans} posTables={posTables} kdsTickets={kdsTickets} staff={staff} />}
+      {activeTab === 'operational_eff'        && <OperationalEfficiencyTab orders={orders} />}
+      {activeTab === 'speed'                  && <SpeedOfService orders={orders} kdsTickets={kdsTickets} menu={menu} />}
+      {activeTab === 'labor'                  && <LaborReport orders={orders} staff={staff} />}
+      {activeTab === 'attendance'             && <AttendanceReportTab staff={staff} attendance={attendance} />}
+      {activeTab === 'gift_cards'             && <GiftCardWalletReport giftCards={giftCards} guests={guests} orders={orders} />}
+      {activeTab === 'register_closure'       && <RegisterClosuresReport />}
     </div>
   );
 };
