@@ -2,7 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './db/AuthContext';
 import { useApp } from './db/AppContext';
-import { usePermissions } from './db/usePermissions';
+import { usePermissions, getDefaultLandingPath } from './db/usePermissions';
 import { isModuleEnabled } from '../shared/seeds';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
@@ -69,30 +69,37 @@ const Protected = ({ children, allowAdmin = false }) => {
   return children;
 };
 
-// Permission guard — redirects to dashboard when the user's role lacks access.
+// Permission guard — redirects to user's landing path when role lacks access.
 // Must render inside AppProvider (i.e. inside a Protected route).
 const PermissionGuard = ({ perm, children }) => {
   const can = usePermissions();
-  if (!can(perm)) return <Navigate to="/" replace />;
+  const { settings } = useApp();
+  if (!can(perm)) return <Navigate to={getDefaultLandingPath(can, settings)} replace />;
   return children;
 };
 
-// Module guard — redirects to dashboard when an account-level module is disabled
+// Module guard — redirects to user's landing path when an account-level module is disabled
 const ModuleGuard = ({ module: modKey, allowAdmin = false, children }) => {
   const { settings } = useApp();
   const { user } = useAuth();
+  const can = usePermissions();
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
   if (allowAdmin && isPlatformAdmin) return children;
   if (modKey && !isModuleEnabled(settings, modKey)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={getDefaultLandingPath(can, settings)} replace />;
   }
   return children;
 };
 
 const RootElement = () => {
   const { user } = useAuth();
+  const { settings } = useApp();
+  const can = usePermissions();
   if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated) {
     return <Layout title="Platform Admin"><PlatformAdmin /></Layout>;
+  }
+  if (!can('dashboard')) {
+    return <Navigate to={getDefaultLandingPath(can, settings)} replace />;
   }
   return <Layout title="Dashboard"><Dashboard /></Layout>;
 };
@@ -132,7 +139,8 @@ function App() {
       {/* Protected — Settings */}
       <Route path="/settings" element={<Protected allowAdmin={true}><PermissionGuard perm="settings.view"><Layout title="Settings"><Settings /></Layout></PermissionGuard></Protected>} />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/dashboard" element={<Protected><Navigate to="/" replace /></Protected>} />
+      <Route path="*" element={<Protected><RootElement /></Protected>} />
     </Routes>
     </Suspense>
   );

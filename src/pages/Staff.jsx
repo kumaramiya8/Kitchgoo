@@ -24,7 +24,7 @@ const ROLE_COLORS = {
 };
 
 const ALL_PERMISSIONS = [
-  'pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds',
+  'dashboard', 'pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds',
   'reservations', 'guests', 'settings.view', 'settings.edit',
   'reports.export', 'comp.small', 'comp.large', 'void', 'discount',
 ];
@@ -1116,7 +1116,17 @@ const PermissionsTab = () => {
   const [perms, setPerms] = useState(() => {
     const stored = settings?.rolePermissions || {};
     const result = {};
-    ROLES.forEach(r => { result[r] = stored[r] || DEFAULT_ROLE_PERMS[r] || []; });
+    ROLES.forEach(r => {
+      if (stored[r]) {
+        if ((r === 'Owner' || r === 'Manager') && !stored._migratedDashboard && !stored[r].includes('dashboard')) {
+          result[r] = ['dashboard', ...stored[r]];
+        } else {
+          result[r] = stored[r];
+        }
+      } else {
+        result[r] = DEFAULT_ROLE_PERMS[r] || [];
+      }
+    });
     return result;
   });
   const [dirty, setDirty] = useState(false);
@@ -1131,31 +1141,32 @@ const PermissionsTab = () => {
   };
 
   const handleSave = () => {
-    updateSettingsSection('rolePermissions', perms);
+    updateSettingsSection('rolePermissions', { ...perms, _migratedDashboard: true });
     setDirty(false);
-    };
+  };
 
-    const permLabels = {
-      pos: 'POS', inventory: 'Inventory', staff: 'Staff', reports: 'Reports',
-      menu: 'Menu', delivery: 'Delivery', kds: 'KDS', reservations: 'Reservations',
-      guests: 'Guests', 'settings.view': 'Settings (View)', 'settings.edit': 'Settings (Edit)',
-      'reports.export': 'Reports Export', 'comp.small': 'Comp (Small)', 'comp.large': 'Comp (Large)',
-      void: 'Void', discount: 'Discount',
-    };
+  const permLabels = {
+    dashboard: 'Dashboard',
+    pos: 'POS', inventory: 'Inventory', staff: 'Staff', reports: 'Reports',
+    menu: 'Menu', delivery: 'Delivery', kds: 'KDS', reservations: 'Reservations',
+    guests: 'Guests', 'settings.view': 'Settings (View)', 'settings.edit': 'Settings (Edit)',
+    'reports.export': 'Reports Export', 'comp.small': 'Comp (Small)', 'comp.large': 'Comp (Large)',
+    void: 'Void', discount: 'Discount',
+  };
 
-    return (
-      <>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Role-Based Access Control</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Toggle permissions for each role across the system</div>
-          </div>
-          {dirty && <button className="btn btn-success" onClick={handleSave}><Save size={16} /> Save Changes</button>}
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Role-Based Access Control</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Toggle permissions for each role across the system</div>
         </div>
+        {dirty && <button className="btn btn-success" onClick={handleSave}><Save size={16} /> Save Changes</button>}
+      </div>
 
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 980 }}>
               <thead>
                 <tr style={{ background: 'var(--primary-light)' }}>
                   <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: 'var(--text-secondary)', position: 'sticky', left: 0, background: 'rgba(255,255,255,0.95)', zIndex: 1, minWidth: 120 }}>Role</th>
