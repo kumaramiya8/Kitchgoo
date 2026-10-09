@@ -45,6 +45,8 @@ import {
   saveTableOrder,
   isGuestMode,
   ensureOrdersSince,
+  ensureKDSTicketsSince,
+  getArchivedKDSTickets,
   issueGiftCardCredit,
   redeemGiftCardCredit,
 } from './database';
@@ -199,6 +201,7 @@ export function AppProvider({ children }) {
   const [attendance, setAttendance] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [giftCards, setGiftCards] = useState([]);
+  const [kdsTicketsArchive, setKdsTicketsArchive] = useState(() => getArchivedKDSTickets());
 
   const { user, loading: authLoading } = useAuth();
 
@@ -335,6 +338,7 @@ export function AppProvider({ children }) {
     setAttendance(getAll('attendance'));
     setExpenses(getAll('expenses') || []);
     setGiftCards(getAll('gift_cards') || []);
+    setKdsTicketsArchive(getArchivedKDSTickets());
 
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
     if (!supabase || isDemoMode) {
@@ -1195,12 +1199,18 @@ export function AppProvider({ children }) {
   // Reports call this when a selected period reaches past the loaded orders
   // window; older rows are fetched once and merged into state.
   const loadOlderOrders = useCallback(async (fromDayStr) => {
-    const fetched = await ensureOrdersSince(fromDayStr);
-    if (fetched) {
+    const [ordersFetched, kdsFetched] = await Promise.allSettled([
+      ensureOrdersSince(fromDayStr),
+      ensureKDSTicketsSince(fromDayStr),
+    ]);
+    if (ordersFetched.status === 'fulfilled' && ordersFetched.value) {
       setOrders(getAll('orders'));
       setTodayStats(getTodayStats());
     }
-    return fetched;
+    if (kdsFetched.status === 'fulfilled' && kdsFetched.value) {
+      setKdsTicketsArchive(getArchivedKDSTickets());
+    }
+    return true;
   }, []);
 
   const broadcastOrderCreated = useCallback(async (tableId, kdsOrderId) => {
@@ -1217,7 +1227,7 @@ export function AppProvider({ children }) {
     ready,
     // Data
     staff, inventory, menu, orders, deliveryOrders, settings, todayStats,
-    kdsTickets, reservations, waitlist, onlineOrders, suppliers, purchaseOrders,
+    kdsTickets, kdsTicketsArchive, reservations, waitlist, onlineOrders, suppliers, purchaseOrders,
     recipes, wasteLog, locations, auditLog, floorPlans, modifiers, schedules,
     tipPools, loyalty, campaigns, guests, cashDrawer, registerClosures, attendance, expenses, giftCards,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,

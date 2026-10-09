@@ -135,6 +135,18 @@ function useHistoricalOrders(range, dateFrom) {
       from = localDayStr(new Date(now.getFullYear(), now.getMonth(), 1));
     } else if (range === 'This Quarter') {
       from = localDayStr(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1));
+    } else if (range === 'Last 7 Days') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      from = localDayStr(d);
+    } else if (range === 'Last 30 Days') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      from = localDayStr(d);
+    } else if (range === 'This Year') {
+      from = localDayStr(new Date(now.getFullYear(), 0, 1));
+    } else if (range === 'All Time') {
+      from = '2020-01-01';
     }
     if (from && typeof loadOlderOrders === 'function') {
       loadOlderOrders(from);
@@ -3445,6 +3457,7 @@ const OperationalEfficiencyTab = ({ orders }) => {
 // =================================================================
 
 const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
+  const { kdsTicketsArchive = [] } = useApp();
   const [activeSpeedTab, setActiveSpeedTab] = useState('invoices'); // 'invoices' | 'tickets' | 'items'
   const [range, setRange]                   = useState('Today');
   const [dateFrom, setDateFrom]             = useState('');
@@ -3464,6 +3477,7 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
   // Filter orders and KDS tickets by selected period range
   const filteredOrders = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
   const filteredTickets = useMemo(() => filterByRange(kdsTickets, range, dateFrom, dateTo, 'firedAt'), [kdsTickets, range, dateFrom, dateTo]);
+  const filteredArchive = useMemo(() => filterByRange(kdsTicketsArchive, range, dateFrom, dateTo, 'firedAt'), [kdsTicketsArchive, range, dateFrom, dateTo]);
 
   // ── 1. INVOICE-LEVEL SPEED DATA ─────────────────────────────
   const serviceData = useMemo(() => {
@@ -3471,7 +3485,7 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
     const ticketsByTableId = new Map();
     const ticketsByToken = new Map();
 
-    (kdsTickets || []).forEach(ticket => {
+    const indexTicket = (ticket) => {
       if (ticket.orderId) {
         if (!ticketsByOrderId.has(ticket.orderId)) ticketsByOrderId.set(ticket.orderId, []);
         ticketsByOrderId.get(ticket.orderId).push(ticket);
@@ -3493,7 +3507,10 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
         if (!ticketsByToken.has(tok)) ticketsByToken.set(tok, []);
         ticketsByToken.get(tok).push(ticket);
       }
-    });
+    };
+
+    (kdsTickets || []).forEach(indexTicket);
+    (kdsTicketsArchive || []).forEach(indexTicket);
 
     return filteredOrders.map(o => {
       const orderCreationIso = o.createdAt || o.date || o.timestamps?.ordered || o.orderPlacedAt || null;
@@ -3544,11 +3561,15 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
       }
       if (!ticketPrintedTime && o.timestamps?.ticketPrinted) {
         const t = new Date(o.timestamps.ticketPrinted).getTime();
-        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) ticketPrintedTime = t;
+        if (t && Math.abs(orderCreatedTime - t) <= 24 * 60 * 60 * 1000) ticketPrintedTime = t;
       }
       if (!ticketPrintedTime && o.ticketPrintedAt) {
         const t = new Date(o.ticketPrintedAt).getTime();
-        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) ticketPrintedTime = t;
+        if (t && Math.abs(orderCreatedTime - t) <= 24 * 60 * 60 * 1000) ticketPrintedTime = t;
+      }
+      if (!ticketPrintedTime && Array.isArray(o.timestamps?.kdsTickets)) {
+        const kdsFired = o.timestamps.kdsTickets.map(kt => kt.firedAt ? new Date(kt.firedAt).getTime() : 0).filter(Boolean);
+        if (kdsFired.length > 0) ticketPrintedTime = Math.min(...kdsFired);
       }
 
       let foodBumpedTime = null;
@@ -3567,11 +3588,19 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
       }
       if (!foodBumpedTime && o.timestamps?.foodBumped) {
         const t = new Date(o.timestamps.foodBumped).getTime();
-        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) foodBumpedTime = t;
+        if (t && Math.abs(orderCreatedTime - t) <= 24 * 60 * 60 * 1000) foodBumpedTime = t;
       }
       if (!foodBumpedTime && o.foodBumpedAt) {
         const t = new Date(o.foodBumpedAt).getTime();
-        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) foodBumpedTime = t;
+        if (t && Math.abs(orderCreatedTime - t) <= 24 * 60 * 60 * 1000) foodBumpedTime = t;
+      }
+      if (!foodBumpedTime && Array.isArray(o.timestamps?.kdsTickets)) {
+        const kdsBumps = o.timestamps.kdsTickets.map(kt => kt.bumpedAt ? new Date(kt.bumpedAt).getTime() : 0).filter(Boolean);
+        if (kdsBumps.length > 0) foodBumpedTime = Math.max(...kdsBumps);
+      }
+      if (!foodBumpedTime && Array.isArray(o.items)) {
+        const itemBumps = o.items.map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+        if (itemBumps.length > 0) foodBumpedTime = Math.max(...itemBumps);
       }
 
       if (foodBumpedTime && ticketPrintedTime && (foodBumpedTime - ticketPrintedTime > 3 * 60 * 60 * 1000)) {
@@ -3582,13 +3611,13 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
 
       if (o.orderPlacedAt) {
         const t = new Date(o.orderPlacedAt).getTime();
-        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
+        if (t && Math.abs(orderCreatedTime - t) <= 24 * 60 * 60 * 1000) orderPlacedTime = t;
       } else if (o.timestamps?.ordered) {
         const t = new Date(o.timestamps.ordered).getTime();
-        if (t && Math.abs(orderCreatedTime - t) <= 4 * 60 * 60 * 1000) orderPlacedTime = t;
+        if (t && Math.abs(orderCreatedTime - t) <= 24 * 60 * 60 * 1000) orderPlacedTime = t;
       }
 
-      if (ticketPrintedTime && (!orderPlacedTime || orderPlacedTime >= checkPaid || orderPlacedTime > ticketPrintedTime)) {
+      if (ticketPrintedTime && (!orderPlacedTime || orderPlacedTime > ticketPrintedTime)) {
         orderPlacedTime = ticketPrintedTime;
       }
       if (!ticketPrintedTime && orderPlacedTime) {
@@ -3609,11 +3638,7 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
 
       let totalTime = (checkPaid && orderPlacedTime && checkPaid >= orderPlacedTime)
         ? checkPaid - orderPlacedTime
-        : null;
-
-      if (totalTime === null && foodBumpedTime && orderPlacedTime && foodBumpedTime >= orderPlacedTime) {
-        totalTime = foodBumpedTime - orderPlacedTime;
-      }
+        : (foodBumpedTime && orderPlacedTime && foodBumpedTime >= orderPlacedTime ? foodBumpedTime - orderPlacedTime : null);
 
       const tableDisplay = o.tableName
         ? o.tableName
@@ -3659,20 +3684,118 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
     };
   }, [serviceData]);
 
-  // ── 2. KDS TICKET-LEVEL SPEED DATA ──────────────────────────
-  const ticketSpeedData = useMemo(() => {
-    return (filteredTickets || []).map(t => {
-      const firedIso = t.firedAt || t.createdAt;
-      const firedMs = firedIso ? new Date(firedIso).getTime() : null;
+  // ── 2. COMBINED KDS TICKETS (LIVE + HISTORICAL SYNTHESIZED) ──
+  const allTickets = useMemo(() => {
+    const tickets = [...(filteredTickets || [])];
+
+    // Track orders already represented by a live KDS ticket
+    const coveredOrderIds = new Set();
+    const coveredTicketIds = new Set();
+    tickets.forEach(t => {
+      if (t.id) coveredTicketIds.add(String(t.id));
+      if (t.orderId) coveredOrderIds.add(String(t.orderId));
+      if (t.billNo) coveredOrderIds.add(String(t.billNo));
+    });
+
+    // Also include filtered archived tickets from past shifts
+    (filteredArchive || []).forEach(at => {
+      const atIdStr = String(at.id || at.ticketId || '');
+      if (atIdStr && coveredTicketIds.has(atIdStr)) return;
+      if (at.orderId && coveredOrderIds.has(String(at.orderId))) return;
+      if (atIdStr) coveredTicketIds.add(atIdStr);
+      if (at.orderId) coveredOrderIds.add(String(at.orderId));
+      tickets.push({ ...at, isArchived: true });
+    });
+
+    (filteredOrders || []).forEach(o => {
+      const orderIdStr = String(o.id || '');
+      const billNoStr = String(o.billNo || '');
+      const kdsTicketIdStr = o.kdsTicketId ? String(o.kdsTicketId) : '';
+      const kdsTicketIdsArr = Array.isArray(o.kdsTicketIds) ? o.kdsTicketIds.map(String) : [];
+
+      const isCovered = (orderIdStr && coveredOrderIds.has(orderIdStr)) ||
+        (billNoStr && coveredOrderIds.has(billNoStr)) ||
+        (kdsTicketIdStr && coveredTicketIds.has(kdsTicketIdStr)) ||
+        kdsTicketIdsArr.some(id => coveredTicketIds.has(id));
+
+      if (isCovered) return;
+
+      // 1. Check if the order preserved its original KDS tickets snapshots!
+      const storedTickets = Array.isArray(o.timestamps?.kdsTickets)
+        ? o.timestamps.kdsTickets
+        : (Array.isArray(o.kdsTickets) ? o.kdsTickets : null);
+
+      if (storedTickets && storedTickets.length > 0) {
+        let storedAdded = false;
+        storedTickets.forEach(st => {
+          const stIdStr = String(st.id || st.ticketId || '');
+          if (stIdStr && coveredTicketIds.has(stIdStr)) return;
+          if (stIdStr) coveredTicketIds.add(stIdStr);
+
+          const firedIso = st.firedAt || st.createdAt || o.ticketPrintedAt || o.timestamps?.ticketPrinted || o.createdAt;
+          const firedMs = typeof firedIso === 'number' ? firedIso : (firedIso ? new Date(firedIso).getTime() : null);
+
+          let bumpedMs = null;
+          if (typeof st.bumpedAt === 'number') bumpedMs = st.bumpedAt;
+          else if (st.bumpedAt) bumpedMs = new Date(st.bumpedAt).getTime();
+          else if (st.completedAt) bumpedMs = new Date(st.completedAt).getTime();
+          else if (o.foodBumpedAt) bumpedMs = new Date(o.foodBumpedAt).getTime();
+          else if (o.timestamps?.foodBumped) bumpedMs = new Date(o.timestamps.foodBumped).getTime();
+
+          let prepMs = null;
+          let isBumpAnomaly = false;
+          if (firedMs && bumpedMs && bumpedMs >= firedMs) {
+            const raw = bumpedMs - firedMs;
+            if (raw <= 3 * 60 * 60 * 1000) prepMs = raw;
+            else isBumpAnomaly = true;
+          }
+
+          const tableDisplay = st.table || st.tableName || o.tableName
+            || (st.tableId ? (String(st.tableId).startsWith('T-') ? st.tableId : `T-${st.tableId}`) : (o.tableId ? `T-${o.tableId}` : (st.tokenNumber ? `Token #${st.tokenNumber}` : '—')));
+
+          const itemsSummary = st.itemsSummary || ((st.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—');
+          const itemsCount = st.itemsCount || ((st.items || []).reduce((s, i) => s + (i.qty || 1), 0));
+          const status = bumpedMs ? 'completed' : (st.status || 'completed');
+
+          tickets.push({
+            id: st.id || st.ticketId || o.billNo || (o.id ? o.id.slice(0, 8) : '—'),
+            ticketId: st.ticketId || st.id,
+            orderId: st.orderId || o.billNo || o.id,
+            table: tableDisplay,
+            orderType: st.orderType || o.orderType || 'dine-in',
+            itemsSummary,
+            itemsCount,
+            firedAt: firedMs,
+            bumpedAt: bumpedMs,
+            prepMs,
+            status,
+            isBumpAnomaly,
+            items: (st.items || []).map(item => ({
+              ...item,
+              bumpedAt: item.bumpedAt || (bumpedMs ? new Date(bumpedMs).toISOString() : null),
+              status: bumpedMs ? 'bumped' : (item.status || 'completed'),
+            })),
+            isHistorical: true,
+          });
+          storedAdded = true;
+        });
+        if (storedAdded) {
+          if (orderIdStr) coveredOrderIds.add(orderIdStr);
+          if (billNoStr) coveredOrderIds.add(billNoStr);
+          return;
+        }
+      }
+
+      // 2. Synthesize from order row
+      const orderCreationIso = o.createdAt || o.date || o.timestamps?.ordered || o.orderPlacedAt || null;
+      const orderCreatedTime = orderCreationIso ? new Date(orderCreationIso).getTime() : null;
+
+      const firedIso = o.ticketPrintedAt || o.timestamps?.ticketPrinted || o.orderPlacedAt || o.timestamps?.ordered || o.createdAt;
+      const firedMs = firedIso ? new Date(firedIso).getTime() : orderCreatedTime;
 
       let bumpedMs = null;
-      if (t.bumpedAt) bumpedMs = new Date(t.bumpedAt).getTime();
-      else if (t.completedAt) bumpedMs = new Date(t.completedAt).getTime();
-      else {
-        const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
-        if (itemBumps.length > 0) bumpedMs = Math.max(...itemBumps);
-        else if (t.status === 'completed' && t.updatedAt) bumpedMs = new Date(t.updatedAt).getTime();
-      }
+      if (o.foodBumpedAt) bumpedMs = new Date(o.foodBumpedAt).getTime();
+      else if (o.timestamps?.foodBumped) bumpedMs = new Date(o.timestamps.foodBumped).getTime();
 
       let prepMs = null;
       let isBumpAnomaly = false;
@@ -3685,17 +3808,77 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
         }
       }
 
-      const tableDisplay = t.tableName
-        ? t.tableName
-        : (t.tableId ? (String(t.tableId).startsWith('T-') ? t.tableId : `T-${t.tableId}`) : (t.tokenNumber ? `Token #${t.tokenNumber}` : (t.orderType === 'takeout' ? 'Takeout' : (t.orderType === 'delivery' ? 'Delivery' : 'Direct'))));
+      const tableDisplay = o.tableName
+        ? o.tableName
+        : (o.tableId ? (String(o.tableId).startsWith('T-') ? o.tableId : `T-${o.tableId}`) : (o.tokenNumber ? `Token #${o.tokenNumber}` : (o.orderType === 'takeout' ? 'Takeout' : (o.orderType === 'delivery' ? 'Delivery' : 'Direct'))));
 
-      const itemsSummary = (t.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—';
-      const itemsCount = (t.items || []).reduce((s, i) => s + (i.qty || 1), 0);
+      const itemsSummary = (o.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—';
+      const itemsCount = (o.items || []).reduce((s, i) => s + (i.qty || 1), 0);
+      const status = bumpedMs ? 'completed' : (o.status === 'paid' ? 'completed' : (o.status || 'active'));
+
+      tickets.push({
+        id: o.billNo || (o.id ? o.id.slice(0, 8) : '—'),
+        ticketId: o.kdsTicketIds?.[0] || o.kdsTicketId || o.id,
+        orderId: o.billNo || o.id,
+        table: tableDisplay,
+        orderType: o.orderType || 'dine-in',
+        itemsSummary,
+        itemsCount,
+        firedAt: firedMs,
+        bumpedAt: bumpedMs,
+        prepMs,
+        status,
+        isBumpAnomaly,
+        items: (o.items || []).map(item => ({
+          ...item,
+          bumpedAt: item.bumpedAt || (bumpedMs ? new Date(bumpedMs).toISOString() : null),
+          status: bumpedMs ? 'bumped' : (item.status || 'completed'),
+        })),
+        isSynthesized: true,
+      });
+    });
+
+    return tickets;
+  }, [filteredTickets, filteredArchive, filteredOrders]);
+
+  // ── 2. KDS TICKET-LEVEL SPEED DATA ──────────────────────────
+  const ticketSpeedData = useMemo(() => {
+    return (allTickets || []).map(t => {
+      const firedIso = t.firedAt || t.createdAt;
+      const firedMs = typeof firedIso === 'number' ? firedIso : (firedIso ? new Date(firedIso).getTime() : null);
+
+      let bumpedMs = null;
+      if (typeof t.bumpedAt === 'number') bumpedMs = t.bumpedAt;
+      else if (t.bumpedAt) bumpedMs = new Date(t.bumpedAt).getTime();
+      else if (t.completedAt) bumpedMs = new Date(t.completedAt).getTime();
+      else {
+        const itemBumps = (t.items || []).map(i => i.bumpedAt ? new Date(i.bumpedAt).getTime() : 0).filter(Boolean);
+        if (itemBumps.length > 0) bumpedMs = Math.max(...itemBumps);
+        else if (t.status === 'completed' && t.updatedAt) bumpedMs = new Date(t.updatedAt).getTime();
+      }
+
+      let prepMs = t.prepMs !== undefined ? t.prepMs : null;
+      let isBumpAnomaly = t.isBumpAnomaly || false;
+      if (prepMs === null && firedMs && bumpedMs && bumpedMs >= firedMs) {
+        const raw = bumpedMs - firedMs;
+        if (raw <= 3 * 60 * 60 * 1000) {
+          prepMs = raw;
+        } else {
+          isBumpAnomaly = true;
+        }
+      }
+
+      const tableDisplay = t.table || (t.tableName
+        ? t.tableName
+        : (t.tableId ? (String(t.tableId).startsWith('T-') ? t.tableId : `T-${t.tableId}`) : (t.tokenNumber ? `Token #${t.tokenNumber}` : (t.orderType === 'takeout' ? 'Takeout' : (t.orderType === 'delivery' ? 'Delivery' : 'Direct')))));
+
+      const itemsSummary = t.itemsSummary || ((t.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—');
+      const itemsCount = t.itemsCount || ((t.items || []).reduce((s, i) => s + (i.qty || 1), 0));
       const status = bumpedMs ? 'completed' : (t.status || 'active');
 
       return {
         id: t.orderId || (t.id ? t.id.slice(0, 8) : '—'),
-        ticketId: t.id,
+        ticketId: t.ticketId || t.id,
         table: tableDisplay,
         orderType: t.orderType || 'dine-in',
         itemsSummary,
@@ -3707,7 +3890,7 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
         isBumpAnomaly,
       };
     });
-  }, [filteredTickets]);
+  }, [allTickets]);
 
   const filteredTicketData = useMemo(() => {
     if (!searchQuery.trim()) return ticketSpeedData;
@@ -3738,27 +3921,28 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
     const itemMap = new Map();
     const itemLogs = [];
 
-    (filteredTickets || []).forEach(t => {
+    (allTickets || []).forEach(t => {
       const ticketFired = t.firedAt || t.createdAt;
-      const firedMs = ticketFired ? new Date(ticketFired).getTime() : null;
+      const firedMs = typeof ticketFired === 'number' ? ticketFired : (ticketFired ? new Date(ticketFired).getTime() : null);
       if (!firedMs) return;
 
-      const ticketTable = t.tableName
+      const ticketTable = t.table || (t.tableName
         ? t.tableName
-        : (t.tableId ? (String(t.tableId).startsWith('T-') ? t.tableId : `T-${t.tableId}`) : (t.tokenNumber ? `Token #${t.tokenNumber}` : '—'));
+        : (t.tableId ? (String(t.tableId).startsWith('T-') ? t.tableId : `T-${t.tableId}`) : (t.tokenNumber ? `Token #${t.tokenNumber}` : '—')));
 
-      const ticketId = t.orderId || (t.id ? t.id.slice(0, 8) : '—');
+      const ticketId = t.id || t.orderId || (t.ticketId ? String(t.ticketId).slice(0, 8) : '—');
 
       (t.items || []).forEach((item, idx) => {
         const itemName = (item.name || 'Unnamed Item').trim();
         const qty = Number(item.qty || item.quantity || 1);
 
         let itemBumpedMs = null;
-        if (item.bumpedAt) itemBumpedMs = new Date(item.bumpedAt).getTime();
+        if (typeof item.bumpedAt === 'number') itemBumpedMs = item.bumpedAt;
+        else if (item.bumpedAt) itemBumpedMs = new Date(item.bumpedAt).getTime();
         else if (item.status === 'bumped') {
-          itemBumpedMs = t.bumpedAt ? new Date(t.bumpedAt).getTime() : (t.completedAt ? new Date(t.completedAt).getTime() : null);
-        } else if (t.status === 'completed') {
-          itemBumpedMs = t.bumpedAt ? new Date(t.bumpedAt).getTime() : (t.completedAt ? new Date(t.completedAt).getTime() : null);
+          itemBumpedMs = t.bumpedAt ? (typeof t.bumpedAt === 'number' ? t.bumpedAt : new Date(t.bumpedAt).getTime()) : (t.completedAt ? new Date(t.completedAt).getTime() : null);
+        } else if (t.status === 'completed' && t.bumpedAt) {
+          itemBumpedMs = typeof t.bumpedAt === 'number' ? t.bumpedAt : new Date(t.bumpedAt).getTime();
         }
 
         let prepMs = null;
@@ -3773,7 +3957,7 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
         const category = menuItem?.category || item.category || 'General';
 
         itemLogs.push({
-          id: `${t.id}-${idx}`,
+          id: `${t.ticketId || t.id}-${idx}`,
           ticketId,
           table: ticketTable,
           name: itemName,
@@ -3825,7 +4009,7 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
     });
 
     return { aggregated, itemLogs };
-  }, [filteredTickets, menu]);
+  }, [allTickets, menu]);
 
   const filteredAggregatedItems = useMemo(() => {
     if (!searchQuery.trim()) return itemPrepData.aggregated;
@@ -4063,6 +4247,8 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
                     }
                     if (phases.length === 0 && d.totalTime !== null && d.totalTime > 0) {
                       phases.push({ pct: Math.min((d.totalTime / maxTime) * 100, 100), duration: d.totalTime, color: '#22c55e', label: 'Turnaround' });
+                    } else if (phases.length === 0 && d.totalTime === 0) {
+                      phases.push({ pct: 100, duration: 0, color: '#10b981', label: 'Direct Settle' });
                     }
 
                     return (
@@ -4161,10 +4347,10 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
                       <Td>
                         <span style={{
                           fontSize: '0.72rem', fontWeight: 600, padding: '3px 8px', borderRadius: 6,
-                          background: t.status === 'completed' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
-                          color: t.status === 'completed' ? '#16a34a' : '#d97706',
+                          background: t.bumpedAt ? 'rgba(34,197,94,0.15)' : (t.status === 'completed' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)'),
+                          color: t.bumpedAt ? '#16a34a' : (t.status === 'completed' ? '#0284c7' : '#d97706'),
                         }}>
-                          {t.status === 'completed' ? 'Bumped' : 'In Kitchen'}
+                          {t.bumpedAt ? 'Bumped' : (t.status === 'completed' ? 'Settled' : 'In Kitchen')}
                         </span>
                       </Td>
                     </tr>
@@ -4236,7 +4422,10 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
                   <tbody>
                     {displayedItems.map(it => {
                       const avgSec = it.avgPrepMs ? it.avgPrepMs / 1000 : null;
-                      const speedTag = avgSec === null ? { text: 'In Prep', bg: 'rgba(245,158,11,0.15)', col: '#d97706' }
+                      const speedTag = avgSec === null
+                        ? (it.bumpedQty === 0 && it.totalQty > 0
+                          ? { text: 'Direct Settle', bg: 'rgba(100,116,139,0.12)', col: '#64748b' }
+                          : { text: 'In Kitchen', bg: 'rgba(245,158,11,0.15)', col: '#d97706' })
                         : avgSec < 300 ? { text: 'Fast (< 5m)', bg: 'rgba(34,197,94,0.15)', col: '#16a34a' }
                         : avgSec < 720 ? { text: 'Standard', bg: 'rgba(59,130,246,0.15)', col: '#0284c7' }
                         : { text: 'High Prep (> 12m)', bg: 'rgba(239,68,68,0.15)', col: '#e11d48' };
@@ -4296,10 +4485,10 @@ const SpeedOfService = ({ orders, kdsTickets = [], menu = [] }) => {
                         <Td>
                           <span style={{
                             fontSize: '0.72rem', fontWeight: 600, padding: '3px 8px', borderRadius: 6,
-                            background: log.status === 'bumped' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
-                            color: log.status === 'bumped' ? '#16a34a' : '#d97706',
+                            background: log.status === 'bumped' ? 'rgba(34,197,94,0.15)' : (log.status === 'completed' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)'),
+                            color: log.status === 'bumped' ? '#16a34a' : (log.status === 'completed' ? '#0284c7' : '#d97706'),
                           }}>
-                            {log.status === 'bumped' ? 'Bumped' : 'In Prep'}
+                            {log.status === 'bumped' ? 'Bumped' : (log.status === 'completed' ? 'Settled' : 'In Prep')}
                           </span>
                         </Td>
                       </tr>

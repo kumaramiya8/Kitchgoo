@@ -7443,6 +7443,24 @@ const POS = () => {
         ticketPrintedAt: firstTicketPrinted,
         foodBumpedAt: latestFoodBumped,
         kdsTicketIds: relatedTickets.map(t => t.id),
+        kdsTickets: relatedTickets.map(t => ({
+          id: t.id,
+          ticketId: t.id,
+          tableId: t.tableId,
+          tableName: t.tableName,
+          tokenNumber: t.tokenNumber,
+          orderType: t.orderType,
+          firedAt: t.firedAt || t.createdAt,
+          bumpedAt: t.bumpedAt || t.completedAt || latestFoodBumped,
+          status: t.status || 'completed',
+          items: (t.items || []).map(i => ({
+            name: i.name,
+            qty: i.qty,
+            category: i.category,
+            status: i.status || (latestFoodBumped ? 'bumped' : 'completed'),
+            bumpedAt: i.bumpedAt || latestFoodBumped,
+          })),
+        })),
         history: [
           {
             action: 'created',
@@ -7455,7 +7473,23 @@ const POS = () => {
       };
 
       const tableId = activeTable?.id || null;
-      const currentCart = [...cart];
+      const currentCart = cart.map(cartItem => {
+        let itemBumpedAt = null;
+        for (const t of relatedTickets) {
+          const matchedItem = (t.items || []).find(ti => ti.name?.toLowerCase() === cartItem.name?.toLowerCase() && ti.bumpedAt);
+          if (matchedItem?.bumpedAt) {
+            itemBumpedAt = matchedItem.bumpedAt;
+            break;
+          }
+        }
+        if (!itemBumpedAt && latestFoodBumped) {
+          itemBumpedAt = latestFoodBumped;
+        }
+        return {
+          ...cartItem,
+          ...(itemBumpedAt ? { bumpedAt: itemBumpedAt, status: 'bumped' } : {}),
+        };
+      });
       const currentActiveTable = activeTable;
       const currentUnassignedTab = unassignedTab;
       const currentCustomerName = effectiveGuestName;

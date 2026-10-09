@@ -188,6 +188,38 @@ app.get('/api/data/orders', wrap(async (req, res) => {
   res.json({ success: true, orders: data || [] });
 }));
 
+// Historical KDS tickets by range — queries archived completed tickets
+app.get('/api/data/kds-history', wrap(async (req, res) => {
+  const db = requireDb();
+  const tenant = resolveTenant(req);
+  const { from, to } = req.query;
+
+  const currentArchive = (await getFlex(db, tenant, 'kds_tickets_archive', [])) || [];
+  let tickets = Array.isArray(currentArchive) ? currentArchive : [];
+
+  if (from) {
+    const fromMs = new Date(String(from)).getTime();
+    if (!isNaN(fromMs)) {
+      tickets = tickets.filter(t => {
+        const ts = new Date(t.firedAt || t.createdAt || 0).getTime();
+        return ts >= fromMs;
+      });
+    }
+  }
+
+  if (to) {
+    const toMs = new Date(String(to)).getTime();
+    if (!isNaN(toMs)) {
+      tickets = tickets.filter(t => {
+        const ts = new Date(t.firedAt || t.createdAt || 0).getTime();
+        return ts <= toMs;
+      });
+    }
+  }
+
+  res.json({ success: true, tickets });
+}));
+
 // Combined audit log across all tenants — platform admin only
 app.get('/api/data/audit-all', wrap(async (req, res) => {
   const db = requireDb();
@@ -563,7 +595,7 @@ app.post('/api/data/kds-append', wrap(async (req, res) => {
 
 // Growth caps applied on append — these collections otherwise grow forever
 // and get shipped to every device on every sync.
-function capCollection(name, arr) {
+function capCollection(name, arr, onArchive) {
   if (name === 'audit_log') {
     // Newest last; keep the most recent 300 entries (the audit view shows
     // recent activity; full history isn't needed in the live cache).
@@ -571,16 +603,48 @@ function capCollection(name, arr) {
   }
   if (name === 'kds_tickets') {
     // Active tickets always; completed ones only for a few hours (long enough
-    // for recall during a shift). Keeps this collection — which the KDS pulls
-    // and the reconcile checks — small instead of a week's backlog.
+    // for recall during a shift). Pruned completed tickets are archived
+    // into kds_tickets_archive so long-term Speed of Service analytics stay permanent.
     const cutoff = Date.now() - 4 * 60 * 60 * 1000;
-    return arr.filter(t => {
-      if (t.status !== 'completed') return true;
-      const ts = new Date(t.updatedAt || t.firedAt || t.createdAt || 0).getTime();
-      return ts >= cutoff;
+    const active = [];
+    const pruned = [];
+    arr.forEach(t => {
+      if (t.status !== 'completed') {
+        active.push(t);
+      } else {
+        const ts = new Date(t.updatedAt || t.firedAt || t.createdAt || 0).getTime();
+        if (ts >= cutoff) {
+          active.push(t);
+        } else {
+          pruned.push(t);
+        }
+      }
     });
+    if (pruned.length > 0 && typeof onArchive === 'function') {
+      onArchive(pruned);
+    }
+    return active;
   }
   return arr;
+}
+
+async function archiveKDSTickets(db, tenant, ticketsToArchive) {
+  if (!Array.isArray(ticketsToArchive) || ticketsToArchive.length === 0) return;
+  try {
+    const currentArchive = (await getFlex(db, tenant, 'kds_tickets_archive', [])) || [];
+    const arr = Array.isArray(currentArchive) ? currentArchive : [];
+    const seen = new Set(arr.map(t => String(t.id)));
+    const newItems = ticketsToArchive.filter(t => t && t.id && !seen.has(String(t.id)));
+    if (newItems.length === 0) return;
+    // Keep most recent 5,000 archived tickets for historical reporting
+    const combined = [...arr, ...newItems];
+    const capped = combined.length > 5000 ? combined.slice(combined.length - 5000) : combined;
+    await db.from('tenant_data').upsert({
+      account_id: tenant, collection_name: 'kds_tickets_archive', value: capped,
+    });
+  } catch (err) {
+    console.warn('[Data API] Failed to archive KDS tickets:', err);
+  }
 }
 
 function assertFlexArray(name) {
@@ -613,12 +677,19 @@ app.post('/api/data/flex/:name', wrap(async (req, res) => {
   const current = (await getFlex(db, tenant, name, [])) || [];
   const arr = Array.isArray(current) ? current : [];
   const withId = { ...item, id: item.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` };
-  const next = arr.some(x => x.id === withId.id) ? arr : capCollection(name, [...arr, withId]);
+  let toArchive = [];
+  const next = arr.some(x => x.id === withId.id)
+    ? arr
+    : capCollection(name, [...arr, withId], (pruned) => { toArchive = pruned; });
 
   const { error } = await db.from('tenant_data').upsert({
     account_id: tenant, collection_name: name, value: next,
   });
   if (error) throw error;
+
+  if (toArchive.length > 0) {
+    archiveKDSTickets(db, tenant, toArchive).catch(() => {});
+  }
 
   broadcastChange(tenant, name);
   res.json({ success: true, item: withId });
@@ -648,6 +719,13 @@ app.patch('/api/data/flex/:name/:id', wrap(async (req, res) => {
     account_id: tenant, collection_name: name, value: next,
   });
   if (error) throw error;
+
+  if (name === 'kds_tickets') {
+    const patched = next.find(x => String(x.id) === String(id));
+    if (patched && patched.status === 'completed') {
+      archiveKDSTickets(db, tenant, [patched]).catch(() => {});
+    }
+  }
 
   broadcastChange(tenant, name);
   res.json({ success: true });

@@ -240,6 +240,9 @@ export function hydrateOrderRow(o) {
   if (!camel.cashTendered && camel.timestamps?.cashTendered) {
     camel.cashTendered = parseFloat(camel.timestamps.cashTendered);
   }
+  if (!camel.kdsTickets && camel.timestamps?.kdsTickets) {
+    camel.kdsTickets = camel.timestamps.kdsTickets;
+  }
   return camel;
 }
 
@@ -248,9 +251,9 @@ function sortByCreatedAt(list) {
   return [...list].sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
 }
 
-// Start of the orders window currently held in the cache (ISO). Older
-// ranges are pulled on demand via ensureOrdersSince().
-let _ordersLoadedFrom = null;
+// Start of the orders window currently held in the cache (ISO), keyed per tenant.
+// Older ranges are pulled on demand via ensureOrdersSince().
+let _ordersLoadedFrom = {};
 
 // When the cache last received a full payload — used to skip the redundant
 // sync AppContext fires right after boot/login (it was doubling boot time).
@@ -264,15 +267,16 @@ function applyTenantPayload(payload) {
   if (payload.inventory) _cache['inventory'] = payload.inventory.map(toCamelCase);
   if (payload.orders) {
     let orders = payload.orders.map(hydrateOrderRow);
+    const tenantKey = _currentTenant || 'default';
     if (payload.ordersFrom) {
       // Bounded window from the server: keep any older rows already fetched
       const existing = (_cache['orders'] || []).filter(o =>
-        o.createdAt && _ordersLoadedFrom && o.createdAt < payload.ordersFrom && o.createdAt >= _ordersLoadedFrom
+        o.createdAt && o.createdAt < payload.ordersFrom
       );
       const ids = new Set(orders.map(o => o.id));
       orders = [...orders, ...existing.filter(o => !ids.has(o.id))];
-      _ordersLoadedFrom = _ordersLoadedFrom && _ordersLoadedFrom < payload.ordersFrom
-        ? _ordersLoadedFrom
+      _ordersLoadedFrom[tenantKey] = currentFrom && currentFrom < payload.ordersFrom
+        ? currentFrom
         : payload.ordersFrom;
     }
     _cache['orders'] = sortByCreatedAt(orders);
@@ -543,22 +547,55 @@ export async function ensureOrdersSince(fromDayStr) {
   const fromDate = new Date(`${fromDayStr}T00:00:00`);
   if (isNaN(fromDate.getTime())) return false;
   const fromIso = fromDate.toISOString();
-  if (_ordersLoadedFrom && fromIso >= _ordersLoadedFrom) return false; // already covered
+  const tenantKey = _currentTenant || 'default';
+  const currentFrom = _ordersLoadedFrom[tenantKey];
+  if (currentFrom && fromIso >= currentFrom) return false; // already covered
 
   try {
-    const to = _ordersLoadedFrom || undefined;
+    const to = currentFrom || undefined;
     const q = to ? `?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(to)}` : `?from=${encodeURIComponent(fromIso)}`;
     const { orders } = await api.get(`/api/data/orders${q}`, { tenant: _currentTenant });
     const older = (orders || []).map(hydrateOrderRow);
     const existing = _cache['orders'] || [];
     const ids = new Set(existing.map(o => o.id));
     _cache['orders'] = sortByCreatedAt([...existing, ...older.filter(o => !ids.has(o.id))]);
-    _ordersLoadedFrom = fromIso;
+    _ordersLoadedFrom[tenantKey] = fromIso;
     return true;
   } catch (err) {
     console.error('[DB] ensureOrdersSince error:', err);
     return false;
   }
+}
+
+let _kdsLoadedFrom = {};
+
+export async function ensureKDSTicketsSince(fromDayStr) {
+  if (!isLive() || _guestMode || !fromDayStr) return false;
+  const fromDate = new Date(`${fromDayStr}T00:00:00`);
+  if (isNaN(fromDate.getTime())) return false;
+  const fromIso = fromDate.toISOString();
+  const tenantKey = _currentTenant || 'default';
+  const currentFrom = _kdsLoadedFrom[tenantKey];
+  if (currentFrom && fromIso >= currentFrom) return false;
+
+  try {
+    const to = currentFrom || undefined;
+    const q = to ? `?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(to)}` : `?from=${encodeURIComponent(fromIso)}`;
+    const { tickets } = await api.get(`/api/data/kds-history${q}`, { tenant: _currentTenant });
+    const existing = _cache['kds_tickets_archive'] || [];
+    const ids = new Set(existing.map(t => t.id));
+    const newTickets = (tickets || []).filter(t => t && t.id && !ids.has(t.id));
+    _cache['kds_tickets_archive'] = [...existing, ...newTickets];
+    _kdsLoadedFrom[tenantKey] = fromIso;
+    return true;
+  } catch (err) {
+    console.warn('[DB] ensureKDSTicketsSince error:', err);
+    return false;
+  }
+}
+
+export function getArchivedKDSTickets() {
+  return _cache['kds_tickets_archive'] || [];
 }
 
 // ─── Generic Collection CRUD ────────────────────────────────
@@ -965,6 +1002,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     ticketPrintedAt: extra.ticketPrintedAt || null,
     foodBumpedAt: extra.foodBumpedAt || null,
     kdsTicketIds: extra.kdsTicketIds || [],
+    kdsTickets: extra.kdsTickets || extra.timestamps?.kdsTickets || [],
     timestamps: {
       ordered: extra.orderPlacedAt || extra.seatedAt || nowIso,
       ticketPrinted: extra.ticketPrintedAt || null,
@@ -975,6 +1013,7 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
       walletRedeemed: extra.walletRedeemed || 0,
       cashTendered: extra.cashTendered || 0,
       history: Array.isArray(extra.history) ? extra.history : [],
+      kdsTickets: extra.kdsTickets || extra.timestamps?.kdsTickets || [],
       ...(extra.timestamps || {})
     },
     paymentSplits: extra.paymentSplits || null,
@@ -1159,6 +1198,74 @@ export async function createKDSTicket(orderId, items, tableId, orderType, extra 
   });
 }
 
+// Synchronizes KDS ticket item/food bump to matching order so speed of service data is permanent
+async function syncTicketBumpToOrder(ticket, ticketItems, ticketBumpedAt) {
+  if (!ticket) return;
+  const orders = getAll('orders') || [];
+  const ticketIdStr = String(ticket.id || '');
+  const orderIdStr = String(ticket.orderId || ticket.billNo || '');
+  const tableIdStr = ticket.tableId !== undefined && ticket.tableId !== null ? String(ticket.tableId).trim() : null;
+
+  const nowIso = new Date().toISOString();
+  const targetBumpedAt = ticketBumpedAt || nowIso;
+
+  const order = orders.find(o => {
+    if (orderIdStr && (String(o.id) === orderIdStr || String(o.billNo) === orderIdStr)) return true;
+    if (ticketIdStr && (String(o.kdsTicketId) === ticketIdStr || (Array.isArray(o.kdsTicketIds) && o.kdsTicketIds.map(String).includes(ticketIdStr)))) return true;
+    if (tableIdStr && (String(o.tableId) === tableIdStr || `T-${o.tableId}` === tableIdStr)) {
+      const oTime = new Date(o.createdAt || 0).getTime();
+      return Math.abs(Date.now() - oTime) <= 4 * 60 * 60 * 1000;
+    }
+    return false;
+  });
+
+  if (!order) return;
+
+  const updatedItems = (order.items || []).map(orderItem => {
+    const matched = (ticketItems || []).find(ti => ti.name?.toLowerCase() === orderItem.name?.toLowerCase() && ti.bumpedAt);
+    if (matched?.bumpedAt) {
+      return { ...orderItem, bumpedAt: matched.bumpedAt, status: 'bumped' };
+    }
+    if (ticketBumpedAt) {
+      return { ...orderItem, bumpedAt: ticketBumpedAt, status: 'bumped' };
+    }
+    return orderItem;
+  });
+
+  const updatedTimestamps = {
+    ...(order.timestamps || {}),
+    ...(ticketBumpedAt ? { foodBumped: ticketBumpedAt } : {}),
+  };
+
+  const existingSnapshots = Array.isArray(order.timestamps?.kdsTickets) ? [...order.timestamps.kdsTickets] : [];
+  const snapshotIdx = existingSnapshots.findIndex(st => String(st.id) === ticketIdStr);
+  const ticketSnapshot = {
+    id: ticket.id,
+    orderId: ticket.orderId || order.billNo || order.id,
+    tableId: ticket.tableId,
+    firedAt: ticket.firedAt || ticket.createdAt,
+    bumpedAt: targetBumpedAt,
+    status: ticket.status || 'completed',
+    items: ticketItems || ticket.items || [],
+  };
+  if (snapshotIdx >= 0) {
+    existingSnapshots[snapshotIdx] = ticketSnapshot;
+  } else {
+    existingSnapshots.push(ticketSnapshot);
+  }
+  updatedTimestamps.kdsTickets = existingSnapshots;
+
+  try {
+    await update('orders', order.id, {
+      ...(ticketBumpedAt ? { foodBumpedAt: targetBumpedAt } : {}),
+      items: updatedItems,
+      timestamps: updatedTimestamps,
+    });
+  } catch (err) {
+    console.warn('[DB] syncTicketBumpToOrder update failed:', err);
+  }
+}
+
 export async function bumpKDSItem(ticketId, itemIndex) {
   const ticket = getById('kds_tickets', ticketId);
   if (!ticket) return;
@@ -1175,7 +1282,9 @@ export async function bumpKDSItem(ticketId, itemIndex) {
     updateData.bumpedAt = nowIso;
     updateData.completedAt = nowIso;
   }
-  return update('kds_tickets', ticketId, updateData);
+  const updatedTicket = await update('kds_tickets', ticketId, updateData);
+  syncTicketBumpToOrder(ticket, items, allBumped ? nowIso : null).catch(() => {});
+  return updatedTicket;
 }
 
 export async function bumpKDSTicket(ticketId) {
@@ -1183,13 +1292,15 @@ export async function bumpKDSTicket(ticketId) {
   if (!ticket) return;
   const nowIso = new Date().toISOString();
   const items = ticket.items.map(i => ({ ...i, status: 'bumped', bumpedAt: nowIso }));
-  return update('kds_tickets', ticketId, {
+  const updatedTicket = await update('kds_tickets', ticketId, {
     items,
     status: 'completed',
     bumpedAt: nowIso,
     completedAt: nowIso,
     updatedAt: nowIso,
   });
+  syncTicketBumpToOrder(ticket, items, nowIso).catch(() => {});
+  return updatedTicket;
 }
 
 export async function recallKDSTicket(ticketId) {

@@ -643,6 +643,245 @@ describe('Speed of Service Report & Period Filter', () => {
       expect(fmtMinSec(pasta.avgPrepMs)).toBe('5m 0s');
     });
   });
+
+  describe('Historical Orders Synthesis for KDS Tickets & Menu Items', () => {
+    it('synthesizes KDS tickets from past completed orders when live kdsTickets are empty', () => {
+      const pastOrders = [
+        {
+          id: 'ord_hist_1',
+          billNo: 'INV-1001',
+          tableId: 3,
+          orderType: 'dine-in',
+          status: 'paid',
+          createdAt: '2026-10-08T11:00:00.000Z',
+          timestamps: {
+            ordered: '2026-10-08T10:00:00.000Z',
+            ticketPrinted: '2026-10-08T10:00:00.000Z',
+            foodBumped: '2026-10-08T10:15:00.000Z',
+            paid: '2026-10-08T11:00:00.000Z',
+          },
+          items: [
+            { name: 'Burger', qty: 2, category: 'Food' },
+            { name: 'Fries', qty: 1, category: 'Sides' },
+          ],
+        },
+        {
+          id: 'ord_hist_2',
+          billNo: 'INV-1002',
+          tableId: 1,
+          orderType: 'dine-in',
+          status: 'paid',
+          createdAt: '2026-10-08T11:30:00.000Z',
+          timestamps: {
+            ordered: '2026-10-08T11:30:00.000Z',
+            paid: '2026-10-08T11:30:00.000Z',
+          },
+          items: [{ name: 'Coke', qty: 1, category: 'Beverages' }],
+        },
+      ];
+
+      // Live tickets are empty (past day, purged from active queue)
+      const combined = combineTicketsAndOrders([], pastOrders);
+      expect(combined).toHaveLength(2);
+
+      const ticketResults = processTicketSpeedData(combined);
+      expect(ticketResults).toHaveLength(2);
+
+      // Order 1 has 15m cook duration (10:15 - 10:00)
+      const t1 = ticketResults.find(t => t.id === 'INV-1001');
+      expect(t1).toBeDefined();
+      expect(t1.table).toBe('T-3');
+      expect(t1.prepMs).toBe(15 * 60 * 1000);
+      expect(fmtMinSec(t1.prepMs)).toBe('15m 0s');
+      expect(t1.status).toBe('completed');
+      expect(t1.itemsSummary).toBe('Burger x2, Fries');
+
+      // Order 2 was settled directly (no bump)
+      const t2 = ticketResults.find(t => t.id === 'INV-1002');
+      expect(t2).toBeDefined();
+      expect(t2.prepMs).toBeNull();
+      expect(t2.status).toBe('completed');
+    });
+
+    it('synthesizes menu item prep times from historical orders when live tickets are empty', () => {
+      const pastOrders = [
+        {
+          id: 'ord_hist_1',
+          billNo: 'INV-1001',
+          tableId: 3,
+          status: 'paid',
+          createdAt: '2026-10-08T11:00:00.000Z',
+          timestamps: {
+            ordered: '2026-10-08T10:00:00.000Z',
+            ticketPrinted: '2026-10-08T10:00:00.000Z',
+            foodBumped: '2026-10-08T10:20:00.000Z', // 20m prep
+            paid: '2026-10-08T11:00:00.000Z',
+          },
+          items: [
+            { name: 'Pizza', qty: 2, category: 'Food' },
+          ],
+        },
+      ];
+
+      const combined = combineTicketsAndOrders([], pastOrders);
+      const { aggregated, itemLogs } = processItemPrepData(combined);
+
+      expect(aggregated).toHaveLength(1);
+      expect(aggregated[0].name).toBe('Pizza');
+      expect(aggregated[0].totalQty).toBe(2);
+      expect(aggregated[0].bumpedQty).toBe(2);
+      expect(aggregated[0].avgPrepMs).toBe(20 * 60 * 1000);
+      expect(fmtMinSec(aggregated[0].avgPrepMs)).toBe('20m 0s');
+
+      expect(itemLogs).toHaveLength(1);
+      expect(itemLogs[0].name).toBe('Pizza');
+      expect(itemLogs[0].prepMs).toBe(20 * 60 * 1000);
+    });
+
+    it('does not duplicate orders that already have a live ticket in kdsTickets', () => {
+      const liveTickets = [
+        {
+          id: 't_live_1',
+          orderId: 'ord_live_1',
+          tableId: 5,
+          firedAt: '2026-10-09T10:00:00.000Z',
+          bumpedAt: '2026-10-09T10:10:00.000Z',
+          status: 'completed',
+          items: [{ name: 'Salad', qty: 1 }],
+        },
+      ];
+
+      const orders = [
+        {
+          id: 'ord_live_1',
+          billNo: 'INV-2001',
+          kdsTicketId: 't_live_1',
+          tableId: 5,
+          status: 'paid',
+          createdAt: '2026-10-09T10:30:00.000Z',
+          timestamps: {
+            ordered: '2026-10-09T10:00:00.000Z',
+            foodBumped: '2026-10-09T10:10:00.000Z',
+            paid: '2026-10-09T10:30:00.000Z',
+          },
+          items: [{ name: 'Salad', qty: 1 }],
+        },
+      ];
+
+      const combined = combineTicketsAndOrders(liveTickets, orders);
+      expect(combined).toHaveLength(1); // exactly 1 ticket, no duplicate
+      expect(combined[0].id).toBe('t_live_1');
+    });
+
+    it('unpacks multiple granular KDS tickets stored in order.timestamps.kdsTickets', () => {
+      const pastOrders = [
+        {
+          id: 'ord_course_1',
+          billNo: 'INV-3001',
+          tableId: 2,
+          orderType: 'dine-in',
+          status: 'paid',
+          createdAt: '2026-10-05T12:00:00.000Z',
+          timestamps: {
+            ordered: '2026-10-05T12:00:00.000Z',
+            paid: '2026-10-05T13:00:00.000Z',
+            kdsTickets: [
+              {
+                id: 'kot_starter',
+                ticketId: 'kot_starter',
+                orderId: 'INV-3001',
+                tableId: 2,
+                firedAt: '2026-10-05T12:00:00.000Z',
+                bumpedAt: '2026-10-05T12:12:00.000Z', // 12m prep
+                status: 'completed',
+                items: [{ name: 'Spring Rolls', qty: 2, status: 'bumped', bumpedAt: '2026-10-05T12:12:00.000Z' }],
+              },
+              {
+                id: 'kot_mains',
+                ticketId: 'kot_mains',
+                orderId: 'INV-3001',
+                tableId: 2,
+                firedAt: '2026-10-05T12:25:00.000Z',
+                bumpedAt: '2026-10-05T12:45:00.000Z', // 20m prep
+                status: 'completed',
+                items: [{ name: 'Paneer Tikka', qty: 1, status: 'bumped', bumpedAt: '2026-10-05T12:45:00.000Z' }],
+              },
+            ],
+          },
+          items: [
+            { name: 'Spring Rolls', qty: 2, bumpedAt: '2026-10-05T12:12:00.000Z' },
+            { name: 'Paneer Tikka', qty: 1, bumpedAt: '2026-10-05T12:45:00.000Z' },
+          ],
+        },
+      ];
+
+      const combined = combineTicketsAndOrders([], pastOrders);
+      expect(combined).toHaveLength(2);
+
+      const ticketResults = processTicketSpeedData(combined);
+      expect(ticketResults).toHaveLength(2);
+
+      const starter = ticketResults.find(t => t.ticketId === 'kot_starter');
+      expect(starter).toBeDefined();
+      expect(starter.prepMs).toBe(12 * 60 * 1000);
+      expect(fmtMinSec(starter.prepMs)).toBe('12m 0s');
+
+      const mains = ticketResults.find(t => t.ticketId === 'kot_mains');
+      expect(mains).toBeDefined();
+      expect(mains.prepMs).toBe(20 * 60 * 1000);
+      expect(fmtMinSec(mains.prepMs)).toBe('20m 0s');
+
+      // Test menu items aggregation
+      const { aggregated } = processItemPrepData(combined);
+      expect(aggregated).toHaveLength(2);
+
+      const springRolls = aggregated.find(a => a.name === 'Spring Rolls');
+      expect(springRolls).toBeDefined();
+      expect(springRolls.avgPrepMs).toBe(12 * 60 * 1000);
+
+      const paneer = aggregated.find(a => a.name === 'Paneer Tikka');
+      expect(paneer).toBeDefined();
+      expect(paneer.avgPrepMs).toBe(20 * 60 * 1000);
+    });
+
+    it('merges tickets from historical kdsTicketsArchive without duplicating live tickets', () => {
+      const liveTickets = [
+        {
+          id: 'kot_live',
+          orderId: 'ord_live',
+          tableId: 1,
+          firedAt: '2026-10-09T12:00:00.000Z',
+          bumpedAt: '2026-10-09T12:15:00.000Z',
+          status: 'completed',
+          items: [{ name: 'Coffee', qty: 1 }],
+        },
+      ];
+
+      const archivedTickets = [
+        {
+          id: 'kot_live', // duplicate of live ticket, should not duplicate
+          orderId: 'ord_live',
+          firedAt: '2026-10-09T12:00:00.000Z',
+          bumpedAt: '2026-10-09T12:15:00.000Z',
+          status: 'completed',
+          items: [{ name: 'Coffee', qty: 1 }],
+        },
+        {
+          id: 'kot_yesterday',
+          orderId: 'ord_yesterday',
+          tableId: 4,
+          firedAt: '2026-10-08T15:00:00.000Z',
+          bumpedAt: '2026-10-08T15:18:00.000Z', // 18m prep
+          status: 'completed',
+          items: [{ name: 'Pasta', qty: 1 }],
+        },
+      ];
+
+      const combined = combineTicketsAndOrders(liveTickets, [], archivedTickets);
+      expect(combined).toHaveLength(2); // live + yesterday archive only
+      expect(combined.map(t => t.id)).toContain('kot_yesterday');
+    });
+  });
 });
 
 function processTicketSpeedData(kdsTickets = []) {
@@ -671,8 +910,8 @@ function processTicketSpeedData(kdsTickets = []) {
 
     return {
       id: t.orderId || (t.id ? t.id.slice(0, 8) : '—'),
-      ticketId: t.id,
-      table: t.tableName || (t.tableId ? `T-${t.tableId}` : (t.tokenNumber ? `Token #${t.tokenNumber}` : '—')),
+      ticketId: t.ticketId || t.id,
+      table: t.table || t.tableName || (t.tableId ? `T-${t.tableId}` : (t.tokenNumber ? `Token #${t.tokenNumber}` : '—')),
       itemsSummary,
       itemsCount,
       firedAt: firedMs,
@@ -764,4 +1003,158 @@ function processItemPrepData(kdsTickets = [], menu = []) {
   });
 
   return { aggregated, itemLogs };
+}
+
+function combineTicketsAndOrders(filteredTickets = [], filteredOrders = [], filteredArchive = []) {
+  const tickets = [...filteredTickets];
+  const coveredOrderIds = new Set();
+  const coveredTicketIds = new Set();
+
+  tickets.forEach(t => {
+    if (t.id) coveredTicketIds.add(String(t.id));
+    if (t.orderId) coveredOrderIds.add(String(t.orderId));
+    if (t.billNo) coveredOrderIds.add(String(t.billNo));
+  });
+
+  (filteredArchive || []).forEach(at => {
+    const atIdStr = String(at.id || at.ticketId || '');
+    if (atIdStr && coveredTicketIds.has(atIdStr)) return;
+    if (at.orderId && coveredOrderIds.has(String(at.orderId))) return;
+    if (atIdStr) coveredTicketIds.add(atIdStr);
+    if (at.orderId) coveredOrderIds.add(String(at.orderId));
+    tickets.push({ ...at, isArchived: true });
+  });
+
+  (filteredOrders || []).forEach(o => {
+    const orderIdStr = String(o.id || '');
+    const billNoStr = String(o.billNo || '');
+    const kdsTicketIdStr = o.kdsTicketId ? String(o.kdsTicketId) : '';
+    const kdsTicketIdsArr = Array.isArray(o.kdsTicketIds) ? o.kdsTicketIds.map(String) : [];
+
+    const isCovered = (orderIdStr && coveredOrderIds.has(orderIdStr)) ||
+      (billNoStr && coveredOrderIds.has(billNoStr)) ||
+      (kdsTicketIdStr && coveredTicketIds.has(kdsTicketIdStr)) ||
+      kdsTicketIdsArr.some(id => coveredTicketIds.has(id));
+
+    if (isCovered) return;
+
+    // 1. Check if the order preserved its original KDS tickets snapshots
+    const storedTickets = Array.isArray(o.timestamps?.kdsTickets)
+      ? o.timestamps.kdsTickets
+      : (Array.isArray(o.kdsTickets) ? o.kdsTickets : null);
+
+    if (storedTickets && storedTickets.length > 0) {
+      let storedAdded = false;
+      storedTickets.forEach(st => {
+        const stIdStr = String(st.id || st.ticketId || '');
+        if (stIdStr && coveredTicketIds.has(stIdStr)) return;
+        if (stIdStr) coveredTicketIds.add(stIdStr);
+
+        const firedIso = st.firedAt || st.createdAt || o.ticketPrintedAt || o.timestamps?.ticketPrinted || o.createdAt;
+        const firedMs = typeof firedIso === 'number' ? firedIso : (firedIso ? new Date(firedIso).getTime() : null);
+
+        let bumpedMs = null;
+        if (typeof st.bumpedAt === 'number') bumpedMs = st.bumpedAt;
+        else if (st.bumpedAt) bumpedMs = new Date(st.bumpedAt).getTime();
+        else if (st.completedAt) bumpedMs = new Date(st.completedAt).getTime();
+        else if (o.foodBumpedAt) bumpedMs = new Date(o.foodBumpedAt).getTime();
+        else if (o.timestamps?.foodBumped) bumpedMs = new Date(o.timestamps.foodBumped).getTime();
+
+        let prepMs = null;
+        let isBumpAnomaly = false;
+        if (firedMs && bumpedMs && bumpedMs >= firedMs) {
+          const raw = bumpedMs - firedMs;
+          if (raw <= 3 * 60 * 60 * 1000) prepMs = raw;
+          else isBumpAnomaly = true;
+        }
+
+        const tableDisplay = st.table || st.tableName || o.tableName
+          || (st.tableId ? (String(st.tableId).startsWith('T-') ? st.tableId : `T-${st.tableId}`) : (o.tableId ? `T-${o.tableId}` : (st.tokenNumber ? `Token #${st.tokenNumber}` : '—')));
+
+        const itemsSummary = st.itemsSummary || ((st.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—');
+        const itemsCount = st.itemsCount || ((st.items || []).reduce((s, i) => s + (i.qty || 1), 0));
+        const status = bumpedMs ? 'completed' : (st.status || 'completed');
+
+        tickets.push({
+          id: st.id || st.ticketId || o.billNo || (o.id ? o.id.slice(0, 8) : '—'),
+          ticketId: st.ticketId || st.id,
+          orderId: st.orderId || o.billNo || o.id,
+          table: tableDisplay,
+          orderType: st.orderType || o.orderType || 'dine-in',
+          itemsSummary,
+          itemsCount,
+          firedAt: firedMs,
+          bumpedAt: bumpedMs,
+          prepMs,
+          status,
+          isBumpAnomaly,
+          items: (st.items || []).map(item => ({
+            ...item,
+            bumpedAt: item.bumpedAt || (bumpedMs ? new Date(bumpedMs).toISOString() : null),
+            status: bumpedMs ? 'bumped' : (item.status || 'completed'),
+          })),
+          isHistorical: true,
+        });
+        storedAdded = true;
+      });
+      if (storedAdded) {
+        if (orderIdStr) coveredOrderIds.add(orderIdStr);
+        if (billNoStr) coveredOrderIds.add(billNoStr);
+        return;
+      }
+    }
+
+    // 2. Synthesize from order row
+    const orderCreationIso = o.createdAt || o.date || o.timestamps?.ordered || o.orderPlacedAt || null;
+    const orderCreatedTime = orderCreationIso ? new Date(orderCreationIso).getTime() : null;
+
+    const firedIso = o.ticketPrintedAt || o.timestamps?.ticketPrinted || o.orderPlacedAt || o.timestamps?.ordered || o.createdAt;
+    const firedMs = firedIso ? new Date(firedIso).getTime() : orderCreatedTime;
+
+    let bumpedMs = null;
+    if (o.foodBumpedAt) bumpedMs = new Date(o.foodBumpedAt).getTime();
+    else if (o.timestamps?.foodBumped) bumpedMs = new Date(o.timestamps.foodBumped).getTime();
+
+    let prepMs = null;
+    let isBumpAnomaly = false;
+    if (firedMs && bumpedMs && bumpedMs >= firedMs) {
+      const raw = bumpedMs - firedMs;
+      if (raw <= 3 * 60 * 60 * 1000) {
+        prepMs = raw;
+      } else {
+        isBumpAnomaly = true;
+      }
+    }
+
+    const tableDisplay = o.tableName
+      ? o.tableName
+      : (o.tableId ? (String(o.tableId).startsWith('T-') ? o.tableId : `T-${o.tableId}`) : (o.tokenNumber ? `Token #${o.tokenNumber}` : (o.orderType === 'takeout' ? 'Takeout' : (o.orderType === 'delivery' ? 'Delivery' : 'Direct'))));
+
+    const itemsSummary = (o.items || []).map(i => `${i.name || 'Item'}${i.qty && i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ') || '—';
+    const itemsCount = (o.items || []).reduce((s, i) => s + (i.qty || 1), 0);
+    const status = bumpedMs ? 'completed' : (o.status === 'paid' ? 'completed' : (o.status || 'active'));
+
+    tickets.push({
+      id: o.billNo || (o.id ? o.id.slice(0, 8) : '—'),
+      ticketId: o.kdsTicketIds?.[0] || o.kdsTicketId || o.id,
+      orderId: o.billNo || o.id,
+      table: tableDisplay,
+      orderType: o.orderType || 'dine-in',
+      itemsSummary,
+      itemsCount,
+      firedAt: firedMs,
+      bumpedAt: bumpedMs,
+      prepMs,
+      status,
+      isBumpAnomaly,
+      items: (o.items || []).map(item => ({
+        ...item,
+        bumpedAt: item.bumpedAt || (bumpedMs ? new Date(bumpedMs).toISOString() : null),
+        status: bumpedMs ? 'bumped' : (item.status || 'completed'),
+      })),
+      isSynthesized: true,
+    });
+  });
+
+  return tickets;
 }
