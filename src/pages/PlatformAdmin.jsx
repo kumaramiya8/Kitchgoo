@@ -223,6 +223,7 @@ const AccountsTab = () => {
   const { reload } = useApp();
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [form, setForm] = useState({
@@ -240,8 +241,44 @@ const AccountsTab = () => {
   const [flagsMap, setFlagsMap] = useState({});
   const [flagsLoading, setFlagsLoading] = useState({});
 
-  const loadUsers = () => {
-    setUsers(getAll('users') || []);
+  const loadData = async () => {
+    try {
+      const res = await fetch('/api/admin/accounts', { credentials: 'include' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.accounts)) {
+        setAccounts(data.accounts);
+        if (Array.isArray(data.users)) setUsers(data.users);
+        return;
+      }
+    } catch (e) {
+      console.warn('[PlatformAdmin] Failed to load /api/admin/accounts, falling back to cache:', e);
+    }
+    // Fallback to local cache (e.g. demo mode or offline)
+    const cachedUsers = getAll('users') || [];
+    setUsers(cachedUsers);
+    const cachedAccounts = getAll('accounts') || [];
+    if (cachedAccounts.length > 0) {
+      setAccounts(cachedAccounts.map(a => ({
+        id: a.id,
+        name: a.name || a.id,
+        restaurantName: a.name || a.id,
+        ownerName: cachedUsers.find(u => u.accountId === a.id || u.restaurantName === a.id)?.name || '',
+        email: cachedUsers.find(u => u.accountId === a.id || u.restaurantName === a.id)?.email || '',
+        phone: cachedUsers.find(u => u.accountId === a.id || u.restaurantName === a.id)?.phone || '',
+        createdAt: a.created_at || a.createdAt,
+      })));
+    } else {
+      setAccounts(cachedUsers.filter(u => u.restaurantName && u.restaurantName.toLowerCase() !== 'kitchgoo').map(u => ({
+        id: u.id,
+        name: u.restaurantName,
+        restaurantName: u.restaurantName,
+        ownerName: u.name,
+        email: u.email,
+        phone: u.phone,
+        createdAt: u.createdAt,
+        userId: u.id,
+      })));
+    }
   };
 
   const loadFlags = async () => {
@@ -253,7 +290,7 @@ const AccountsTab = () => {
   };
 
   useEffect(() => {
-    loadUsers();
+    loadData();
     loadFlags();
   }, []);
 
@@ -277,19 +314,20 @@ const AccountsTab = () => {
   };
 
   const tenantAccounts = useMemo(() => {
-    return users.filter(u => 
-      u.restaurantName && 
-      u.restaurantName.toLowerCase() !== 'kitchgoo'
-    ).filter(u => {
+    return accounts.filter(acc => {
+      const name = (acc.restaurantName || acc.name || acc.id || '').toLowerCase();
+      return name && name !== 'kitchgoo';
+    }).filter(acc => {
       if (!search) return true;
       const s = search.toLowerCase();
       return (
-        (u.restaurantName || '').toLowerCase().includes(s) ||
-        (u.name || '').toLowerCase().includes(s) ||
-        (u.email || '').toLowerCase().includes(s)
+        (acc.restaurantName || '').toLowerCase().includes(s) ||
+        (acc.name || '').toLowerCase().includes(s) ||
+        (acc.ownerName || '').toLowerCase().includes(s) ||
+        (acc.email || '').toLowerCase().includes(s)
       );
     });
-  }, [users, search]);
+  }, [accounts, search]);
 
   const handleCreateAccount = async (e) => {
     e.preventDefault();
@@ -321,16 +359,27 @@ const AccountsTab = () => {
         plan: 'pro',
         status: 'active'
       });
-      loadUsers();
+      await loadData();
     } else {
       setError(result.error);
     }
   };
 
-  const handleDeleteAccount = async (userId, userName) => {
-    if (window.confirm(`Are you sure you want to delete account for user "${userName}"?`)) {
-      await dbRemove('users', userId);
-      loadUsers();
+  const handleDeleteAccount = async (account) => {
+    const accountName = account.restaurantName || account.name || account.id;
+    if (window.confirm(`Are you sure you want to delete account "${accountName}"? This will permanently delete all associated data.`)) {
+      try {
+        const res = await fetch(`/api/admin/accounts/${encodeURIComponent(account.id || accountName)}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed to delete account');
+      } catch (e) {
+        if (account.userId) await dbRemove('users', account.userId);
+        await dbRemove('accounts', account.id);
+      }
+      await loadData();
     }
   };
 
@@ -390,20 +439,20 @@ const AccountsTab = () => {
                 tenantAccounts.map(account => (
                   <tr key={account.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                     <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {account.restaurantName}
+                      {account.restaurantName || account.name}
                     </td>
                     <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                      {account.name}
+                      {account.ownerName || account.name || '--'}
                     </td>
                     <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                      {account.email}
+                      {account.email || '--'}
                     </td>
                     <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>
                       {account.createdAt ? new Date(account.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '--'}
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                       {(() => {
-                        const accountId = account.restaurantName;
+                        const accountId = account.restaurantName || account.name || account.id;
                         const disabled = !!(flagsMap[accountId]?.audit_log_disabled);
                         const busy = !!flagsLoading[accountId];
                         return (
@@ -437,14 +486,14 @@ const AccountsTab = () => {
                       <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
                         <button
                           className="btn btn-sm btn-primary"
-                          onClick={() => handleOpenAccount(account.restaurantName)}
+                          onClick={() => handleOpenAccount(account.restaurantName || account.name || account.id)}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
                         >
                           <ExternalLink size={12} /> Open Account
                         </button>
                         <button
                           className="btn btn-sm btn-danger"
-                          onClick={() => handleDeleteAccount(account.id, account.name)}
+                          onClick={() => handleDeleteAccount(account)}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '5px 10px' }}
                         >
                           <Trash2 size={12} /> Delete

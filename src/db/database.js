@@ -275,6 +275,7 @@ function applyTenantPayload(payload) {
       );
       const ids = new Set(orders.map(o => o.id));
       orders = [...orders, ...existing.filter(o => !ids.has(o.id))];
+      const currentFrom = _ordersLoadedFrom[tenantKey];
       _ordersLoadedFrom[tenantKey] = currentFrom && currentFrom < payload.ordersFrom
         ? currentFrom
         : payload.ordersFrom;
@@ -532,6 +533,7 @@ export function exitGuestMode() {
  */
 export function applyBootstrapPayload(payload) {
   if (!isLive()) return false;
+  if (!payload || (!payload.tenant && !payload.collections && !payload.menu && !payload.orders)) return false;
   if (payload?.tenant) _currentTenant = payload.tenant;
   _guestMode = false;
   applyTenantPayload(payload);

@@ -159,9 +159,18 @@ app.post('/api/data/upload-image', wrap(async (req, res) => {
 
 // Same payload without the seeding checks — used for refresh/polling
 app.get('/api/data/sync', wrap(async (req, res) => {
-  requireDb(res);
+  const db = requireDb();
   const tenant = resolveTenant(req);
   const payload = await loadTenantPayload(tenant);
+  const admin = isPlatformAdmin(req.user);
+  if (admin) {
+    const [accountsRes, allUsersRes] = await Promise.all([
+      db.from('accounts').select('*'),
+      db.from('users').select('id, account_id, name, email, role, avatar, phone, created_at'),
+    ]);
+    payload.accounts = accountsRes?.data || [];
+    payload.allUsers = allUsersRes?.data || [];
+  }
   res.json({ success: true, tenant, ...payload });
 }));
 
@@ -245,6 +254,106 @@ app.get('/api/data/audit-all', wrap(async (req, res) => {
   });
   combined.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   res.json({ success: true, auditLog: combined });
+}));
+
+// ── Platform admin tenant accounts management ──────────────
+
+// GET /api/admin/accounts — fetch all tenant accounts with their owners (platform admin only)
+app.get('/api/admin/accounts', wrap(async (req, res) => {
+  const db = requireDb();
+  if (!isPlatformAdmin(req.user)) {
+    return res.status(403).json({ success: false, error: 'Platform admin only' });
+  }
+
+  const [{ data: accounts, error: accErr }, { data: users, error: userErr }] = await Promise.all([
+    db.from('accounts').select('*'),
+    db.from('users').select('id, account_id, name, email, role, avatar, phone, created_at'),
+  ]);
+  if (accErr) throw accErr;
+  if (userErr) throw userErr;
+
+  const usersByAccount = {};
+  (users || []).forEach(u => {
+    const accId = u.account_id;
+    if (!usersByAccount[accId]) usersByAccount[accId] = [];
+    usersByAccount[accId].push(u);
+  });
+
+  const accountsList = [];
+  const seenAccountIds = new Set();
+
+  (accounts || []).forEach(acc => {
+    const accId = acc.id || acc.name;
+    seenAccountIds.add(String(accId).toLowerCase());
+    const accUsers = usersByAccount[acc.id] || usersByAccount[acc.name] || [];
+    const owner = accUsers.find(u => (u.role || '').toLowerCase() === 'owner') || accUsers[0] || null;
+
+    accountsList.push({
+      id: acc.id,
+      name: acc.name || acc.id,
+      restaurantName: acc.name || acc.id,
+      ownerName: owner?.name || '',
+      email: owner?.email || '',
+      phone: owner?.phone || '',
+      userId: owner?.id || '',
+      status: acc.status || 'active',
+      plan: acc.plan || 'pro',
+      createdAt: acc.created_at || owner?.created_at || null,
+      userCount: accUsers.length,
+    });
+  });
+
+  // Also include any accounts that exist in users table but not accounts table
+  Object.keys(usersByAccount).forEach(accId => {
+    if (!seenAccountIds.has(String(accId).toLowerCase())) {
+      const accUsers = usersByAccount[accId] || [];
+      const owner = accUsers.find(u => (u.role || '').toLowerCase() === 'owner') || accUsers[0] || null;
+      accountsList.push({
+        id: accId,
+        name: accId,
+        restaurantName: accId,
+        ownerName: owner?.name || '',
+        email: owner?.email || '',
+        phone: owner?.phone || '',
+        userId: owner?.id || '',
+        status: 'active',
+        plan: 'pro',
+        createdAt: owner?.created_at || null,
+        userCount: accUsers.length,
+      });
+    }
+  });
+
+  // Sort newest first
+  accountsList.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  res.json({ success: true, accounts: accountsList, users: users || [] });
+}));
+
+// DELETE /api/admin/accounts/:accountId — delete an account and its associated data (platform admin only)
+app.delete('/api/admin/accounts/:accountId', wrap(async (req, res) => {
+  const db = requireDb();
+  if (!isPlatformAdmin(req.user)) {
+    return res.status(403).json({ success: false, error: 'Platform admin only' });
+  }
+
+  const { accountId } = req.params;
+  if (!accountId || accountId.toLowerCase() === 'kitchgoo') {
+    return res.status(400).json({ success: false, error: 'Cannot delete platform account' });
+  }
+
+  await Promise.allSettled([
+    db.from('accounts').delete().eq('id', accountId),
+    db.from('accounts').delete().eq('name', accountId),
+    db.from('users').delete().eq('account_id', accountId),
+    db.from('tenant_data').delete().eq('account_id', accountId),
+    db.from('orders').delete().eq('account_id', accountId),
+    db.from('menu').delete().eq('account_id', accountId),
+    db.from('inventory').delete().eq('account_id', accountId),
+    db.from('settings').delete().eq('account_id', accountId),
+  ]);
+
+  res.json({ success: true, deleted: accountId });
 }));
 
 // ── Platform admin per-account flags ────────────────────────
