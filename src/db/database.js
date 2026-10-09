@@ -567,9 +567,11 @@ export async function insert(collection, data) {
   if (isLive()) {
     try {
       if (_guestMode) {
-        // Guests may only fire KDS tickets; the server appends atomically.
+        // Guests may fire KDS tickets and register/update in guest CRM; the server appends atomically.
         if (collection === 'kds_tickets') {
           await tracked(api.post(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/kds`, { ticket: newItem }));
+        } else if (collection === 'guests') {
+          await tracked(api.post(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/guest`, { guest: newItem }));
         }
       } else if (ROW_TABLES.includes(collection)) {
         await tracked(api.post(`/api/data/rows/${collection}`, { item: newItem }, { tenant: _currentTenant }));
@@ -636,13 +638,17 @@ export async function update(collection, id, data) {
   _cache[collection] = updated;
   localBackup(`${_currentTenant}_${collection}`, updated);
 
-  if (isLive() && !_guestMode && updatedItem) {
+  if (isLive() && updatedItem) {
     try {
-      if (ROW_TABLES.includes(collection)) {
-        await tracked(api.patch(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant }));
-      } else {
-        // Atomic per-item merge server-side
-        await tracked(api.patch(`/api/data/flex/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant }));
+      if (_guestMode && collection === 'guests') {
+        await tracked(api.post(`/api/public/qrmenu/${encodeURIComponent(_currentTenant)}/guest`, { guest: updatedItem }));
+      } else if (!_guestMode) {
+        if (ROW_TABLES.includes(collection)) {
+          await tracked(api.patch(`/api/data/rows/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant }));
+        } else {
+          // Atomic per-item merge server-side
+          await tracked(api.patch(`/api/data/flex/${collection}/${encodeURIComponent(id)}`, { data }, { tenant: _currentTenant }));
+        }
       }
     } catch (err) {
       console.error(`[DB] Error updating ${collection}:`, err);
@@ -1517,3 +1523,53 @@ export async function redeemGiftCardCredit({
   return { transaction: tx, guest: updated, amountRedeemed: actualDeduct };
 }
 
+// ─── Guest CRM Upsert from QR Menu ───────────────────────────
+export async function upsertGuestFromQR({ name = '', phone = '', notes = '' }) {
+  const cleanName = (name || '').trim();
+  const cleanPhone = (phone || '').trim();
+  const cleanDigits = cleanPhone.replace(/\D/g, '');
+
+  if (!cleanName && !cleanPhone) return null;
+
+  const allGuests = getAll('guests') || [];
+  let existing = allGuests.find(g => {
+    if (cleanDigits && cleanDigits.length >= 7) {
+      const gDigits = String(g.phone || '').replace(/\D/g, '');
+      if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
+    }
+    if (cleanName && cleanName.toLowerCase() !== 'walk-in' && String(g.name || '').trim().toLowerCase() === cleanName.toLowerCase()) {
+      return true;
+    }
+    return false;
+  });
+
+  const nowIso = new Date().toISOString();
+  if (existing) {
+    const updated = {
+      ...existing,
+      name: (cleanName && cleanName.toLowerCase() !== 'walk-in') ? cleanName : existing.name,
+      phone: cleanPhone || existing.phone,
+      lastVisit: nowIso,
+      visitCount: (existing.visitCount || 0) + 1,
+      updatedAt: nowIso,
+    };
+    await update('guests', existing.id, updated);
+    return updated;
+  } else {
+    const newGuest = {
+      id: genId(),
+      name: (cleanName && cleanName.toLowerCase() !== 'walk-in') ? cleanName : (cleanPhone ? `Guest ${cleanPhone.slice(-4)}` : 'Guest'),
+      phone: cleanPhone,
+      email: '',
+      visitCount: 1,
+      totalSpend: 0,
+      notes: notes ? `QR Menu Note: ${notes}` : 'Registered via QR Menu',
+      channel: 'QR Menu',
+      tags: ['QR Menu'],
+      createdAt: nowIso,
+      lastVisit: nowIso,
+    };
+    await insert('guests', newGuest);
+    return newGuest;
+  }
+}

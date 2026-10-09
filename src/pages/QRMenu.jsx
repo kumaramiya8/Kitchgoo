@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
-import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTableOrder, getAll, setGuestTable } from '../db/database';
+import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTableOrder, getAll, setGuestTable, upsertGuestFromQR } from '../db/database';
 import {
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award,
   Sparkles, Send, Bot, Loader2
@@ -39,7 +39,7 @@ export function matchTable(tables, query) {
 const QRMenu = () => {
   const { tenantId } = useParams();
   const [searchParams] = useSearchParams();
-  const tableParam = searchParams.get('table') || '';
+  const tableParam = (searchParams.get('table') || '').replace(/\D/g, '');
 
   const { menu, settings, orders, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
   const { user } = useAuth();
@@ -151,17 +151,21 @@ const QRMenu = () => {
     };
   }, []);
 
-  // Prefill the guest's name only when they haven't typed one yet, and only
-  // from THIS table's record — never carry a name across tables.
+  // Prefill the guest's name and phone only when they haven't typed them yet, and only
+  // from THIS table's record — never carry details across tables.
   useEffect(() => {
-    if (customerName) return;
     if (tableNumber && posTables && posTables.length > 0) {
       const targetTable = matchTable(posTables, tableNumber);
-      if (targetTable && targetTable.guestName) {
-        setCustomerName(targetTable.guestName);
+      if (targetTable) {
+        if (!customerName && targetTable.guestName) {
+          setCustomerName(targetTable.guestName);
+        }
+        if (!phone && targetTable.guestPhone) {
+          setPhone(targetTable.guestPhone);
+        }
       }
     }
-  }, [tableNumber, posTables, customerName]);
+  }, [tableNumber, posTables, customerName, phone]);
 
   // Sync guest table ID to sessionStorage and db memory for concurrency-safe database merging
   useEffect(() => {
@@ -256,8 +260,9 @@ const QRMenu = () => {
   // Core order placement — used by both the cart form and the AI chat flow.
   const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems, extra = {}) => {
     const resolvedName = (guestName && guestName.trim()) || 'Walk-in';
-    const resolvedTable = (tableNum && tableNum.trim()) || tableParam;
-    if (!resolvedTable) return { ok: false, error: 'Table number is required.' };
+    const rawTable = (tableNum && String(tableNum).trim()) || (tableParam && String(tableParam).trim()) || '';
+    const resolvedTable = rawTable.replace(/\D/g, '');
+    if (!resolvedTable) return { ok: false, error: 'A valid numeric table number is required.' };
 
     let targetTable = matchTable(posTables || [], resolvedTable);
     if (!targetTable) {
@@ -344,6 +349,19 @@ const QRMenu = () => {
     await saveTableState(targetTable.id, updatedTable);
     await saveTableOrder(targetTable.id, mergedItems);
 
+    // 3b. Save / update customer in Guest List (CRM)
+    if ((resolvedName && resolvedName.toLowerCase() !== 'walk-in') || guestPhoneNum) {
+      try {
+        await upsertGuestFromQR({
+          name: resolvedName,
+          phone: guestPhoneNum,
+          notes: orderNotes,
+        });
+      } catch (err) {
+        console.warn('[QRMenu] Non-fatal: error saving guest to CRM:', err);
+      }
+    }
+
     // 4. Fire to KDS
     const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
     await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in', {
@@ -368,20 +386,30 @@ const QRMenu = () => {
       setAiMessages(prev => [...prev, { role: 'user', text: input }]);
 
       if (pendingAiStep === 'table') {
+        const digits = input.replace(/\D/g, '');
+        if (!digits) {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: 'Please enter a valid table number using digits only (e.g. 5) 😊' }]);
+          return;
+        }
         // Validate the table exists in this restaurant's floor plan or match flexibly
-        const tableMatch = matchTable(posTables || [], input);
-        const resolvedTableStr = tableMatch ? String(tableMatch.number || tableMatch.id) : input;
+        const tableMatch = matchTable(posTables || [], digits);
+        const resolvedTableStr = tableMatch ? String(tableMatch.number || tableMatch.id).replace(/\D/g, '') || digits : digits;
         setTableNumber(resolvedTableStr);
-        // Table confirmed — now check if name is needed
+        // Table confirmed — now check if name or phone is needed
         if (!customerName.trim()) {
           setPendingAiStep('name');
           setAiMessages(prev => [...prev, { role: 'assistant', text: `Got Table ${resolvedTableStr}! What name should I put on the order? 😊` }]);
           return;
         }
+        if (!phone.trim()) {
+          setPendingAiStep('phone');
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Got Table ${resolvedTableStr}! What's your phone number for order updates and rewards? 📱` }]);
+          return;
+        }
         // Have everything — place the order now (pass input directly, state update is async)
         setAiLoading(true);
         try {
-          const result = await doPlaceOrder(customerName, resolvedTableStr, pendingAiOrder);
+          const result = await doPlaceOrder(customerName, resolvedTableStr, pendingAiOrder, { phone });
           if (result.ok) {
             setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Order placed for Table ${resolvedTableStr}! The kitchen is on it. Enjoy! 🍽️` }]);
           } else {
@@ -398,13 +426,44 @@ const QRMenu = () => {
       }
 
       if (pendingAiStep === 'name') {
-        const name = input;
+        const name = input.trim();
         setCustomerName(name);
+        if (!phone.trim()) {
+          setPendingAiStep('phone');
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Nice to meet you, ${name}! What's your phone number for order updates and rewards? 📱` }]);
+          return;
+        }
         setAiLoading(true);
         try {
-          const result = await doPlaceOrder(name, tableNumber, pendingAiOrder);
+          const result = await doPlaceOrder(name, tableNumber, pendingAiOrder, { phone });
           if (result.ok) {
             setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Got it, ${name}! Your order is on its way to the kitchen. Enjoy! 🍽️` }]);
+          } else {
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
+          }
+        } catch {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: 'Something went wrong. Please use the cart to place your order.' }]);
+        } finally {
+          setPendingAiOrder(null);
+          setPendingAiStep(null);
+          setAiLoading(false);
+        }
+        return;
+      }
+
+      if (pendingAiStep === 'phone') {
+        const pInput = input.trim();
+        const cleanDigits = pInput.replace(/\D/g, '');
+        if (cleanDigits.length < 7) {
+          setAiMessages(prev => [...prev, { role: 'assistant', text: 'Please enter a valid phone number (at least 7 digits) so we can link your order 😊' }]);
+          return;
+        }
+        setPhone(pInput);
+        setAiLoading(true);
+        try {
+          const result = await doPlaceOrder(customerName, tableNumber, pendingAiOrder, { phone: pInput });
+          if (result.ok) {
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Order placed for Table ${tableNumber}! The kitchen is preparing it. Enjoy! 🍽️` }]);
           } else {
             setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
           }
@@ -444,7 +503,7 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiLoading, aiMessages, menuItems, settings, topSellers, pendingAiOrder, pendingAiStep, tableNumber, customerName, posTables, doPlaceOrder]);
+  }, [aiLoading, aiMessages, menuItems, settings, topSellers, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
 
   // Place the order suggested by the AI.
   // Collects table number and/or guest name in-chat if not already known.
@@ -470,10 +529,17 @@ const QRMenu = () => {
       return;
     }
 
+    if (!phone.trim()) {
+      setPendingAiOrder(cartItems);
+      setPendingAiStep('phone');
+      setAiMessages(prev => [...prev, { role: 'assistant', text: "What's your phone number for order updates and rewards? 📱" }]);
+      return;
+    }
+
     // All info present — place immediately
     setAiLoading(true);
     try {
-      const result = await doPlaceOrder(customerName, tableNumber, cartItems);
+      const result = await doPlaceOrder(customerName, tableNumber, cartItems, { phone });
       if (result.ok) {
         setAiMessages(prev => [...prev, { role: 'assistant', text: '✅ Order placed! The kitchen is preparing it now. Enjoy your meal! 🍽️' }]);
       } else {
@@ -484,7 +550,7 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [menuItems, tableNumber, customerName, doPlaceOrder]);
+  }, [menuItems, tableNumber, customerName, phone, doPlaceOrder]);
 
   const handleAddToCart = (item) => {
     setCart(prev => {
@@ -532,14 +598,24 @@ const QRMenu = () => {
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
-    if (!customerName.trim() || !tableNumber.trim()) {
-      alert('Please fill out your Name and Table Number.');
+    if (!customerName.trim() || !phone.trim() || !tableNumber.trim()) {
+      alert('Please fill out your Name, Phone Number, and Table Number.');
+      return;
+    }
+    const cleanPhone = phone.trim().replace(/\D/g, '');
+    if (cleanPhone.length < 7) {
+      alert('Please enter a valid Phone Number with at least 7 digits.');
+      return;
+    }
+    const cleanTable = tableNumber.trim().replace(/\D/g, '');
+    if (!cleanTable) {
+      alert('Please enter a valid Table Number (numbers only).');
       return;
     }
     setIsSubmitting(true);
     try {
       const cartItems = Object.values(cart).map(c => ({ item: c.item, qty: c.qty, notes: c.notes || '' }));
-      const result = await doPlaceOrder(customerName, tableNumber, cartItems, { notes, phone });
+      const result = await doPlaceOrder(customerName, cleanTable, cartItems, { notes, phone: phone.trim() });
       if (!result.ok) { alert(result.error); return; }
       setOrderSuccess(true);
       setCart({});
@@ -1142,10 +1218,11 @@ const QRMenu = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 10, marginBottom: 12 }}>
                   <div className="input-group">
-                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Phone Number (Optional)</label>
+                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Phone Number *</label>
                     <input 
                       type="tel" 
-                      placeholder="e.g. +91 98765 43210"
+                      required
+                      placeholder="e.g. 9876543210"
                       value={phone}
                       onChange={e => setPhone(e.target.value)}
                       className="input-field" 
@@ -1156,10 +1233,12 @@ const QRMenu = () => {
                     <label className="input-label" style={{ fontSize: '0.75rem' }}>Table No. *</label>
                     <input 
                       type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       required 
                       placeholder="e.g. 5"
                       value={tableNumber}
-                      onChange={e => setTableNumber(e.target.value)}
+                      onChange={e => setTableNumber(e.target.value.replace(/\D/g, ''))}
                       className="input-field" 
                       style={{ margin: 0, padding: 10, fontSize: '0.85rem' }}
                     />

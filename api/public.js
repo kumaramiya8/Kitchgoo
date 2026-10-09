@@ -244,6 +244,56 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
       account_id: canonicalTenant, collection_name: 'pos_tables', value: merged,
     });
     if (error) throw error;
+
+    // Save guest details to CRM guests list if guestName or guestPhone provided
+    const rawGuestName = (table.guestName || '').trim();
+    const rawGuestPhone = (table.guestPhone || '').trim();
+    if ((rawGuestName && rawGuestName.toLowerCase() !== 'walk-in') || rawGuestPhone) {
+      try {
+        const currentGuests = (await getFlex(db, canonicalTenant, 'guests', [])) || [];
+        const cleanDigits = rawGuestPhone.replace(/\D/g, '');
+        const cleanLower = rawGuestName.toLowerCase();
+
+        let existing = currentGuests.find(g => {
+          if (cleanDigits && cleanDigits.length >= 7) {
+            const gDigits = String(g.phone || '').replace(/\D/g, '');
+            if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
+          }
+          if (cleanLower && cleanLower !== 'walk-in' && String(g.name || '').trim().toLowerCase() === cleanLower) return true;
+          return false;
+        });
+
+        if (existing) {
+          if (rawGuestName && cleanLower !== 'walk-in') existing.name = rawGuestName;
+          if (rawGuestPhone) existing.phone = rawGuestPhone;
+          existing.lastVisit = new Date().toISOString();
+          existing.visitCount = (existing.visitCount || 0) + 1;
+        } else {
+          currentGuests.push({
+            id: `guest_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: (rawGuestName && cleanLower !== 'walk-in') ? rawGuestName : (rawGuestPhone ? `Guest ${rawGuestPhone.slice(-4)}` : 'Guest'),
+            phone: rawGuestPhone,
+            email: '',
+            visitCount: 1,
+            totalSpend: 0,
+            notes: table.notes ? `QR Menu Note: ${table.notes}` : 'Registered via QR Menu',
+            channel: 'QR Menu',
+            tags: ['QR Menu'],
+            createdAt: new Date().toISOString(),
+            lastVisit: new Date().toISOString(),
+          });
+        }
+
+        const { error: gErr } = await db.from('tenant_data').upsert({
+          account_id: canonicalTenant, collection_name: 'guests', value: currentGuests,
+        });
+        if (!gErr) {
+          await broadcastToAll(canonicalTenant, requestedTenant, account.name, 'guests');
+        }
+      } catch (gErr) {
+        console.error('[Public API] Error saving guest to CRM:', gErr);
+      }
+    }
   }
 
   if (savedOrder !== undefined) {
@@ -357,6 +407,65 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
   }
 
   res.json({ success: true, ticket: withId });
+}));
+
+// POST /api/public/qrmenu/:tenant/guest — upsert a guest record into CRM from QR menu
+app.post('/api/public/qrmenu/:tenant/guest', guestWriteLimiter, wrap(async (req, res) => {
+  const db = requireDb();
+  const { tenant: requestedTenant } = req.params;
+  const { guest } = req.body || {};
+  if (!guest || (!guest.name && !guest.phone)) {
+    return res.status(400).json({ success: false, error: 'Guest name or phone required' });
+  }
+
+  const account = await resolveAccount(db, requestedTenant);
+  if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
+  const canonicalTenant = account.id;
+
+  const currentGuests = (await getFlex(db, canonicalTenant, 'guests', [])) || [];
+  const guestName = String(guest.name || '').trim();
+  const guestPhone = String(guest.phone || '').trim();
+  const cleanDigits = guestPhone.replace(/\D/g, '');
+  const cleanLower = guestName.toLowerCase();
+
+  let targetGuest = currentGuests.find(g => {
+    if (cleanDigits && cleanDigits.length >= 7) {
+      const gDigits = String(g.phone || '').replace(/\D/g, '');
+      if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
+    }
+    if (cleanLower && cleanLower !== 'walk-in' && String(g.name || '').trim().toLowerCase() === cleanLower) return true;
+    return false;
+  });
+
+  if (targetGuest) {
+    if (guestName && cleanLower !== 'walk-in') targetGuest.name = guestName;
+    if (guestPhone) targetGuest.phone = guestPhone;
+    targetGuest.lastVisit = new Date().toISOString();
+    targetGuest.visitCount = (targetGuest.visitCount || 0) + 1;
+  } else {
+    targetGuest = {
+      id: guest.id || `guest_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: (guestName && cleanLower !== 'walk-in') ? guestName : (guestPhone ? `Guest ${guestPhone.slice(-4)}` : 'Guest'),
+      phone: guestPhone,
+      email: guest.email || '',
+      visitCount: 1,
+      totalSpend: 0,
+      notes: guest.notes || 'Registered via QR Menu',
+      channel: 'QR Menu',
+      tags: ['QR Menu'],
+      createdAt: new Date().toISOString(),
+      lastVisit: new Date().toISOString(),
+    };
+    currentGuests.push(targetGuest);
+  }
+
+  const { error } = await db.from('tenant_data').upsert({
+    account_id: canonicalTenant, collection_name: 'guests', value: currentGuests,
+  });
+  if (error) throw error;
+
+  await broadcastToAll(canonicalTenant, requestedTenant, account.name, 'guests');
+  res.json({ success: true, guest: targetGuest });
 }));
 
 export default app;

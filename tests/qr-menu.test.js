@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { matchTable } from '../src/pages/QRMenu';
-import { createKDSTicket, saveTableState, saveTableOrder, setLocalCollection, getAll } from '../src/db/database';
+import { createKDSTicket, saveTableState, saveTableOrder, setLocalCollection, getAll, upsertGuestFromQR } from '../src/db/database';
 import { resolveAccount } from '../api/_lib/core';
 
 describe('QR Menu Feature for Kiko Cafe & Guests', () => {
@@ -8,6 +8,7 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
     setLocalCollection('pos_tables', []);
     setLocalCollection('pos_saved_orders', {});
     setLocalCollection('kds_tickets', []);
+    setLocalCollection('guests', []);
   });
 
   describe('Flexible Table Matching (matchTable)', () => {
@@ -406,4 +407,75 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
       expect(res).toBeNull();
     });
   });
+
+  describe('Guest CRM Persistence & Input Validation from QR Menu', () => {
+    it('saves customer name and mandatory phone number to guest list upon order placement', async () => {
+      const guest = await upsertGuestFromQR({
+        name: 'Amiya Kumar',
+        phone: '+91 98765 43210',
+        notes: 'Less spicy',
+      });
+
+      expect(guest).toBeDefined();
+      expect(guest.name).toBe('Amiya Kumar');
+      expect(guest.phone).toBe('+91 98765 43210');
+      expect(guest.visitCount).toBe(1);
+      expect(guest.tags).toContain('QR Menu');
+      expect(guest.channel).toBe('QR Menu');
+
+      const allGuests = getAll('guests');
+      expect(allGuests).toHaveLength(1);
+      expect(allGuests[0].name).toBe('Amiya Kumar');
+      expect(allGuests[0].phone).toBe('+91 98765 43210');
+    });
+
+    it('updates existing guest visitCount and lastVisit when the same phone orders again', async () => {
+      // First order
+      await upsertGuestFromQR({
+        name: 'Amiya Kumar',
+        phone: '9876543210',
+        notes: 'First order',
+      });
+
+      let allGuests = getAll('guests');
+      expect(allGuests).toHaveLength(1);
+      expect(allGuests[0].visitCount).toBe(1);
+
+      // Repeat order from same guest
+      await upsertGuestFromQR({
+        name: 'Amiya K.',
+        phone: '+91 98765 43210', // Same phone digits
+        notes: 'Second order',
+      });
+
+      allGuests = getAll('guests');
+      expect(allGuests).toHaveLength(1); // Not duplicated!
+      expect(allGuests[0].visitCount).toBe(2);
+      expect(allGuests[0].name).toBe('Amiya K.');
+    });
+
+    it('sanitizes table number to numbers only', () => {
+      const sanitizeTable = (val) => String(val || '').replace(/\D/g, '');
+
+      expect(sanitizeTable('Table 5')).toBe('5');
+      expect(sanitizeTable('T-12')).toBe('12');
+      expect(sanitizeTable('#3')).toBe('3');
+      expect(sanitizeTable('99')).toBe('99');
+      expect(sanitizeTable('abc')).toBe('');
+    });
+
+    it('validates mandatory phone number requiring at least 7 digits', () => {
+      const validatePhone = (val) => {
+        const clean = String(val || '').trim().replace(/\D/g, '');
+        return clean.length >= 7;
+      };
+
+      expect(validatePhone('')).toBe(false);
+      expect(validatePhone('   ')).toBe(false);
+      expect(validatePhone('12345')).toBe(false);
+      expect(validatePhone('9876543')).toBe(true);
+      expect(validatePhone('+91 98765 43210')).toBe(true);
+    });
+  });
 });
+
