@@ -28,10 +28,13 @@ export function AuthProvider({ children }) {
         // network hops and, in production, two lambda cold starts).
         const data = await api.get('/api/data/bootstrap');
         if (data.success && data.user) {
-          setCurrentTenant(data.user.restaurantName);
-          if (!applyBootstrapPayload(data)) {
-            // Demo mode ignores server payloads — hydrate from localStorage
-            await initTenantDB(data.user.restaurantName);
+          const isQrPage = typeof window !== 'undefined' && window.location?.pathname?.startsWith('/qrmenu/');
+          if (!isQrPage) {
+            setCurrentTenant(data.user.restaurantName);
+            if (!applyBootstrapPayload(data)) {
+              // Demo mode ignores server payloads — hydrate from localStorage
+              await initTenantDB(data.user.restaurantName);
+            }
           }
           setUser(data.user);
         }
@@ -101,6 +104,7 @@ export function AuthProvider({ children }) {
       name: `Admin (${tenantName})`,
       email: 'admin@kitchgoo.in',
       role: 'Owner',
+      accountId: tenantName,
       restaurantName: tenantName,
       isImpersonated: true
     };

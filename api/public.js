@@ -86,6 +86,12 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   GUEST_SETTINGS_SECTIONS.forEach(s => { settings[s] = SEEDS.settings[s]; });
   (settingsRows || []).forEach(row => { settings[row.section_name] = row.value; });
 
+  if (!settings.restaurant) {
+    settings.restaurant = { ...SEEDS.settings.restaurant, name: account.name || canonicalTenant };
+  } else if (!settings.restaurant.name || (settings.restaurant.name === 'Kitchgoo' && canonicalTenant.toLowerCase() !== 'kitchgoo')) {
+    settings.restaurant = { ...settings.restaurant, name: account.name || canonicalTenant };
+  }
+
   // Merge floor_plans layout with saved pos_tables so guest devices always get the full table list
   const baseTables = ((floorPlans && floorPlans.tables) || []).map(t => ({
     id: t.id || t.number,

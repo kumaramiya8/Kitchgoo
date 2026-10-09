@@ -275,6 +275,8 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     if (authLoading) return;
+    const isQrPage = typeof window !== 'undefined' && window.location?.pathname?.startsWith('/qrmenu/');
+    if (isQrPage && isGuestMode()) return;
     reload();
   }, [user, authLoading]);
 

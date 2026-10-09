@@ -70,7 +70,7 @@ export const simpleHash = (str) => {
 
 // Check if we are running in local demo mode
 function isDemoMode() {
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && window.localStorage) {
     return window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
   }
   return true;
@@ -104,6 +104,16 @@ const _cache = {};
 
 let _currentTenant = 'Kitchgoo';
 
+if (typeof window !== 'undefined' && window.location && window.location.pathname.startsWith('/qrmenu/')) {
+  const parts = window.location.pathname.split('/');
+  if (parts[2]) {
+    try {
+      _currentTenant = decodeURIComponent(parts[2]);
+      _guestMode = true;
+    } catch {}
+  }
+}
+
 export let lastDbMutationAt = 0;
 
 export function markMutation() {
@@ -130,6 +140,9 @@ export function hasPendingWrites() {
 }
 
 export function setCurrentTenant(tenant) {
+  if (typeof window !== 'undefined' && window.location && window.location.pathname.startsWith('/qrmenu/')) {
+    return;
+  }
   if (tenant) {
     _currentTenant = tenant;
   }
@@ -411,6 +424,9 @@ export async function initDB() {
 // ─── Tenant DB Initializer (authenticated) ──────────────────
 export async function initTenantDB(tenantName) {
   if (!tenantName) return;
+  if (typeof window !== 'undefined' && window.location && window.location.pathname.startsWith('/qrmenu/')) {
+    return;
+  }
 
   _currentTenant = tenantName;
   _guestMode = false;
@@ -462,13 +478,21 @@ export async function initTenantDB(tenantName) {
 
 // ─── Guest (public QR menu) initializer ─────────────────────
 export async function initGuestTenantDB(tenantName, tableParam = '') {
-  if (!tenantName) return;
+  if (!tenantName) return null;
   _currentTenant = tenantName;
   _guestMode = true;
   _guestTableParam = tableParam || '';
 
   if (!isLive()) {
-    return initTenantDB(tenantName);
+    await initTenantDB(tenantName);
+    return {
+      menu: getAll('menu') || [],
+      settings: getSettings() || {},
+      collections: {
+        pos_tables: getAll('pos_tables') || [],
+        pos_saved_orders: getAll('pos_saved_orders') || {},
+      }
+    };
   }
 
   const q = _guestTableParam ? `?table=${encodeURIComponent(_guestTableParam)}` : '';
@@ -479,6 +503,7 @@ export async function initGuestTenantDB(tenantName, tableParam = '') {
     _cache[col] = JSON.parse(JSON.stringify(SEEDS[col] !== undefined ? SEEDS[col] : []));
   });
   applyTenantPayload(payload);
+  return payload;
 }
 
 export function isGuestMode() {

@@ -49,6 +49,8 @@ const QRMenu = () => {
   const { menu, settings, orders, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [guestMenu, setGuestMenu] = useState(null);
+  const [guestSettings, setGuestSettings] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState({}); // { itemId: { item, qty, notes } }
@@ -126,8 +128,12 @@ const QRMenu = () => {
       setCustomerName('');
       setTableNumber(tableParam);
       try {
-        await initGuestTenantDB(tenantId, tableParam);
-        if (!cancelled) await reload();
+        const payload = await initGuestTenantDB(tenantId, tableParam);
+        if (!cancelled && payload) {
+          if (payload.menu) setGuestMenu(payload.menu);
+          if (payload.settings) setGuestSettings(payload.settings);
+          await reload(true);
+        }
       } catch (err) {
         console.error('[QRMenu] Error loading tenant database:', err);
       } finally {
@@ -148,6 +154,10 @@ const QRMenu = () => {
   reloadRef.current = reload;
   useEffect(() => {
     return () => {
+      // Only restore authenticated tenant if the user is actually navigating AWAY from the QR menu
+      if (typeof window !== 'undefined' && window.location?.pathname?.startsWith('/qrmenu/')) {
+        return;
+      }
       exitGuestMode();
       const u = userRef.current;
       if (u?.restaurantName) {
@@ -182,11 +192,15 @@ const QRMenu = () => {
     }
   }, [tableNumber, posTables]);
 
+  // Effective data sources for the QR Menu (prefer direct guest-loaded data for this tenant)
+  const effectiveMenu = (guestMenu && guestMenu.length > 0) ? guestMenu : menu;
+  const effectiveSettings = guestSettings || settings;
+
   // Derived active menu items
   const menuItems = useMemo(() => {
-    if (!menu) return [];
-    return menu.filter(item => item.active !== false && !item.sold86);
-  }, [menu]);
+    if (!effectiveMenu) return [];
+    return effectiveMenu.filter(item => item.active !== false && !item.sold86);
+  }, [effectiveMenu]);
 
   // Categories list
   const categories = useMemo(() => {
@@ -243,20 +257,24 @@ const QRMenu = () => {
     return menuItems.slice(0, 4);
   }, [orders, menuItems]);
 
-  const aiOrderingEnabled = settings?.modules?.qrAiOrdering !== false;
-  const pricesIncludeGst = settings?.billing?.pricesIncludeGst !== false;
+  const aiOrderingEnabled = effectiveSettings?.modules?.qrAiOrdering !== false;
+  const pricesIncludeGst = effectiveSettings?.billing?.pricesIncludeGst !== false;
+
+  const rawResName = effectiveSettings?.restaurant?.name;
+  const isKitchgooFallback = rawResName && rawResName.toLowerCase() === 'kitchgoo' && tenantId && tenantId.toLowerCase() !== 'kitchgoo';
+  const restaurantName = (!isKitchgooFallback && rawResName) ? rawResName : (tenantId || 'Kitchgoo');
 
   // Initialise welcome message when chat first opens
   useEffect(() => {
     if (showAiChat && aiMessages.length === 0) {
-      const restaurantLabel = settings?.restaurant?.name || 'our restaurant';
+      const restaurantLabel = restaurantName || 'our restaurant';
       const topNames = topSellers.slice(0, 2).map(i => i.name).join(' and ');
       setAiMessages([{
         role: 'assistant',
         text: `Hi! 👋 I'm your AI food guide at **${restaurantLabel}**. Ask me what to order, I can add items to your cart for you!\n\n${topNames ? `🔥 Popular right now: ${topNames}` : 'What are you in the mood for?'}`,
       }]);
     }
-  }, [showAiChat]);
+  }, [showAiChat, restaurantName, topSellers]);
 
   useEffect(() => {
     if (showAiChat) aiEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -512,7 +530,7 @@ const QRMenu = () => {
           message: text.trim(),
           chatHistory: aiMessages.map(m => ({ role: m.role, text: m.text })),
           menuItems: menuItems.map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, description: i.description })),
-          restaurantName: settings?.restaurant?.name || '',
+          restaurantName: restaurantName || '',
           topSellers: topSellers.map(i => ({ name: i.name })),
         }),
       });
@@ -527,7 +545,7 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiLoading, aiMessages, menuItems, settings, topSellers, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
+  }, [aiLoading, aiMessages, menuItems, effectiveSettings, restaurantName, topSellers, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
 
   // Place the order suggested by the AI.
   // Collects table number and/or guest name in-chat if not already known.
@@ -672,8 +690,6 @@ const QRMenu = () => {
       </div>
     );
   }
-
-  const restaurantName = settings?.restaurant?.name || tenantId || 'Kitchgoo';
 
   if (orderSuccess) {
     return (

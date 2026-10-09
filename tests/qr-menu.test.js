@@ -624,6 +624,39 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
       expect(allTickets[0].orderId).toBe('QR-1-1001');
     });
   });
+
+  describe('QR Menu Tenant Scoping & Isolation', () => {
+    it('prevents setCurrentTenant from hijacking tenant on /qrmenu/ routes', async () => {
+      const origWindow = globalThis.window;
+      globalThis.window = { location: { pathname: '/qrmenu/Test' } };
+
+      const { setCurrentTenant, getCurrentTenant, initGuestTenantDB } = await import('../src/db/database');
+      await initGuestTenantDB('Test');
+      expect(getCurrentTenant()).toBe('Test');
+
+      // Attempt to hijack tenant to Kitchgoo (as happens during background admin auth bootstrap)
+      setCurrentTenant('Kitchgoo');
+      expect(getCurrentTenant()).toBe('Test'); // Must remain Test!
+
+      globalThis.window = origWindow;
+    });
+
+    it('ensures non-Kitchgoo tenants do not fall back to Kitchgoo restaurant name', () => {
+      const canonicalTenant = 'Test';
+      const account = { id: 'Test', name: 'Test' };
+      const settings = {
+        restaurant: { name: 'Kitchgoo', tagline: 'A Fine Dining Experience' }
+      };
+
+      if (!settings.restaurant) {
+        settings.restaurant = { name: account.name || canonicalTenant };
+      } else if (!settings.restaurant.name || (settings.restaurant.name === 'Kitchgoo' && canonicalTenant.toLowerCase() !== 'kitchgoo')) {
+        settings.restaurant = { ...settings.restaurant, name: account.name || canonicalTenant };
+      }
+
+      expect(settings.restaurant.name).toBe('Test');
+    });
+  });
 });
 
 

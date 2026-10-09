@@ -1951,7 +1951,7 @@ const MenuScreen = () => {
               Scan this QR code with a phone to view the digital menu and place orders directly.
             </p>
             {(() => {
-              const tenantId = user?.accountId || user?.restaurantName || 'Kitchgoo';
+              const tenantId = getCurrentTenant() || settings?.restaurant?.name || user?.restaurantName || user?.accountId || 'Kitchgoo';
               const publicMenuUrl = `${window.location.origin}/qrmenu/${tenantId}`;
               const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(publicMenuUrl)}`;
               const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
