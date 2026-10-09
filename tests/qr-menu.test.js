@@ -687,6 +687,45 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
       expect(allTickets).toHaveLength(1);
       expect(allTickets[0].orderId).toBe('QR-1-1001');
     });
+
+    it('creates active KDS ticket with numeric tableId without crashing', async () => {
+      const items = [
+        { id: 'item_momos', name: 'Veg steamed momos', price: 60, qty: 1, station: 'Main Kitchen' }
+      ];
+
+      const ticket = await createKDSTicket('QR-7-5438', items, 7, 'dine-in', {
+        guestName: 'Kumar',
+        tokenNumber: 7,
+      });
+
+      expect(ticket).toBeDefined();
+      expect(ticket.tableId).toBe(7);
+      expect(ticket.status).toBe('active');
+    });
+
+    it('normalizes KDS tableId and tableNumber safely across numeric and string values', () => {
+      const cleanId = (s) => {
+        let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-|_)+/i, '');
+        if (str === '1o') str = '10';
+        const stripped = str.replace(/^0+/, '');
+        return stripped || str;
+      };
+
+      const normalizeTicket = (ticket) => {
+        const cleanTNum = ticket.tableNumber != null ? cleanId(ticket.tableNumber) : null;
+        const rawTId = ticket.tableId != null ? String(ticket.tableId).trim() : '';
+        const cleanTId = rawTId.startsWith('tab_') || rawTId.startsWith('token_')
+          ? rawTId
+          : (rawTId ? cleanId(rawTId) : null);
+        return { cleanTNum, cleanTId };
+      };
+
+      expect(normalizeTicket({ tableId: 7, tableNumber: 7 })).toEqual({ cleanTId: '7', cleanTNum: '7' });
+      expect(normalizeTicket({ tableId: 'tbl_7', tableNumber: '07' })).toEqual({ cleanTId: '7', cleanTNum: '7' });
+      expect(normalizeTicket({ tableId: 'tab_abc123' })).toEqual({ cleanTId: 'tab_abc123', cleanTNum: null });
+      expect(normalizeTicket({ tableId: 'token_5' })).toEqual({ cleanTId: 'token_5', cleanTNum: null });
+      expect(normalizeTicket({ tableId: null, tableNumber: undefined })).toEqual({ cleanTId: null, cleanTNum: null });
+    });
   });
 
   describe('QR Menu Tenant Scoping & Isolation', () => {

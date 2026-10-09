@@ -552,9 +552,11 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
   const canonicalTenant = account.id;
 
-  const current = await getFlex(db, canonicalTenant, 'kds_tickets', []);
-  const cleanTNum = ticket.tableNumber ? cleanId(ticket.tableNumber) : null;
-  const cleanTId = ticket.tableId ? (ticket.tableId.startsWith('tbl_') ? `tbl_${cleanId(ticket.tableId)}` : cleanId(ticket.tableId)) : null;
+  const cleanTNum = ticket.tableNumber != null ? cleanId(ticket.tableNumber) : null;
+  const rawTId = ticket.tableId != null ? String(ticket.tableId).trim() : '';
+  const cleanTId = rawTId.startsWith('tab_') || rawTId.startsWith('token_')
+    ? rawTId
+    : (rawTId ? cleanId(rawTId) : null);
   const withId = {
     ...ticket,
     id: ticket.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
