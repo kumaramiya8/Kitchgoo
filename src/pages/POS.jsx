@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
-import { getAll, insert, update, getById } from '../db/database';
+import { getAll, insert, update, getById, saveTableOrder, saveTableState } from '../db/database';
 import { printReceipt, printTableTransferNotice, printKOT } from '../utils/printReceipt';
 import { getNoun } from '../utils/naming';
 import { isModuleEnabled } from '../../shared/seeds';
@@ -1286,20 +1286,23 @@ const PosVoidModal = ({ cart = [], activeTable, unassignedTab, settings = {}, on
 
 
 // ─── Table Saved Orders Key Resolver ─────────────────────────────────────────
-export const resolveTableSavedOrder = (savedOrders, table) => {
-  if (!savedOrders || !table) return [];
+export const getTableKeys = (tableOrId) => {
+  if (!tableOrId) return [];
   const clean = (s) => {
     let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-|_)+/i, '');
     if (str === '1o') str = '10';
     const stripped = str.replace(/^0+/, '');
     return stripped || str;
   };
+  const table = typeof tableOrId === 'object' ? tableOrId : { id: tableOrId, number: tableOrId };
   const tId = table.id != null ? String(table.id) : '';
   const tNum = table.number != null ? String(table.number) : '';
   const cleanId = clean(tId);
   const cleanNum = clean(tNum);
 
-  const keys = [
+  return [
+    table.id,
+    table.number,
     tId,
     tNum,
     `tbl_${tId}`,
@@ -1319,7 +1322,11 @@ export const resolveTableSavedOrder = (savedOrders, table) => {
     cleanId === '10' ? '1o' : null,
     cleanNum === '10' ? '1o' : null,
   ].filter(Boolean);
+};
 
+export const resolveTableSavedOrder = (savedOrders, table) => {
+  if (!savedOrders || !table) return [];
+  const keys = getTableKeys(table);
   for (const k of keys) {
     const val = savedOrders[k];
     if (val !== undefined && val !== null) {
@@ -4185,20 +4192,35 @@ const TableOrderHoverCard = ({
           </div>
         </>
       ) : (
-        /* Empty or Seated Without Items */
+        /* Empty, Bussing, or Seated Without Items */
         <div style={{ textAlign: 'center', padding: '10px 0' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
-            {table.status === 'seated' ? 'Guest seated • No items ordered yet' : 'Table is unoccupied'}
+            {table.status === 'needs-bussing'
+              ? 'Table needs bussing & cleaning'
+              : table.status === 'seated'
+              ? 'Guest seated • No items ordered yet'
+              : 'Table is unoccupied'}
           </div>
           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-              onClick={() => onOpenOrder(table)}
-            >
-              {table.status === 'seated' ? 'Start Order' : 'Seat Table'}
-            </button>
+            {table.status === 'needs-bussing' ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                onClick={() => onOpenOrder(table)}
+              >
+                Clean Table
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                onClick={() => onOpenOrder(table)}
+              >
+                {table.status === 'seated' ? 'Start Order' : 'Seat Table'}
+              </button>
+            )}
             {onViewHistory && (
               <button
                 type="button"
@@ -5492,11 +5514,14 @@ const POS = () => {
 
   // Helper to look up active order items for a table across all possible key representations
   const getTableSavedOrder = useCallback((table) => {
+    if (!table || table.status === 'needs-bussing') return [];
     return resolveTableSavedOrder(savedOrders, table);
   }, [savedOrders]);
 
   // Status to DISPLAY for a table (layers the reservation overlay on top, and displays ordered if items exist)
   const displayStatus = (table) => {
+    if (!table) return 'available';
+    if (table.status === 'needs-bussing') return 'needs-bussing';
     const hasItems = getTableSavedOrder(table).length > 0;
     if (table.status === 'available' && hasItems) return 'ordered';
     return table.status === 'available' && reservedTableIds.has(String(table.id))
@@ -5943,7 +5968,7 @@ const POS = () => {
   };
 
   const getTableOrderSummary = useCallback((table) => {
-    if (!table) return null;
+    if (!table || table.status === 'needs-bussing') return null;
     const items = (activeTable && String(activeTable.id) === String(table.id) && cart.length > 0)
       ? cart
       : getTableSavedOrder(table);
@@ -6394,29 +6419,93 @@ const POS = () => {
     showSuccess(`Token #${tab.tokenNumber} assigned to Table ${targetTable.number || targetTable.id}!`);
   };
 
+  const handleCleanTable = async (table) => {
+    if (!table) return;
+    const tableId = table.id;
+    const tableNum = table.number || table.id;
+
+    // 1. Purge all saved order keys across all representations
+    const keysToDelete = getTableKeys(table);
+    setSavedOrders(prev => {
+      const next = { ...prev };
+      keysToDelete.forEach(k => delete next[k]);
+      return next;
+    });
+
+    // 2. Clear backend pos_saved_orders for this table
+    try {
+      await saveTableOrder(tableId, null);
+    } catch (err) {
+      console.error('[POS] Failed to clear table order on clean:', err);
+    }
+
+    // 3. Reset activeTable / cart if this table was currently open
+    if (activeTable && (String(activeTable.id) === String(tableId) || String(activeTable.number) === String(tableNum))) {
+      setActiveTable(null);
+      setCart([]);
+      if (view === 'order' && isTableManagementEnabled) {
+        setView('floor');
+      }
+    }
+
+    // 4. Update table status to 'available' and clear guest metadata
+    const updatedTable = {
+      ...table,
+      status: 'available',
+      guestName: null,
+      guestId: null,
+      seatedAt: null,
+      partySize: null,
+      serverId: null,
+      notes: null,
+      guestPhone: null,
+    };
+
+    setTables(prev => prev.map(t =>
+      (String(t.id) === String(tableId) || String(t.number) === String(tableNum))
+        ? updatedTable
+        : t
+    ));
+
+    try {
+      await saveTableState(tableId, updatedTable);
+    } catch (err) {
+      console.error('[POS] Failed to save table state on clean:', err);
+    }
+
+    // 5. Broadcast table release/clean
+    broadcastOrderCreated(tableId, `CLEAN-T${tableNum}`);
+
+    showSuccess(`Table ${tableNum} cleaned and available`);
+    setCleaningTable(null);
+  };
+
   const handleTableClick = (table) => {
-    if (table.status === 'needs-bussing') {
+    if (!table) return;
+    const currentTable = tables.find(t => String(t.id) === String(table.id) || String(t.number) === String(table.number)) || table;
+    const currentStatus = currentTable.status || displayStatus(currentTable);
+    if (currentStatus === 'needs-bussing' || currentTable.status === 'needs-bussing') {
       // Table was settled; staff confirms it's been cleaned before reuse
-      setCleaningTable(table);
+      setCleaningTable(currentTable);
       return;
     }
-    const items = getTableSavedOrder(table);
-    if (table.status !== 'available' || items.length > 0) {
-      let currentTable = table;
-      if (table.seatedAt) {
-        const seatedTime = new Date(table.seatedAt).getTime();
+    const items = getTableSavedOrder(currentTable);
+    if (currentTable.status !== 'available' || items.length > 0) {
+      let activeT = currentTable;
+      if (currentTable.seatedAt) {
+        const seatedTime = new Date(currentTable.seatedAt).getTime();
         if (Date.now() - seatedTime > 6 * 60 * 60 * 1000) {
           const freshSeatedAt = new Date().toISOString();
-          currentTable = { ...table, seatedAt: freshSeatedAt };
-          setTables(prev => prev.map(t => String(t.id) === String(table.id) ? { ...t, seatedAt: freshSeatedAt } : t));
+          activeT = { ...currentTable, seatedAt: freshSeatedAt };
+          setTables(prev => prev.map(t => String(t.id) === String(currentTable.id) ? { ...t, seatedAt: freshSeatedAt } : t));
         }
       }
-      setActiveTable(currentTable);
+      setActiveTable(activeT);
       setCart(items);
-      setPartySize(table.partySize || 1);
+      setPartySize(currentTable.partySize || 1);
       setView('order');
     } else {
-      setGuestModal(table.id);
+      setGuestModal(currentTable.id);
     }
   };
 
@@ -6751,36 +6840,17 @@ const POS = () => {
     const currentItems = (isActive && cart && cart.length > 0) ? cart : resolveTableSavedOrder(savedOrders, tableToRelease);
 
     // 1. Clear saved orders for this table across all representations
+    const keysToDelete = getTableKeys(tableToRelease);
     setSavedOrders(prev => {
       const next = { ...prev };
-      const clean = (s) => {
-        let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
-        if (str === '1o') str = '10';
-        const stripped = str.replace(/^0+/, '');
-        return stripped || str;
-      };
-      const cId = clean(tableId);
-      const cNum = clean(tableNum);
-      const keysToDelete = [
-        tableId, String(tableId),
-        tableNum, String(tableNum),
-        `tbl_${tableId}`, `tbl_${tableNum}`,
-        `table_${tableId}`, `table_${tableNum}`,
-        cId, cNum,
-        cId ? `tbl_${cId}` : null,
-        cNum ? `tbl_${cNum}` : null,
-        cId ? `tbl_0${cId}` : null,
-        cNum ? `tbl_0${cNum}` : null,
-        cId ? `0${cId}` : null,
-        cNum ? `0${cNum}` : null,
-        cId === '10' ? 'tbl_1o' : null,
-        cNum === '10' ? 'tbl_1o' : null,
-        cId === '10' ? '1o' : null,
-        cNum === '10' ? '1o' : null,
-      ].filter(Boolean);
       keysToDelete.forEach(k => delete next[k]);
       return next;
     });
+    try {
+      await saveTableOrder(tableId, null);
+    } catch (err) {
+      console.error('[POS] Failed to clear table order on release:', err);
+    }
 
     // 2. Reset cart and tab states if active
     if (isActive) {
@@ -6796,20 +6866,23 @@ const POS = () => {
     }
 
     // 3. Reset table status
-    setTables(prev => prev.map(t => {
-      if (String(t.id) === String(tableId)) {
-        return {
-          ...t,
-          status: markStatus,
-          guestName: null,
-          guestId: null,
-          seatedAt: null,
-          partySize: null,
-          serverId: null,
-        };
-      }
-      return t;
-    }));
+    const updatedTable = {
+      ...tableToRelease,
+      status: markStatus,
+      guestName: null,
+      guestId: null,
+      seatedAt: null,
+      partySize: null,
+      serverId: null,
+      notes: null,
+      guestPhone: null,
+    };
+    setTables(prev => prev.map(t => String(t.id) === String(tableId) ? updatedTable : t));
+    try {
+      await saveTableState(tableId, updatedTable);
+    } catch (err) {
+      console.error('[POS] Failed to save table state on release:', err);
+    }
 
     // 4. Cancel active KDS tickets if requested
     if (cancelKds && cancelKDSTickets) {
@@ -7390,11 +7463,38 @@ const POS = () => {
       // Bill settled or charged to profile — table needs bussing before it can be reused.
       if (currentActiveTable) {
         prePayStatusRef.current = null;
-        setSavedOrders(prev => { const next = { ...prev }; delete next[currentActiveTable.id]; return next; });
-        setTables(prev => prev.map(t => String(t.id) === String(currentActiveTable.id)
-          ? { ...t, status: 'needs-bussing', guestName: null, guestId: null, seatedAt: null }
-          : t
+        const keysToDelete = getTableKeys(currentActiveTable);
+        setSavedOrders(prev => {
+          const next = { ...prev };
+          keysToDelete.forEach(k => delete next[k]);
+          return next;
+        });
+
+        const updatedTable = {
+          ...currentActiveTable,
+          status: 'needs-bussing',
+          guestName: null,
+          guestId: null,
+          seatedAt: null,
+          partySize: null,
+          guestPhone: null,
+          notes: null,
+        };
+
+        setTables(prev => prev.map(t =>
+          (String(t.id) === String(currentActiveTable.id) || String(t.number) === String(currentActiveTable.number))
+            ? updatedTable
+            : t
         ));
+
+        try {
+          await saveTableOrder(currentActiveTable.id, null);
+          await saveTableState(currentActiveTable.id, updatedTable);
+        } catch (err) {
+          console.error('[POS] Failed to save table state/order on settlement:', err);
+        }
+
+        broadcastOrderCreated(currentActiveTable.id, `SETTLE-T${currentActiveTable.number || currentActiveTable.id}`);
       }
 
       if (currentUnassignedTab) {
@@ -7413,6 +7513,7 @@ const POS = () => {
       // Reset UI state & close modal immediately so UI is instant and responsive
       setPaymentModal(false);
       setCart([]);
+      setActiveTable(null);
       setUnassignedTab(null);
       setDiscountAmount(0);
       setDiscountReason('');
@@ -8435,7 +8536,11 @@ const POS = () => {
                             {table.seats} seats
                           </div>
 
-                          {isOccupied && (
+                          {table.status === 'needs-bussing' ? (
+                            <div style={{ marginTop: 4, fontSize: '0.62rem', color: '#64748b', fontWeight: 700 }}>
+                              Bussing
+                            </div>
+                          ) : isOccupied && (
                             <div style={{ marginTop: 4, fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'center' }}>
                                 <User size={8} /> <span style={{ maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.guestName || 'Guest'}</span>
@@ -8545,7 +8650,11 @@ const POS = () => {
                           {table.seats} seats{table.section ? ` | ${table.section}` : ''}
                         </div>
 
-                        {isOccupied && (
+                        {table.status === 'needs-bussing' ? (
+                          <div style={{ marginTop: 4, fontSize: '0.68rem', color: '#64748b', fontWeight: 700, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                            Bussing
+                          </div>
+                        ) : isOccupied && (
                           <div style={{ marginTop: 4, fontSize: '0.7rem', color: 'var(--text-secondary)', textAlign: table.shape === 'round' ? 'center' : 'left' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: table.shape === 'round' ? 'center' : 'flex-start' }}>
                               <User size={10} /> {table.guestName || 'Guest'}
@@ -8723,14 +8832,7 @@ const POS = () => {
             </div>
             <div className="modal-footer" style={{ display: 'flex', gap: 12 }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setCleaningTable(null)}>Cancel</button>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => {
-                setTables(prev => prev.map(t => String(t.id) === String(cleaningTable.id)
-                  ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
-                  : t
-                ));
-                showSuccess(`Table ${cleaningTable.number || cleaningTable.id} is available again`);
-                setCleaningTable(null);
-              }}>Clean & Make Available</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handleCleanTable(cleaningTable)}>Clean & Make Available</button>
             </div>
           </Modal>
         )}

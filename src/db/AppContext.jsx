@@ -753,11 +753,17 @@ export function AppProvider({ children }) {
   const maybeMarkTableEating = useCallback((ticketId) => {
     const ticket = (getAll('kds_tickets') || []).find(t => t.id === ticketId);
     if (ticket && ticket.status === 'completed' && ticket.tableId) {
-      setPosTables(prev => prev.map(t =>
-        String(t.id) === String(ticket.tableId) && t.status === 'ordered'
+      const targetId = String(ticket.tableId).trim();
+      const targetClean = cleanTableId(targetId);
+      setPosTables(prev => prev.map(t => {
+        const matches = String(t.id).trim() === targetId ||
+          String(t.number).trim() === targetId ||
+          cleanTableId(t.id) === targetClean ||
+          cleanTableId(t.number) === targetClean;
+        return (matches && t.status === 'ordered')
           ? { ...t, status: 'eating' }
-          : t
-      ));
+          : t;
+      }));
     }
   }, []);
 

@@ -41,6 +41,13 @@ app.use('/api/admin', requireAuth);
 // Collections writable via PUT /collections — flex blobs plus the bill counter
 const WRITABLE_COLLECTIONS = new Set([...FLEX_COLLECTIONS, 'bill_counter']);
 
+const cleanId = (s) => {
+  let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-|_)+/i, '');
+  if (str === '1o') str = '10';
+  const stripped = str.replace(/^0+/, '');
+  return stripped || str;
+};
+
 const wrap = (fn) => (req, res) => {
   Promise.resolve(fn(req, res)).catch((err) => {
     const status = err.statusCode || 500;
@@ -478,6 +485,34 @@ app.put('/api/data/table-orders/:tableId', wrap(async (req, res) => {
     const merged = { ...current };
     if (savedOrder === null || savedOrder === undefined) {
       delete merged[tableId];
+      const cId = cleanId(tableId);
+      const toDelete = [
+        tableId, String(tableId),
+        cId, `tbl_${cId}`, `table_${cId}`, `tbl_0${cId}`, `0${cId}`,
+        cId === '10' ? 'tbl_1o' : null,
+        cId === '10' ? '1o' : null,
+      ].filter(Boolean);
+      toDelete.forEach(k => delete merged[k]);
+
+      const posTables = (await getFlex(db, tenant, 'pos_tables', [])) || [];
+      const match = posTables.find(t =>
+        String(t.id) === String(tableId) ||
+        String(t.number) === String(tableId) ||
+        cleanId(t.id) === cId ||
+        cleanId(t.number) === cId
+      );
+      if (match) {
+        const mId = cleanId(match.id);
+        const mNum = cleanId(match.number);
+        const moreKeys = [
+          match.id, String(match.id), match.number, String(match.number),
+          mId, `tbl_${mId}`, `table_${mId}`, `tbl_0${mId}`, `0${mId}`,
+          mNum, `tbl_${mNum}`, `table_${mNum}`, `tbl_0${mNum}`, `0${mNum}`,
+          mId === '10' ? 'tbl_1o' : null,
+          mNum === '10' ? 'tbl_1o' : null,
+        ].filter(Boolean);
+        moreKeys.forEach(k => delete merged[k]);
+      }
     } else {
       merged[tableId] = savedOrder;
     }

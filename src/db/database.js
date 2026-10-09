@@ -1384,6 +1384,40 @@ export async function saveTableOrder(tableId, savedOrder) {
   const next = { ...(current || {}) };
   if (lean === null) {
     delete next[tableId];
+    const clean = (s) => {
+      let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-|_)+/i, '');
+      if (str === '1o') str = '10';
+      const stripped = str.replace(/^0+/, '');
+      return stripped || str;
+    };
+    const cId = clean(tableId);
+    const toDelete = [
+      tableId, String(tableId),
+      cId, `tbl_${cId}`, `table_${cId}`, `tbl_0${cId}`, `0${cId}`,
+      cId === '10' ? 'tbl_1o' : null,
+      cId === '10' ? '1o' : null,
+    ].filter(Boolean);
+    toDelete.forEach(k => delete next[k]);
+
+    const allTables = getAll('pos_tables') || [];
+    const match = allTables.find(t =>
+      String(t.id) === String(tableId) ||
+      String(t.number) === String(tableId) ||
+      clean(t.id) === cId ||
+      clean(t.number) === cId
+    );
+    if (match) {
+      const mId = clean(match.id);
+      const mNum = clean(match.number);
+      const moreKeys = [
+        match.id, String(match.id), match.number, String(match.number),
+        mId, `tbl_${mId}`, `table_${mId}`, `tbl_0${mId}`, `0${mId}`,
+        mNum, `tbl_${mNum}`, `table_${mNum}`, `tbl_0${mNum}`, `0${mNum}`,
+        mId === '10' ? 'tbl_1o' : null,
+        mNum === '10' ? 'tbl_1o' : null,
+      ].filter(Boolean);
+      moreKeys.forEach(k => delete next[k]);
+    }
   } else {
     next[tableId] = lean;
   }
