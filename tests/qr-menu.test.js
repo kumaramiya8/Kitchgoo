@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { matchTable } from '../src/pages/QRMenu';
 import { createKDSTicket, saveTableState, saveTableOrder, setLocalCollection, getAll, upsertGuestFromQR } from '../src/db/database';
+import { buildPosTables, matchTableEntry } from '../src/db/AppContext';
 import { resolveAccount } from '../api/_lib/core';
 
 describe('QR Menu Feature for Kiko Cafe & Guests', () => {
@@ -476,6 +477,153 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
       expect(validatePhone('9876543')).toBe(true);
       expect(validatePhone('+91 98765 43210')).toBe(true);
     });
+
+    it('enforces phone number as UNIQUE identifier — same name with different phone numbers creates 2 separate guests', async () => {
+      // First guest: Rahul with phone 9876543210
+      const guest1 = await upsertGuestFromQR({
+        name: 'Rahul',
+        phone: '9876543210',
+      });
+
+      // Second guest: Also named Rahul, but with different phone 9123456789
+      const guest2 = await upsertGuestFromQR({
+        name: 'Rahul',
+        phone: '9123456789',
+      });
+
+      const allGuests = getAll('guests');
+      expect(allGuests).toHaveLength(2);
+      expect(allGuests.find(g => g.phone === '9876543210')).toBeDefined();
+      expect(allGuests.find(g => g.phone === '9123456789')).toBeDefined();
+      expect(guest1.id).not.toBe(guest2.id);
+    });
+
+    it('enforces phone number as UNIQUE identifier — same phone number CANNOT be assigned to 2 guests', async () => {
+      // First order with phone
+      const g1 = await upsertGuestFromQR({
+        name: 'John Doe',
+        phone: '+919988776655',
+      });
+
+      // Repeat order from same phone with different name formatting
+      const g2 = await upsertGuestFromQR({
+        name: 'Johnathan Doe',
+        phone: '9988776655', // same normalized digits
+      });
+
+      const allGuests = getAll('guests');
+      expect(allGuests).toHaveLength(1); // exactly 1 guest
+      expect(allGuests[0].id).toBe(g1.id);
+      expect(allGuests[0].name).toBe('Johnathan Doe');
+      expect(allGuests[0].visitCount).toBe(2);
+    });
+
+    it('deduplicates existing guest list so no two guests ever share the same phone number', async () => {
+      // Pre-seed 2 duplicate entries in guests collection
+      setLocalCollection('guests', [
+        { id: 'g1', name: 'User A', phone: '9876500000', visitCount: 1 },
+        { id: 'g2', name: 'User A Dup', phone: '+91 9876500000', visitCount: 1 },
+      ]);
+
+      await upsertGuestFromQR({
+        name: 'User A Final',
+        phone: '9876500000',
+      });
+
+      const allGuests = getAll('guests');
+      expect(allGuests).toHaveLength(1);
+      expect(allGuests[0].phone).toBe('9876500000');
+      expect(allGuests[0].name).toBe('User A Final');
+    });
+  });
+
+  describe('POS Floor Plan Table Matching (buildPosTables & matchTableEntry)', () => {
+    const floorPlan = {
+      tables: [
+        { id: 1, label: 'Table 1', number: 1, seats: 4, shape: 'square' },
+        { id: 2, label: 'Table 2', number: 2, seats: 4, shape: 'square' },
+        { id: 't3', label: 'Table 3', number: 3, seats: 6, shape: 'round' },
+      ],
+      sections: ['Main'],
+    };
+
+    it('matches floor plan table (id: 1) with saved table saved under "tbl_1"', () => {
+      const savedTables = [
+        { id: 'tbl_1', number: '1', status: 'ordered', guestName: 'Guest 1', seatedAt: '2026-10-09T10:00:00Z' },
+      ];
+
+      const merged = buildPosTables(floorPlan, savedTables);
+      expect(merged).toHaveLength(3);
+
+      const table1 = merged.find(t => String(t.id) === '1');
+      expect(table1).toBeDefined();
+      expect(table1.status).toBe('ordered');
+      expect(table1.guestName).toBe('Guest 1');
+      expect(table1.seatedAt).toBe('2026-10-09T10:00:00Z');
+    });
+
+    it('matches floor plan table with saved table by table number or label', () => {
+      const savedTables = [
+        { id: 'custom_id_99', number: 2, status: 'ordered', guestName: 'Kiko Diner' },
+      ];
+
+      const merged = buildPosTables(floorPlan, savedTables);
+      const table2 = merged.find(t => String(t.id) === '2');
+      expect(table2).toBeDefined();
+      expect(table2.status).toBe('ordered');
+      expect(table2.guestName).toBe('Kiko Diner');
+    });
+
+    it('includes dynamically created QR tables that are not in the base floor plan', () => {
+      const savedTables = [
+        { id: 'tbl_10', number: '10', name: 'Table 10', status: 'ordered', guestName: 'Walk-in' },
+      ];
+
+      const merged = buildPosTables(floorPlan, savedTables);
+      // 3 floor plan tables + 1 extra dynamic table = 4 tables
+      expect(merged).toHaveLength(4);
+
+      const dynamicTable = merged.find(t => String(t.id) === 'tbl_10');
+      expect(dynamicTable).toBeDefined();
+      expect(dynamicTable.status).toBe('ordered');
+      expect(dynamicTable.guestName).toBe('Walk-in');
+    });
+
+    it('matchTableEntry correctly matches across ID prefixes and numbers', () => {
+      expect(matchTableEntry({ id: 'tbl_1', number: '1' }, { id: 1, number: 1 })).toBe(true);
+      expect(matchTableEntry({ id: 'tbl_5', number: 5 }, { id: 't5', number: 5 })).toBe(true);
+      expect(matchTableEntry({ id: 'custom', label: 'Table 2' }, { id: 2, label: 'Table 2' })).toBe(true);
+      expect(matchTableEntry({ id: 'tbl_1' }, { id: 2 })).toBe(false);
+    });
+  });
+
+  describe('KDS Ticket Creation Flow from QR Menu', () => {
+    it('creates active KDS ticket with items, tokenNumber, and table reference', async () => {
+      const items = [
+        { id: 'item_coffee', name: 'Cold Brew', price: 200, qty: 1, station: 'Bar' },
+        { id: 'item_croissant', name: 'Almond Croissant', price: 180, qty: 2, station: 'Pantry' },
+      ];
+
+      const ticket = await createKDSTicket('QR-1-1001', items, '1', 'dine-in', {
+        guestName: 'Rahul',
+        tokenNumber: '1',
+        notes: 'Less sweet',
+      });
+
+      expect(ticket).toBeDefined();
+      expect(ticket.orderId).toBe('QR-1-1001');
+      expect(ticket.status).toBe('active');
+      expect(ticket.tableId).toBe('1');
+      expect(ticket.tokenNumber).toBe('1');
+      expect(ticket.guestName).toBe('Rahul');
+      expect(ticket.items).toHaveLength(2);
+      expect(ticket.items[0].status).toBe('pending');
+
+      const allTickets = getAll('kds_tickets');
+      expect(allTickets).toHaveLength(1);
+      expect(allTickets[0].orderId).toBe('QR-1-1001');
+    });
   });
 });
+
 

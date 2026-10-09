@@ -1,5 +1,5 @@
 // Bump this version on any caching-strategy change to purge stale caches.
-const CACHE_NAME = 'kitchgoo-v4';
+const CACHE_NAME = 'kitchgoo-v5';
 
 // Only pre-cache stable, non-hashed assets. NEVER pre-cache the HTML shell or
 // hashed JS/CSS — those must always come from the network so a new deploy is

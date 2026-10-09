@@ -90,6 +90,8 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   const baseTables = ((floorPlans && floorPlans.tables) || []).map(t => ({
     id: t.id || t.number,
     number: t.number || t.id,
+    label: t.label || t.name || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
+    name: t.label || t.name || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
     seats: t.seats || t.capacity || 4,
     shape: t.shape || 'square',
     section: t.section || t.sectionId || null,
@@ -103,9 +105,19 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   const tableMap = new Map();
   baseTables.forEach(t => tableMap.set(String(t.id), t));
   saved.forEach(t => {
-    const existing = tableMap.get(String(t.id));
-    if (existing) {
-      tableMap.set(String(t.id), { ...existing, ...t });
+    let existingKey = null;
+    for (const [k, b] of tableMap.entries()) {
+      if (String(b.id) === String(t.id) ||
+          (b.number && t.number && String(b.number) === String(t.number)) ||
+          String(t.id) === `tbl_${b.number}` ||
+          String(t.id) === `tbl_${b.id}`) {
+        existingKey = k;
+        break;
+      }
+    }
+    if (existingKey) {
+      const existing = tableMap.get(existingKey);
+      tableMap.set(existingKey, { ...existing, ...t, id: existing.id, number: existing.number || t.number });
     } else {
       tableMap.set(String(t.id), t);
     }
@@ -199,6 +211,95 @@ export function mergeOrderItems(existingItems = [], incomingItems = []) {
   return merged;
 }
 
+// Phone normalization and strict phone-first matching helpers
+export function normalizePhone(raw) {
+  return String(raw || '').replace(/\D/g, '');
+}
+
+export function phonesMatch(p1, p2) {
+  const d1 = normalizePhone(p1);
+  const d2 = normalizePhone(p2);
+  if (!d1 || !d2) return false;
+  if (d1 === d2) return true;
+  // If both have 10+ digits, compare the last 10 digits (handles country codes like 91 or +91 or 0)
+  if (d1.length >= 10 && d2.length >= 10 && d1.slice(-10) === d2.slice(-10)) return true;
+  // If one ends with the other and the shorter has at least 7 digits
+  if (d1.length >= 7 && d2.length >= 7 && (d1.endsWith(d2) || d2.endsWith(d1))) return true;
+  return false;
+}
+
+export function upsertGuestIntoList(currentGuests = [], { name = '', phone = '', notes = '' } = {}) {
+  const rawName = String(name || '').trim();
+  const rawPhone = String(phone || '').trim();
+  const cleanDigits = normalizePhone(rawPhone);
+  const hasValidPhone = cleanDigits.length >= 7;
+
+  let targetGuest = null;
+  if (hasValidPhone) {
+    // Phone number is the UNIQUE identifier. Match ONLY by phone!
+    targetGuest = currentGuests.find(g => phonesMatch(g.phone, rawPhone));
+  } else if (rawName && rawName.toLowerCase() !== 'walk-in') {
+    // Only if NO phone is present, fallback to name match among phoneless guests
+    targetGuest = currentGuests.find(g =>
+      !normalizePhone(g.phone) &&
+      String(g.name || '').trim().toLowerCase() === rawName.toLowerCase()
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+  if (targetGuest) {
+    if (rawName && rawName.toLowerCase() !== 'walk-in') {
+      targetGuest.name = rawName;
+    }
+    if (rawPhone) {
+      targetGuest.phone = rawPhone;
+    }
+    targetGuest.lastVisit = nowIso;
+    targetGuest.visitCount = (targetGuest.visitCount || 0) + 1;
+    if (notes) {
+      targetGuest.notes = targetGuest.notes ? `${targetGuest.notes} | ${notes}` : notes;
+    }
+  } else {
+    targetGuest = {
+      id: `guest_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: (rawName && rawName.toLowerCase() !== 'walk-in')
+        ? rawName
+        : (hasValidPhone ? `Guest ${cleanDigits.slice(-4)}` : 'Guest'),
+      phone: rawPhone,
+      email: '',
+      visitCount: 1,
+      totalSpend: 0,
+      notes: notes ? `QR Menu Note: ${notes}` : 'Registered via QR Menu',
+      channel: 'QR Menu',
+      tags: ['QR Menu'],
+      createdAt: nowIso,
+      lastVisit: nowIso,
+    };
+    currentGuests.push(targetGuest);
+  }
+
+  // Deduplicate: same phone number can NEVER be assigned to 2 guests!
+  if (hasValidPhone) {
+    const finalGuests = [];
+    const seenPhones = new Set();
+    for (const g of currentGuests) {
+      const gDigits = normalizePhone(g.phone);
+      if (gDigits && gDigits.length >= 7) {
+        const key = gDigits.length >= 10 ? gDigits.slice(-10) : gDigits;
+        if (seenPhones.has(key)) {
+          continue; // skip duplicate
+        }
+        seenPhones.add(key);
+      }
+      finalGuests.push(g);
+    }
+    currentGuests.length = 0;
+    currentGuests.push(...finalGuests);
+  }
+
+  return targetGuest;
+}
+
 // PUT /api/public/qrmenu/:tenant/table/:tableId
 // Body: { table: {...} | undefined, savedOrder: <order|null> }
 // Merges ONLY the given table into pos_tables / pos_saved_orders.
@@ -211,31 +312,51 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
   const canonicalTenant = account.id;
 
+  const cleanId = (s) => String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
+
   if (table !== undefined) {
     const floorPlans = await getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans);
     const current = (await getFlex(db, canonicalTenant, 'pos_tables', [])) || [];
     let found = false;
+    const cleanParamId = cleanId(tableId);
+
     const merged = current.map(t => {
+      const tCleanId = cleanId(t.id);
+      const tCleanNum = cleanId(t.number);
       const match = String(t.id) === String(tableId) ||
                     (t.number && String(t.number) === String(tableId)) ||
                     (table && table.id && String(t.id) === String(table.id)) ||
-                    (table && table.number && String(t.number) === String(table.number));
+                    (table && table.number && String(t.number) === String(table.number)) ||
+                    (cleanParamId && (tCleanId === cleanParamId || tCleanNum === cleanParamId));
       if (match) {
         found = true;
         // Keep existing seatedAt if table was already active!
         const keepSeatedAt = (t.status && t.status !== 'available' && t.status !== 'needs-bussing' && t.seatedAt)
           ? t.seatedAt
           : (table.seatedAt || t.seatedAt || new Date().toISOString());
-        return { ...t, ...table, id: t.id, seatedAt: keepSeatedAt };
+        return { ...t, ...table, id: t.id, number: t.number || table.number || t.id, seatedAt: keepSeatedAt };
       }
       return t;
     });
+
     if (!found) {
-      const fpTable = ((floorPlans && floorPlans.tables) || []).find(t =>
-        String(t.id) === String(tableId) || (t.number && String(t.number) === String(tableId))
-      );
+      const fpTable = ((floorPlans && floorPlans.tables) || []).find(t => {
+        const tCleanId = cleanId(t.id);
+        const tCleanNum = cleanId(t.number);
+        const tCleanLabel = cleanId(t.label || t.name);
+        return (
+          String(t.id) === String(tableId) ||
+          (t.number && String(t.number) === String(tableId)) ||
+          (cleanParamId && (tCleanId === cleanParamId || tCleanNum === cleanParamId || tCleanLabel === cleanParamId))
+        );
+      });
       if (fpTable) {
-        merged.push({ ...fpTable, ...table, id: fpTable.id || tableId });
+        merged.push({
+          ...fpTable,
+          ...table,
+          id: fpTable.id || tableId,
+          number: fpTable.number || table.number || fpTable.id,
+        });
       } else {
         merged.push({ ...table, id: table.id ?? tableId });
       }
@@ -251,38 +372,11 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
     if ((rawGuestName && rawGuestName.toLowerCase() !== 'walk-in') || rawGuestPhone) {
       try {
         const currentGuests = (await getFlex(db, canonicalTenant, 'guests', [])) || [];
-        const cleanDigits = rawGuestPhone.replace(/\D/g, '');
-        const cleanLower = rawGuestName.toLowerCase();
-
-        let existing = currentGuests.find(g => {
-          if (cleanDigits && cleanDigits.length >= 7) {
-            const gDigits = String(g.phone || '').replace(/\D/g, '');
-            if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
-          }
-          if (cleanLower && cleanLower !== 'walk-in' && String(g.name || '').trim().toLowerCase() === cleanLower) return true;
-          return false;
+        upsertGuestIntoList(currentGuests, {
+          name: rawGuestName,
+          phone: rawGuestPhone,
+          notes: table.notes ? `QR Menu Note: ${table.notes}` : 'Registered via QR Menu',
         });
-
-        if (existing) {
-          if (rawGuestName && cleanLower !== 'walk-in') existing.name = rawGuestName;
-          if (rawGuestPhone) existing.phone = rawGuestPhone;
-          existing.lastVisit = new Date().toISOString();
-          existing.visitCount = (existing.visitCount || 0) + 1;
-        } else {
-          currentGuests.push({
-            id: `guest_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            name: (rawGuestName && cleanLower !== 'walk-in') ? rawGuestName : (rawGuestPhone ? `Guest ${rawGuestPhone.slice(-4)}` : 'Guest'),
-            phone: rawGuestPhone,
-            email: '',
-            visitCount: 1,
-            totalSpend: 0,
-            notes: table.notes ? `QR Menu Note: ${table.notes}` : 'Registered via QR Menu',
-            channel: 'QR Menu',
-            tags: ['QR Menu'],
-            createdAt: new Date().toISOString(),
-            lastVisit: new Date().toISOString(),
-          });
-        }
 
         const { error: gErr } = await db.from('tenant_data').upsert({
           account_id: canonicalTenant, collection_name: 'guests', value: currentGuests,
@@ -304,12 +398,18 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
       delete mergedOrders[tableId];
       if (table && table.id) delete mergedOrders[table.id];
       if (table && table.number) delete mergedOrders[String(table.number)];
+      const cId = cleanId(tableId);
+      if (cId) {
+        delete mergedOrders[cId];
+        delete mergedOrders[`tbl_${cId}`];
+      }
     } else {
       const possibleKeys = [
         tableId,
         table && table.id,
         table && table.number && String(table.number),
-        tableId.replace(/^tbl_/i, ''),
+        cleanId(tableId),
+        `tbl_${cleanId(tableId)}`,
       ].filter(Boolean).map(String);
 
       const existingKey = possibleKeys.find(k => mergedOrders[k] !== undefined);
@@ -329,7 +429,9 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
         String(t.id) === String(tableId) ||
         (t.number && String(t.number) === String(tableId)) ||
         (table && String(t.id) === String(table.id)) ||
-        (table && table.number && String(t.number) === String(table.number))
+        (table && table.number && String(t.number) === String(table.number)) ||
+        (cleanId(tableId) && cleanId(t.id) === cleanId(tableId)) ||
+        (cleanId(tableId) && cleanId(t.number) === cleanId(tableId))
       );
 
       const isTableCurrentlyActive = currentTable &&
@@ -351,12 +453,17 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
       const primaryKey = (table && table.id) ? String(table.id) : String(tableId);
       mergedOrders[primaryKey] = finalSavedOrder;
 
-      // Also mirror under table number so lookups by table.number or table.id never miss
+      // Also mirror under table number and tbl_ prefix so lookups never miss
       if (table && table.number && String(table.number) !== primaryKey) {
         mergedOrders[String(table.number)] = finalSavedOrder;
       }
       if (tableId !== primaryKey) {
         mergedOrders[tableId] = finalSavedOrder;
+      }
+      const cNum = cleanId(table?.number || table?.id || tableId);
+      if (cNum) {
+        mergedOrders[cNum] = finalSavedOrder;
+        mergedOrders[`tbl_${cNum}`] = finalSavedOrder;
       }
     }
 
@@ -368,6 +475,16 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
   }
 
   await broadcastToAll(canonicalTenant, requestedTenant, account.name, 'pos_tables');
+
+  // Trigger order_created broadcast so POS floor plan updates immediately
+  broadcastServerOrderCreated(canonicalTenant, tableId || table?.id || null, null).catch(() => {});
+  if (requestedTenant && requestedTenant !== canonicalTenant) {
+    broadcastServerOrderCreated(requestedTenant, tableId || table?.id || null, null).catch(() => {});
+  }
+  if (account.name && account.name !== canonicalTenant && account.name !== requestedTenant) {
+    broadcastServerOrderCreated(account.name, tableId || table?.id || null, null).catch(() => {});
+  }
+
   res.json({ success: true });
 }));
 
@@ -423,41 +540,11 @@ app.post('/api/public/qrmenu/:tenant/guest', guestWriteLimiter, wrap(async (req,
   const canonicalTenant = account.id;
 
   const currentGuests = (await getFlex(db, canonicalTenant, 'guests', [])) || [];
-  const guestName = String(guest.name || '').trim();
-  const guestPhone = String(guest.phone || '').trim();
-  const cleanDigits = guestPhone.replace(/\D/g, '');
-  const cleanLower = guestName.toLowerCase();
-
-  let targetGuest = currentGuests.find(g => {
-    if (cleanDigits && cleanDigits.length >= 7) {
-      const gDigits = String(g.phone || '').replace(/\D/g, '');
-      if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
-    }
-    if (cleanLower && cleanLower !== 'walk-in' && String(g.name || '').trim().toLowerCase() === cleanLower) return true;
-    return false;
+  const targetGuest = upsertGuestIntoList(currentGuests, {
+    name: guest.name,
+    phone: guest.phone,
+    notes: guest.notes,
   });
-
-  if (targetGuest) {
-    if (guestName && cleanLower !== 'walk-in') targetGuest.name = guestName;
-    if (guestPhone) targetGuest.phone = guestPhone;
-    targetGuest.lastVisit = new Date().toISOString();
-    targetGuest.visitCount = (targetGuest.visitCount || 0) + 1;
-  } else {
-    targetGuest = {
-      id: guest.id || `guest_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      name: (guestName && cleanLower !== 'walk-in') ? guestName : (guestPhone ? `Guest ${guestPhone.slice(-4)}` : 'Guest'),
-      phone: guestPhone,
-      email: guest.email || '',
-      visitCount: 1,
-      totalSpend: 0,
-      notes: guest.notes || 'Registered via QR Menu',
-      channel: 'QR Menu',
-      tags: ['QR Menu'],
-      createdAt: new Date().toISOString(),
-      lastVisit: new Date().toISOString(),
-    };
-    currentGuests.push(targetGuest);
-  }
 
   const { error } = await db.from('tenant_data').upsert({
     account_id: canonicalTenant, collection_name: 'guests', value: currentGuests,

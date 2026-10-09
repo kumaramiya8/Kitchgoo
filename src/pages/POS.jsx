@@ -5440,11 +5440,56 @@ const POS = () => {
     return ids;
   }, [reservations]);
 
-  // Status to DISPLAY for a table (layers the reservation overlay on top)
-  const displayStatus = (table) =>
-    table.status === 'available' && reservedTableIds.has(String(table.id))
+  // Helper to look up active order items for a table across all possible key representations
+  const getTableSavedOrder = useCallback((table) => {
+    if (!savedOrders || !table) return [];
+    const clean = (s) => String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
+    const tId = table.id != null ? String(table.id) : '';
+    const tNum = table.number != null ? String(table.number) : '';
+    const cleanId = clean(tId);
+    const cleanNum = clean(tNum);
+
+    const keys = [
+      tId,
+      tNum,
+      `tbl_${tId}`,
+      `tbl_${tNum}`,
+      `table_${tId}`,
+      `table_${tNum}`,
+      cleanId,
+      cleanNum,
+      cleanId ? `tbl_${cleanId}` : null,
+      cleanNum ? `tbl_${cleanNum}` : null,
+    ].filter(Boolean);
+
+    for (const k of keys) {
+      const val = savedOrders[k];
+      if (val !== undefined && val !== null) {
+        if (Array.isArray(val)) return val;
+        if (Array.isArray(val.items)) return val.items;
+        return val;
+      }
+    }
+    return [];
+  }, [savedOrders]);
+
+  // Status to DISPLAY for a table (layers the reservation overlay on top, and displays ordered if items exist)
+  const displayStatus = (table) => {
+    const hasItems = getTableSavedOrder(table).length > 0;
+    if (table.status === 'available' && hasItems) return 'ordered';
+    return table.status === 'available' && reservedTableIds.has(String(table.id))
       ? 'reserved'
       : (table.status || 'available');
+  };
+
+  // Instant refresh on external order creations (e.g. from QR Menu)
+  useEffect(() => {
+    const onOrderCreated = () => {
+      reload(true);
+    };
+    window.addEventListener('kitchgoo_order_created', onOrderCreated);
+    return () => window.removeEventListener('kitchgoo_order_created', onOrderCreated);
+  }, [reload]);
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -6333,7 +6378,8 @@ const POS = () => {
       setCleaningTable(table);
       return;
     }
-    if (table.status !== 'available') {
+    const items = getTableSavedOrder(table);
+    if (table.status !== 'available' || items.length > 0) {
       let currentTable = table;
       if (table.seatedAt) {
         const seatedTime = new Date(table.seatedAt).getTime();
@@ -6344,7 +6390,6 @@ const POS = () => {
         }
       }
       setActiveTable(currentTable);
-      const items = savedOrders[table.id] || savedOrders[String(table.id)] || (table.number && (savedOrders[table.number] || savedOrders[String(table.number)])) || [];
       setCart(items);
       setPartySize(table.partySize || 1);
       setView('order');
@@ -6362,7 +6407,7 @@ const POS = () => {
     const table = tables.find(t => String(t.id) === String(tableId));
     const updatedTable = { ...table, status: 'seated', guestName: guest.name, guestId: guest.id || null, seatedAt: new Date().toISOString() };
     setActiveTable(updatedTable);
-    const items = savedOrders[tableId] || savedOrders[String(tableId)] || (updatedTable.number && (savedOrders[updatedTable.number] || savedOrders[String(updatedTable.number)])) || [];
+    const items = getTableSavedOrder(updatedTable);
     setCart(items);
     setGuestModal(null);
     setView('order');
@@ -8273,9 +8318,10 @@ const POS = () => {
                     const posX = fpTable.x !== undefined ? fpTable.x : 50;
                     const posY = fpTable.y !== undefined ? fpTable.y : 50;
                     
+                    const tableItems = getTableSavedOrder(table);
                     const statusColor = TABLE_STATUS_COLORS[displayStatus(table)] || TABLE_STATUS_COLORS.available;
-                    const isOccupied = table.status !== 'available';
-                    const hasOrder = savedOrders[table.id]?.length > 0;
+                    const isOccupied = table.status !== 'available' || tableItems.length > 0;
+                    const hasOrder = tableItems.length > 0;
                     const serverName = table.serverId && serverMap[table.serverId]?.name;
                     const size = table.shape === 'bar' ? 80 : 90;
                     const isHovered = String(hoveredTableId) === String(table.id);
@@ -8391,9 +8437,10 @@ const POS = () => {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12 }}>
                 {tables.map((table, idx) => {
+                  const tableItems = getTableSavedOrder(table);
                   const statusColor = TABLE_STATUS_COLORS[displayStatus(table)] || TABLE_STATUS_COLORS.available;
-                  const isOccupied = table.status !== 'available';
-                  const hasOrder = savedOrders[table.id]?.length > 0;
+                  const isOccupied = table.status !== 'available' || tableItems.length > 0;
+                  const hasOrder = tableItems.length > 0;
                   const serverName = table.serverId && serverMap[table.serverId]?.name;
                   const isHovered = String(hoveredTableId) === String(table.id);
 

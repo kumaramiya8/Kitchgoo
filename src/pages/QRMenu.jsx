@@ -13,11 +13,12 @@ export function matchTable(tables, query) {
   const q = String(query).trim().toLowerCase();
   if (!q) return null;
 
-  // 1. Exact match on number, id, or name
+  // 1. Exact match on number, id, name, or label
   let found = tables.find(t =>
     String(t.number || '').trim().toLowerCase() === q ||
     String(t.id || '').trim().toLowerCase() === q ||
-    String(t.name || '').trim().toLowerCase() === q
+    String(t.name || '').trim().toLowerCase() === q ||
+    String(t.label || '').trim().toLowerCase() === q
   );
   if (found) return found;
 
@@ -28,7 +29,11 @@ export function matchTable(tables, query) {
       const cleanNum = String(t.number || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
       const cleanId = String(t.id || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
       const cleanName = String(t.name || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
-      return (cleanNum && cleanNum === cleanQ) || (cleanId && cleanId === cleanQ) || (cleanName && cleanName === cleanQ);
+      const cleanLabel = String(t.label || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+      return (cleanNum && cleanNum === cleanQ) ||
+             (cleanId && cleanId === cleanQ) ||
+             (cleanName && cleanName === cleanQ) ||
+             (cleanLabel && cleanLabel === cleanQ);
     });
     if (found) return found;
   }
@@ -346,8 +351,17 @@ const QRMenu = () => {
     });
 
     // 3. Direct persistence to backend / database
-    await saveTableState(targetTable.id, updatedTable);
-    await saveTableOrder(targetTable.id, mergedItems);
+    try {
+      await saveTableState(targetTable.id, updatedTable);
+    } catch (err) {
+      console.warn('[QRMenu] Error saving table state:', err);
+    }
+
+    try {
+      await saveTableOrder(targetTable.id, mergedItems);
+    } catch (err) {
+      console.warn('[QRMenu] Error saving table order:', err);
+    }
 
     // 3b. Save / update customer in Guest List (CRM)
     if ((resolvedName && resolvedName.toLowerCase() !== 'walk-in') || guestPhoneNum) {
@@ -364,12 +378,22 @@ const QRMenu = () => {
 
     // 4. Fire to KDS
     const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
-    await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in', {
-      guestName: resolvedName || targetTable.guestName || null,
-      tokenNumber: targetTable.number || null,
-      notes: orderNotes || null,
-    });
-    await broadcastOrderCreated(targetTable.id, kdsOrderId);
+    try {
+      await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in', {
+        guestName: resolvedName || targetTable.guestName || null,
+        tokenNumber: targetTable.number || null,
+        notes: orderNotes || null,
+      });
+    } catch (kdsErr) {
+      console.warn('[QRMenu] Error firing to KDS:', kdsErr);
+    }
+
+    try {
+      await broadcastOrderCreated(targetTable.id, kdsOrderId);
+    } catch (bErr) {
+      console.warn('[QRMenu] Broadcast order error:', bErr);
+    }
+
     // Also dispatch locally so KDS on the same device (e.g. staff tablet) reacts immediately
     window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
 

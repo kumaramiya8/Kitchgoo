@@ -60,14 +60,47 @@ function stableStringify(v) {
   return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
 }
 
+// Robust table matching helper to handle any floor plan vs saved table mismatch
+export function matchTableEntry(p, t) {
+  if (!p || !t) return false;
+  const pId = String(p.id ?? '').trim().toLowerCase();
+  const tId = String(t.id ?? '').trim().toLowerCase();
+  if (pId && tId && pId === tId) return true;
+
+  const pNum = String(p.number ?? '').trim().toLowerCase();
+  const tNum = String(t.number ?? '').trim().toLowerCase();
+  if (pNum && tNum && pNum === tNum) return true;
+
+  const clean = (s) => String(s || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
+  const pIdClean = clean(pId);
+  const tIdClean = clean(tId);
+  const pNumClean = clean(pNum);
+  const tNumClean = clean(tNum);
+
+  if (pIdClean && tIdClean && pIdClean === tIdClean) return true;
+  if (pIdClean && tNumClean && pIdClean === tNumClean) return true;
+  if (pNumClean && tIdClean && pNumClean === tIdClean) return true;
+  if (pNumClean && tNumClean && pNumClean === tNumClean) return true;
+
+  const pLabel = clean(p.label || p.name);
+  const tLabel = clean(t.label || t.name);
+  if (pLabel && tLabel && pLabel === tLabel) return true;
+  if (pLabel && (pLabel === tIdClean || pLabel === tNumClean)) return true;
+  if (tLabel && (tLabel === pIdClean || tLabel === pNumClean)) return true;
+
+  return false;
+}
+
 // The floor shown in POS = the floor-plan LAYOUT (all tables) merged with
 // saved per-table state (status/guest). Used both by the floorPlans effect
 // and by hydrateFromCache so a targeted pos_tables refresh always rebuilds
 // the full floor — never leaves it as a partial saved-state array.
-function buildPosTables(fp, savedTables) {
+export function buildPosTables(fp, savedTables) {
   const base = ((fp && fp.tables) || []).map(t => ({
     id: t.id || t.number,
     number: t.number || t.id,
+    label: t.label || t.name || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
+    name: t.label || t.name || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
     seats: t.seats || t.capacity || 4,
     shape: t.shape || 'square',
     section: t.section || t.sectionId || null,
@@ -78,10 +111,45 @@ function buildPosTables(fp, savedTables) {
     serverId: t.serverId || null,
   }));
   const saved = savedTables || [];
-  return base.map(t => {
-    const existing = saved.find(p => String(p.id) === String(t.id));
-    return existing ? { ...t, ...existing } : t;
+  const matchedSavedIndices = new Set();
+
+  const mergedBase = base.map(t => {
+    let matchedSaved = null;
+    for (let i = 0; i < saved.length; i++) {
+      if (matchTableEntry(saved[i], t)) {
+        matchedSaved = saved[i];
+        matchedSavedIndices.add(i);
+        break;
+      }
+    }
+    if (matchedSaved) {
+      return {
+        ...t,
+        ...matchedSaved,
+        id: t.id,
+        number: t.number || matchedSaved.number || t.id,
+      };
+    }
+    return t;
   });
+
+  const extraSaved = [];
+  for (let i = 0; i < saved.length; i++) {
+    if (!matchedSavedIndices.has(i)) {
+      const s = saved[i];
+      extraSaved.push({
+        seats: 4,
+        shape: 'square',
+        section: null,
+        status: 'available',
+        ...s,
+        id: s.id,
+        number: s.number || s.id,
+      });
+    }
+  }
+
+  return [...mergedBase, ...extraSaved];
 }
 
 export function AppProvider({ children }) {
@@ -287,10 +355,10 @@ export function AppProvider({ children }) {
 
   // Full sync: pull the entire tenant payload, then hydrate. Used on boot,
   // login, tenant switch, and as the realtime-disconnected fallback.
-  const reload = async () => {
+  const reload = async (force = false) => {
     const tenant = getCurrentTenant();
     if (tenant) {
-      await syncTenantDataFromSupabase(tenant);
+      await syncTenantDataFromSupabase(tenant, force);
     }
     hydrateFromCache();
     await refreshAdminAuditLog();
@@ -350,85 +418,88 @@ export function AppProvider({ children }) {
     if (isDemoMode) {
       const handleStorage = (e) => {
         if (e.key && e.key.includes(`${activeTenant}_`)) {
-          reload();
+          reload(true);
         }
       };
       window.addEventListener('storage', handleStorage);
       return () => window.removeEventListener('storage', handleStorage);
     }
 
-    // A db_changed broadcast names the collection that changed, so we refetch
-    // ONLY that collection instead of the whole payload. Skip our own echo
-    // (a local mutation within the last 2s already updated state optimistically).
-    const onChange = (msg) => {
-      if (Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000) return;
+    const onChange = async (msg) => {
       const table = msg?.payload?.table;
       if (table) {
-        refreshCollection(table);
-        // When table state changes also sync saved orders — the public QR endpoint
-        // writes both together but only used to broadcast pos_tables, leaving
-        // the POS with stale order items until the next full sync.
-        if (table === 'pos_tables') refreshCollection('pos_saved_orders');
+        await refreshCollection(table);
+        if (table === 'pos_tables') await refreshCollection('pos_saved_orders');
+        if (table === 'pos_saved_orders') await refreshCollection('pos_tables');
       } else {
-        reload();
+        await reload(true);
       }
     };
 
-    // The backend broadcasts "db_changed" (with the collection name) after
-    // every mutation. The anon key has no table access, so postgres_changes
-    // is gone — this is a lightweight signal, not the data itself.
-    const channel = supabase
-      .channel(`kitchgoo_changes_${activeTenant}`)
-      .on('broadcast', { event: 'db_changed' }, onChange)
-      .on('broadcast', { event: 'order_created' }, (payload) => {
-        const event = new CustomEvent('kitchgoo_order_created', { detail: payload.payload });
-        window.dispatchEvent(event);
-      })
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          realtimeConnectedRef.current = true;
-          // Resync once on RE-connect (not the first connect — boot already
-          // has fresh data) to catch anything missed while the socket was down.
-          if (subscribedOnceRef.current) reload();
-          subscribedOnceRef.current = true;
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          realtimeConnectedRef.current = false;
-          console.warn(`[Realtime] ${status} for tenant: ${activeTenant}`, err || '');
-        }
-      });
+    const onOrderCreated = async (payload) => {
+      const detail = payload?.payload || {};
+      window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail }));
+      // Instantly refresh live collections with 0ms delay
+      await Promise.allSettled([
+        syncOneCollection('kds_tickets'),
+        syncOneCollection('pos_tables'),
+        syncOneCollection('pos_saved_orders'),
+        syncOneCollection('guests'),
+      ]);
+      hydrateFromCache();
+    };
 
-    channelRef.current = channel;
+    // Listen across all tenant alias variations so no broadcast is missed
+    const rawAliases = [
+      activeTenant,
+      user?.restaurantName,
+      user?.accountId,
+      activeTenant ? String(activeTenant).toLowerCase().replace(/[^a-z0-9]/g, '_') : null,
+      activeTenant ? String(activeTenant).toLowerCase().replace(/[^a-z0-9]/g, '-') : null,
+      user?.restaurantName ? String(user.restaurantName).toLowerCase().replace(/[^a-z0-9]/g, '_') : null,
+      user?.restaurantName ? String(user.restaurantName).toLowerCase().replace(/[^a-z0-9]/g, '-') : null,
+      user?.accountId ? String(user.accountId).toLowerCase().replace(/[^a-z0-9]/g, '_') : null,
+      user?.accountId ? String(user.accountId).toLowerCase().replace(/[^a-z0-9]/g, '-') : null,
+    ].filter(Boolean);
+
+    const channelNames = Array.from(new Set(rawAliases)).map(t => `kitchgoo_changes_${t}`);
+    const channels = channelNames.map(cName => {
+      return supabase
+        .channel(cName)
+        .on('broadcast', { event: 'db_changed' }, onChange)
+        .on('broadcast', { event: 'order_created' }, onOrderCreated)
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            realtimeConnectedRef.current = true;
+            if (subscribedOnceRef.current) reload(true);
+            subscribedOnceRef.current = true;
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            realtimeConnectedRef.current = false;
+            console.warn(`[Realtime] ${status} for channel: ${cName}`, err || '');
+          }
+        });
+    });
+
+    channelRef.current = channels[0];
 
     return () => {
       realtimeConnectedRef.current = false;
-      supabase.removeChannel(channel);
+      channels.forEach(ch => supabase.removeChannel(ch));
     };
-  }, [authLoading, hasLoadedFromDb, activeTenant]);
+  }, [authLoading, hasLoadedFromDb, activeTenant, user]);
 
-  // Self-healing safety net. Realtime broadcasts are near-instant but not
-  // guaranteed — a dropped pos_tables message used to leave the floor stale
-  // until the *next* one (e.g. a table that only appeared after its KOT was
-  // bumped). Every 20s a visible tab reconciles just the live collections
-  // (tables, saved orders, KDS tickets — a couple of KB total), so a missed
-  // broadcast self-corrects quickly without pulling the full payload. If the
-  // socket is actually down, or the tab was backgrounded, fall back to a
-  // full reload.
+  // Self-healing safety net. Realtime broadcasts are instant, but network
+  // hitches or firewalls can drop sockets. Reconcile live collections every 3.5s
+  // so QR menu orders are guaranteed to appear immediately.
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb || !activeTenant) return;
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
     if (isDemoMode) return;
 
-    const recentlyMutated = () => Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000;
     const LIVE = ['pos_tables', 'pos_saved_orders', 'kds_tickets'];
 
-    // Targeted reconcile of the live collections (a few KB). When realtime is
-    // healthy, broadcasts do the real work and this is just a slow safety net
-    // (~every 60s); when the socket is down it becomes the primary sync (~15s).
     const tick = async () => {
-      if (document.visibilityState !== 'visible' || recentlyMutated()) return;
-      const connected = realtimeConnectedRef.current;
-      const since = Date.now() - lastReconcileAt.current;
-      if (connected && since < 55000) return; // broadcasts cover us; don't poll hard
+      if (document.visibilityState !== 'visible') return;
       lastReconcileAt.current = Date.now();
       const before = LIVE.map(n => stableStringify(getAll(n)));
       for (const n of LIVE) { await syncOneCollection(n); }
@@ -436,12 +507,18 @@ export function AppProvider({ children }) {
       if (before.join('|') !== after.join('|')) hydrateFromCache();
     };
 
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible' || recentlyMutated()) return;
-      reload(); // returning to foreground: catch up fully (socket may have slept)
+    const onVisible = async () => {
+      if (document.visibilityState !== 'visible') return;
+      await Promise.allSettled([
+        syncOneCollection('pos_tables'),
+        syncOneCollection('pos_saved_orders'),
+        syncOneCollection('kds_tickets'),
+      ]);
+      hydrateFromCache();
+      reload(true);
     };
 
-    const interval = setInterval(tick, 15000);
+    const interval = setInterval(tick, 3500);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);

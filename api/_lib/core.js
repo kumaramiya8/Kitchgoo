@@ -200,9 +200,18 @@ export async function uploadDataUrl(tenant, kind, dataUrl) {
 // Fire-and-forget realtime broadcast so other devices resync. Carries no
 // data — clients call GET /api/data/sync when they hear it.
 async function _serverBroadcast(tenant, event, payload) {
-  if (!SUPABASE_URL || !SERVICE_KEY) return;
+  if (!SUPABASE_URL || !SERVICE_KEY || !tenant) return;
   try {
-    await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+    const rawTenant = String(tenant).trim();
+    const underscoreSlug = rawTenant.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const hyphenSlug = rawTenant.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const topics = Array.from(new Set([
+      `kitchgoo_changes_${rawTenant}`,
+      `kitchgoo_changes_${underscoreSlug}`,
+      `kitchgoo_changes_${hyphenSlug}`,
+    ]));
+
+    const res = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -210,14 +219,18 @@ async function _serverBroadcast(tenant, event, payload) {
         Authorization: `Bearer ${SERVICE_KEY}`,
       },
       body: JSON.stringify({
-        messages: [{
-          topic: `kitchgoo_changes_${tenant}`,
+        messages: topics.map(topic => ({
+          topic,
           event,
           payload: { ...payload, at: Date.now() },
           private: false,
-        }],
+        })),
       }),
     });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      console.warn(`[Server] broadcast(${event}) status ${res.status}:`, txt);
+    }
   } catch (err) {
     console.warn(`[Server] broadcast(${event}) failed (non-fatal):`, err.message);
   }

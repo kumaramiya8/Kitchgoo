@@ -383,7 +383,7 @@ export default function KDS() {
 
   // Reload on new order — sound + toast handled globally by Layout
   useEffect(() => {
-    const handler = () => reload();
+    const handler = () => reload(true);
     window.addEventListener('kitchgoo_order_created', handler);
     return () => window.removeEventListener('kitchgoo_order_created', handler);
   }, [reload]);

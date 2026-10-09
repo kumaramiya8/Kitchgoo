@@ -299,11 +299,11 @@ function applyTenantPayload(payload) {
 }
 
 // ─── Sync (refresh cache from backend) ──────────────────────
-export async function syncTenantDataFromSupabase(tenantName) {
+export async function syncTenantDataFromSupabase(tenantName, force = false) {
   if (!isLive()) return;
   // A full payload just landed (boot/login/impersonation) — refetching the
-  // exact same data would only slow the first paint down.
-  if (Date.now() - _lastPayloadAppliedAt < 3000) return;
+  // exact same data would only slow the first paint down, unless forced.
+  if (!force && Date.now() - _lastPayloadAppliedAt < 3000) return;
   try {
     const mutationsBefore = lastDbMutationAt;
     let payload;
@@ -1524,24 +1524,41 @@ export async function redeemGiftCardCredit({
 }
 
 // ─── Guest CRM Upsert from QR Menu ───────────────────────────
+export function normalizeGuestPhone(raw) {
+  return String(raw || '').replace(/\D/g, '');
+}
+
+export function guestPhonesMatch(p1, p2) {
+  const d1 = normalizeGuestPhone(p1);
+  const d2 = normalizeGuestPhone(p2);
+  if (!d1 || !d2) return false;
+  if (d1 === d2) return true;
+  if (d1.length >= 10 && d2.length >= 10 && d1.slice(-10) === d2.slice(-10)) return true;
+  if (d1.length >= 7 && d2.length >= 7 && (d1.endsWith(d2) || d2.endsWith(d1))) return true;
+  return false;
+}
+
 export async function upsertGuestFromQR({ name = '', phone = '', notes = '' }) {
   const cleanName = (name || '').trim();
   const cleanPhone = (phone || '').trim();
-  const cleanDigits = cleanPhone.replace(/\D/g, '');
+  const cleanDigits = normalizeGuestPhone(cleanPhone);
+  const hasValidPhone = cleanDigits.length >= 7;
 
   if (!cleanName && !cleanPhone) return null;
 
   const allGuests = getAll('guests') || [];
-  let existing = allGuests.find(g => {
-    if (cleanDigits && cleanDigits.length >= 7) {
-      const gDigits = String(g.phone || '').replace(/\D/g, '');
-      if (gDigits === cleanDigits || gDigits.endsWith(cleanDigits) || cleanDigits.endsWith(gDigits)) return true;
-    }
-    if (cleanName && cleanName.toLowerCase() !== 'walk-in' && String(g.name || '').trim().toLowerCase() === cleanName.toLowerCase()) {
-      return true;
-    }
-    return false;
-  });
+  let existing = null;
+
+  if (hasValidPhone) {
+    // Phone number is the UNIQUE identifier. Match ONLY by phone!
+    existing = allGuests.find(g => guestPhonesMatch(g.phone, cleanPhone));
+  } else if (cleanName && cleanName.toLowerCase() !== 'walk-in') {
+    // Only if NO phone is available, fallback to matching guest by exact name among phoneless guests
+    existing = allGuests.find(g =>
+      !normalizeGuestPhone(g.phone) &&
+      String(g.name || '').trim().toLowerCase() === cleanName.toLowerCase()
+    );
+  }
 
   const nowIso = new Date().toISOString();
   if (existing) {
@@ -1552,13 +1569,26 @@ export async function upsertGuestFromQR({ name = '', phone = '', notes = '' }) {
       lastVisit: nowIso,
       visitCount: (existing.visitCount || 0) + 1,
       updatedAt: nowIso,
+      notes: notes ? (existing.notes ? `${existing.notes} | ${notes}` : notes) : existing.notes,
     };
     await update('guests', existing.id, updated);
+
+    // Deduplicate: remove any secondary duplicate guests that might have had this same phone number
+    if (hasValidPhone) {
+      const remaining = (getAll('guests') || []).filter(g => g.id === existing.id || !guestPhonesMatch(g.phone, cleanPhone));
+      if (remaining.length !== (getAll('guests') || []).length) {
+        _cache['guests'] = remaining;
+        localBackup(`${_currentTenant}_guests`, remaining);
+      }
+    }
+
     return updated;
   } else {
     const newGuest = {
       id: genId(),
-      name: (cleanName && cleanName.toLowerCase() !== 'walk-in') ? cleanName : (cleanPhone ? `Guest ${cleanPhone.slice(-4)}` : 'Guest'),
+      name: (cleanName && cleanName.toLowerCase() !== 'walk-in')
+        ? cleanName
+        : (hasValidPhone ? `Guest ${cleanDigits.slice(-4)}` : 'Guest'),
       phone: cleanPhone,
       email: '',
       visitCount: 1,
