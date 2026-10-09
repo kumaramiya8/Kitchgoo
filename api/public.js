@@ -38,6 +38,7 @@ const GUEST_SETTINGS_SECTIONS = [
 const wrap = (fn) => (req, res) => {
   Promise.resolve(fn(req, res)).catch((err) => {
     const status = err.statusCode || 500;
+    console.error('[Public API Error]', req.method, req.url, err);
     res.status(status).json({ success: false, error: status >= 500 ? 'Internal server error' : err.message });
   });
 };
@@ -552,6 +553,7 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
   const canonicalTenant = account.id;
 
+  const current = await getFlex(db, canonicalTenant, 'kds_tickets', []);
   const cleanTNum = ticket.tableNumber != null ? cleanId(ticket.tableNumber) : null;
   const rawTId = ticket.tableId != null ? String(ticket.tableId).trim() : '';
   const cleanTId = rawTId.startsWith('tab_') || rawTId.startsWith('token_')
