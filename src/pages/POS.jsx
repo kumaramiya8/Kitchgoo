@@ -2583,8 +2583,10 @@ const CashDrawerPanel = ({ cashDrawer, onBlindDrop, onClose, onCloseRegister }) 
   };
 
   // Close Register Validation (Open Invoices Check)
-  const hasOpenInvoices = posTables.some(t => t.status && t.status !== 'available');
-  const hasSavedOrders = Object.keys(posSavedOrders || {}).length > 0;
+  const hasOpenInvoices = posTables.some(t => t.status && t.status !== 'available' && t.status !== 'needs-bussing');
+  const hasSavedOrders = Object.entries(posSavedOrders || {}).some(([k, v]) =>
+    !k.startsWith('__') && (Array.isArray(v) ? v.length > 0 : Boolean(v?.items?.length))
+  );
   const blockClosureWithInvoices = isEnhanced && (settings?.operations?.blockClosureIfOpenInvoices ?? true);
   const isClosureBlocked = blockClosureWithInvoices && (hasOpenInvoices || hasSavedOrders);
 
