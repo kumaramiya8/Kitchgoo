@@ -225,7 +225,7 @@ const MenuScreen = () => {
   const MENU_HEADERS = [
     'id', 'name', 'description', 'price', 'costPrice', 'category',
     'subcategory', 'type', 'station', 'preparationTime', 'calories',
-    'taxGroup', 'active', 'sold86', 'ingredients', 'delete'
+    'taxGroup', 'active', 'sold86', 'image', 'ingredients', 'delete'
   ];
 
   const handleExportCSV = () => {
@@ -252,6 +252,7 @@ const MenuScreen = () => {
           taxGroup: item.taxGroup || '',
           active: String(item.active !== false),
           sold86: String(item.sold86 || false),
+          image: item.image || '',
           ingredients: ingredientStr,
           delete: 'false'
         };
@@ -283,6 +284,7 @@ const MenuScreen = () => {
           taxGroup: 'food',
           active: 'true',
           sold86: 'false',
+          image: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=500',
           ingredients: 'Chicken:0.25:kg; Cream:0.05:L; Butter:0.03:kg',
           delete: 'false'
         },
@@ -301,6 +303,7 @@ const MenuScreen = () => {
           taxGroup: 'food',
           active: 'true',
           sold86: 'false',
+          image: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=500',
           ingredients: 'Paneer:0.2:kg; Yogurt:0.05:kg',
           delete: 'false'
         }
@@ -345,7 +348,7 @@ const MenuScreen = () => {
 
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i];
-          if (row.length < headers.length) continue;
+          if (!row || row.length === 0 || (row.length === 1 && !row[0].trim())) continue;
 
           const itemData = {};
           headers.forEach((header, idx) => {
@@ -353,6 +356,22 @@ const MenuScreen = () => {
           });
 
           if (!itemData.name) continue;
+
+          const rawImage = itemData.image !== undefined ? itemData.image : (
+            itemData.imageurl !== undefined ? itemData.imageurl : (
+              itemData.image_url !== undefined ? itemData.image_url : (
+                itemData['image url'] !== undefined ? itemData['image url'] : (
+                  itemData['image link'] !== undefined ? itemData['image link'] : (
+                    itemData.imagelink !== undefined ? itemData.imagelink : (
+                      itemData.photo !== undefined ? itemData.photo : (
+                        itemData.picture !== undefined ? itemData.picture : undefined
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          );
 
           const isDelete = itemData.delete === 'true' || itemData.delete === '1' || itemData.delete?.toLowerCase() === 'yes';
           const id = itemData.id;
@@ -369,6 +388,17 @@ const MenuScreen = () => {
               await deleteMenuItem(existing.id);
               deleted++;
             } else {
+              let resolvedImage = existing.image || '';
+              if (rawImage !== undefined) {
+                const trimmed = rawImage.trim();
+                const lower = trimmed.toLowerCase();
+                if (lower === 'delete' || lower === 'remove' || lower === 'none' || lower === 'null') {
+                  resolvedImage = '';
+                } else if (trimmed) {
+                  resolvedImage = trimmed;
+                }
+              }
+
               // Parse ingredients
               const parsedIngredients = [];
               const rawIngredients = itemData.ingredients || '';
@@ -437,6 +467,7 @@ const MenuScreen = () => {
                 taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
                 active: itemData.active !== 'false',
                 sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
+                image: resolvedImage,
                 ingredients: parsedIngredients,
               });
               updated++;
@@ -445,6 +476,15 @@ const MenuScreen = () => {
           }
 
           if (!isDelete) {
+            let resolvedImage = '';
+            if (rawImage !== undefined) {
+              const trimmed = rawImage.trim();
+              const lower = trimmed.toLowerCase();
+              if (trimmed && lower !== 'delete' && lower !== 'remove' && lower !== 'none' && lower !== 'null') {
+                resolvedImage = trimmed;
+              }
+            }
+
             // Parse ingredients
             const parsedIngredients = [];
             const rawIngredients = itemData.ingredients || '';
@@ -499,6 +539,7 @@ const MenuScreen = () => {
             }
 
             await addMenuItem({
+              ...(itemData.id ? { id: itemData.id } : {}),
               name: itemData.name,
               description: itemData.description || '',
               price: parseFloat(itemData.price) || 0,
@@ -513,6 +554,7 @@ const MenuScreen = () => {
               taxGroup: itemData.taxgroup || itemData.taxGroup || 'food',
               active: itemData.active !== 'false',
               sold86: itemData.sold86 === 'true' || itemData.sold86 === '1',
+              image: resolvedImage,
               ingredients: parsedIngredients,
             });
             created++;
