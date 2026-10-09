@@ -8,6 +8,21 @@ import {
   Sparkles, Send, Bot, Loader2
 } from 'lucide-react';
 
+export function cleanTableId(raw) {
+  if (raw === null || raw === undefined) return '';
+  let s = String(raw).trim().toLowerCase();
+  if (!s) return '';
+  // Fix common typo of letter 'o' / 'O' instead of digit '0' (e.g. '1o' -> '10')
+  s = s.replace(/(\d)o\b/gi, '$10').replace(/\bo(\d)/gi, '0$1');
+  // Strip prefixes like 'table', 'tbl', 't', '#', and separators '_', '-'
+  s = s.replace(/^(table|tbl|t|#|\s|-|_)+/i, '').trim();
+  // Strip leading zeros if numeric (e.g. '01' -> '1', '05' -> '5')
+  if (/^0+[1-9]\d*$/.test(s)) {
+    s = s.replace(/^0+/, '');
+  }
+  return s;
+}
+
 export function matchTable(tables, query) {
   if (!tables || !query) return null;
   const q = String(query).trim().toLowerCase();
@@ -22,14 +37,14 @@ export function matchTable(tables, query) {
   );
   if (found) return found;
 
-  // 2. Normalized prefix stripping (e.g. "Table 1", "T-1", "T1", "tbl 1", "#1" -> "1")
-  const cleanQ = q.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+  // 2. Normalized clean match (strips prefixes, leading zeros, fixes 1o -> 10)
+  const cleanQ = cleanTableId(q);
   if (cleanQ) {
     found = tables.find(t => {
-      const cleanNum = String(t.number || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
-      const cleanId = String(t.id || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
-      const cleanName = String(t.name || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
-      const cleanLabel = String(t.label || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+      const cleanNum = cleanTableId(t.number);
+      const cleanId = cleanTableId(t.id);
+      const cleanName = cleanTableId(t.name);
+      const cleanLabel = cleanTableId(t.label);
       return (cleanNum && cleanNum === cleanQ) ||
              (cleanId && cleanId === cleanQ) ||
              (cleanName && cleanName === cleanQ) ||
@@ -284,7 +299,7 @@ const QRMenu = () => {
   const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems, extra = {}) => {
     const resolvedName = (guestName && guestName.trim()) || 'Walk-in';
     const rawTable = (tableNum && String(tableNum).trim()) || (tableParam && String(tableParam).trim()) || '';
-    const resolvedTable = rawTable.replace(/\D/g, '');
+    const resolvedTable = cleanTableId(rawTable);
     if (!resolvedTable) return { ok: false, error: 'A valid numeric table number is required.' };
 
     let targetTable = matchTable(posTables || [], resolvedTable);

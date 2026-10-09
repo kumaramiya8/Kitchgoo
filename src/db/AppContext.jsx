@@ -60,6 +60,18 @@ function stableStringify(v) {
   return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
 }
 
+export function cleanTableId(raw) {
+  if (raw === null || raw === undefined) return '';
+  let s = String(raw).trim().toLowerCase();
+  if (!s) return '';
+  s = s.replace(/(\d)o\b/gi, '$10').replace(/\bo(\d)/gi, '0$1');
+  s = s.replace(/^(table|tbl|t|#|\s|-|_)+/i, '').trim();
+  if (/^0+[1-9]\d*$/.test(s)) {
+    s = s.replace(/^0+/, '');
+  }
+  return s;
+}
+
 // Robust table matching helper to handle any floor plan vs saved table mismatch
 export function matchTableEntry(p, t) {
   if (!p || !t) return false;
@@ -71,19 +83,18 @@ export function matchTableEntry(p, t) {
   const tNum = String(t.number ?? '').trim().toLowerCase();
   if (pNum && tNum && pNum === tNum) return true;
 
-  const clean = (s) => String(s || '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
-  const pIdClean = clean(pId);
-  const tIdClean = clean(tId);
-  const pNumClean = clean(pNum);
-  const tNumClean = clean(tNum);
+  const pIdClean = cleanTableId(pId);
+  const tIdClean = cleanTableId(tId);
+  const pNumClean = cleanTableId(pNum);
+  const tNumClean = cleanTableId(tNum);
 
   if (pIdClean && tIdClean && pIdClean === tIdClean) return true;
   if (pIdClean && tNumClean && pIdClean === tNumClean) return true;
   if (pNumClean && tIdClean && pNumClean === tIdClean) return true;
   if (pNumClean && tNumClean && pNumClean === tNumClean) return true;
 
-  const pLabel = clean(p.label || p.name);
-  const tLabel = clean(t.label || t.name);
+  const pLabel = cleanTableId(p.label || p.name);
+  const tLabel = cleanTableId(t.label || t.name);
   if (pLabel && tLabel && pLabel === tLabel) return true;
   if (pLabel && (pLabel === tIdClean || pLabel === tNumClean)) return true;
   if (tLabel && (tLabel === pIdClean || tLabel === pNumClean)) return true;
@@ -137,6 +148,11 @@ export function buildPosTables(fp, savedTables) {
   for (let i = 0; i < saved.length; i++) {
     if (!matchedSavedIndices.has(i)) {
       const s = saved[i];
+      // Prevent duplicate ghost tables matching existing floor plan tables by clean ID/number
+      const sClean = cleanTableId(s.number || s.id);
+      const isDuplicateOfBase = mergedBase.some(b => cleanTableId(b.number || b.id) === sClean);
+      if (isDuplicateOfBase) continue;
+
       extraSaved.push({
         seats: 4,
         shape: 'square',

@@ -38,9 +38,15 @@ const GUEST_SETTINGS_SECTIONS = [
 const wrap = (fn) => (req, res) => {
   Promise.resolve(fn(req, res)).catch((err) => {
     const status = err.statusCode || 500;
-    if (status >= 500) console.error('[Public API]', req.method, req.url, err);
     res.status(status).json({ success: false, error: status >= 500 ? 'Internal server error' : err.message });
   });
+};
+
+const cleanId = (s) => {
+  let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-|_)+/i, '');
+  if (str === '1o') str = '10';
+  const stripped = str.replace(/^0+/, '');
+  return stripped || str;
 };
 
 function requireDb() {
@@ -131,27 +137,50 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   const mergedPosTables = Array.from(tableMap.values());
 
   // Scope saved orders to the guest's own table when one is given
-  const tableParam = (req.query.table || '').trim().toLowerCase();
+  const tableParam = (req.query.table || '').trim();
   let scopedOrders = {};
   if (tableParam) {
-    const cleanTableParam = tableParam.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
+    const cleanTableParam = cleanId(tableParam);
     const match = mergedPosTables.find(t => {
       const tNum = String(t.number || '').trim().toLowerCase();
       const tId = String(t.id || '').trim().toLowerCase();
       const tName = String(t.name || '').trim().toLowerCase();
-      if (tNum === tableParam || tId === tableParam || tName === tableParam) return true;
+      if (tNum === tableParam.toLowerCase() || tId === tableParam.toLowerCase() || tName === tableParam.toLowerCase()) return true;
       if (cleanTableParam) {
-        const cleanNum = tNum.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
-        const cleanId = tId.replace(/^(table|tbl|t|#|\s|-)+/i, '').trim();
-        return cleanNum === cleanTableParam || cleanId === cleanTableParam;
+        return cleanId(tNum) === cleanTableParam || cleanId(tId) === cleanTableParam || cleanId(tName) === cleanTableParam;
       }
       return false;
     });
     if (match && savedOrders) {
-      const foundOrder = savedOrders[match.id] ??
-                         (match.number ? savedOrders[String(match.number)] : undefined) ??
-                         savedOrders[cleanTableParam] ??
-                         savedOrders[tableParam];
+      const cId = cleanId(match.id);
+      const cNum = cleanId(match.number);
+      const candidateKeys = [
+        match.id,
+        match.number ? String(match.number) : null,
+        `tbl_${match.id}`,
+        match.number ? `tbl_${match.number}` : null,
+        cId,
+        cNum,
+        cId ? `tbl_${cId}` : null,
+        cNum ? `tbl_${cNum}` : null,
+        cId ? `tbl_0${cId}` : null,
+        cNum ? `tbl_0${cNum}` : null,
+        cId ? `0${cId}` : null,
+        cNum ? `0${cNum}` : null,
+        cId === '10' ? 'tbl_1o' : null,
+        cNum === '10' ? 'tbl_1o' : null,
+        cleanTableParam,
+        cleanTableParam ? `tbl_${cleanTableParam}` : null,
+        tableParam,
+      ].filter(Boolean);
+
+      let foundOrder;
+      for (const k of candidateKeys) {
+        if (savedOrders[k] !== undefined) {
+          foundOrder = savedOrders[k];
+          break;
+        }
+      }
       if (foundOrder !== undefined) {
         scopedOrders[match.id] = foundOrder;
         if (match.number) scopedOrders[String(match.number)] = foundOrder;
@@ -318,8 +347,6 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
   const canonicalTenant = account.id;
 
-  const cleanId = (s) => String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
-
   if (table !== undefined) {
     const floorPlans = await getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans);
     const current = (await getFlex(db, canonicalTenant, 'pos_tables', [])) || [];
@@ -405,17 +432,35 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
       if (table && table.id) delete mergedOrders[table.id];
       if (table && table.number) delete mergedOrders[String(table.number)];
       const cId = cleanId(tableId);
-      if (cId) {
-        delete mergedOrders[cId];
-        delete mergedOrders[`tbl_${cId}`];
-      }
+      const cNum = cleanId(table?.number || table?.id || tableId);
+      const toDelete = [
+        cId, `tbl_${cId}`, `tbl_0${cId}`, `0${cId}`,
+        cNum, `tbl_${cNum}`, `tbl_0${cNum}`, `0${cNum}`,
+        cId === '10' ? 'tbl_1o' : null,
+        cId === '10' ? '1o' : null,
+        cNum === '10' ? 'tbl_1o' : null,
+        cNum === '10' ? '1o' : null,
+      ].filter(Boolean);
+      toDelete.forEach(k => delete mergedOrders[k]);
     } else {
+      const cId = cleanId(tableId);
+      const cNum = cleanId(table?.number);
       const possibleKeys = [
         tableId,
         table && table.id,
         table && table.number && String(table.number),
-        cleanId(tableId),
-        `tbl_${cleanId(tableId)}`,
+        cId,
+        cId ? `tbl_${cId}` : null,
+        cId ? `tbl_0${cId}` : null,
+        cId ? `0${cId}` : null,
+        cNum,
+        cNum ? `tbl_${cNum}` : null,
+        cNum ? `tbl_0${cNum}` : null,
+        cNum ? `0${cNum}` : null,
+        cId === '10' ? 'tbl_1o' : null,
+        cId === '10' ? '1o' : null,
+        cNum === '10' ? 'tbl_1o' : null,
+        cNum === '10' ? '1o' : null,
       ].filter(Boolean).map(String);
 
       const existingKey = possibleKeys.find(k => mergedOrders[k] !== undefined);
@@ -466,10 +511,10 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
       if (tableId !== primaryKey) {
         mergedOrders[tableId] = finalSavedOrder;
       }
-      const cNum = cleanId(table?.number || table?.id || tableId);
-      if (cNum) {
-        mergedOrders[cNum] = finalSavedOrder;
-        mergedOrders[`tbl_${cNum}`] = finalSavedOrder;
+      const cNumFinal = cleanId(table?.number || table?.id || tableId);
+      if (cNumFinal) {
+        mergedOrders[cNumFinal] = finalSavedOrder;
+        mergedOrders[`tbl_${cNumFinal}`] = finalSavedOrder;
       }
     }
 
@@ -508,10 +553,14 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
   const canonicalTenant = account.id;
 
   const current = await getFlex(db, canonicalTenant, 'kds_tickets', []);
+  const cleanTNum = ticket.tableNumber ? cleanId(ticket.tableNumber) : null;
+  const cleanTId = ticket.tableId ? (ticket.tableId.startsWith('tbl_') ? `tbl_${cleanId(ticket.tableId)}` : cleanId(ticket.tableId)) : null;
   const withId = {
     ...ticket,
     id: ticket.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     createdAt: ticket.createdAt || new Date().toISOString(),
+    ...(cleanTNum ? { tableNumber: cleanTNum } : {}),
+    ...(cleanTId ? { tableId: cleanTId } : {}),
   };
   const { error } = await db.from('tenant_data').upsert({
     account_id: canonicalTenant, collection_name: 'kds_tickets', value: [...(current || []), withId],

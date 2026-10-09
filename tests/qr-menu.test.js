@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { matchTable } from '../src/pages/QRMenu';
+import { matchTable, cleanTableId } from '../src/pages/QRMenu';
 import { createKDSTicket, saveTableState, saveTableOrder, setLocalCollection, getAll, upsertGuestFromQR } from '../src/db/database';
 import { buildPosTables, matchTableEntry } from '../src/db/AppContext';
+import { resolveTableSavedOrder } from '../src/pages/POS';
 import { resolveAccount } from '../api/_lib/core';
 
 describe('QR Menu Feature for Kiko Cafe & Guests', () => {
@@ -53,6 +54,20 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
       expect(matchTable(mockTables, '')).toBeNull();
       expect(matchTable(mockTables, null)).toBeNull();
       expect(matchTable(mockTables, '99')).toBeNull();
+    });
+
+    it('normalizes leading zeros and typos (01 -> 1, 05 -> 5, 1o -> 10)', () => {
+      expect(cleanTableId('01')).toBe('1');
+      expect(cleanTableId('05')).toBe('5');
+      expect(cleanTableId('tbl_01')).toBe('1');
+      expect(cleanTableId('Table 04')).toBe('4');
+      expect(cleanTableId('1o')).toBe('10');
+      expect(cleanTableId('tbl_1o')).toBe('10');
+
+      expect(matchTable(mockTables, '01')?.id).toBe('t1');
+      expect(matchTable(mockTables, '02')?.id).toBe('t2');
+      expect(matchTable(mockTables, '4')?.id).toBe('t4');
+      expect(matchTable(mockTables, '04')?.id).toBe('t4');
     });
   });
 
@@ -594,6 +609,55 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
       expect(matchTableEntry({ id: 'tbl_5', number: 5 }, { id: 't5', number: 5 })).toBe(true);
       expect(matchTableEntry({ id: 'custom', label: 'Table 2' }, { id: 2, label: 'Table 2' })).toBe(true);
       expect(matchTableEntry({ id: 'tbl_1' }, { id: 2 })).toBe(false);
+    });
+
+    it('normalizes leading zeros and prevents duplicate floating ghost tables', () => {
+      const savedTables = [
+        { id: 'tbl_01', number: '01', status: 'ordered', guestName: 'Prince' },
+        { id: 'tbl_02', number: '02', status: 'ordered', guestName: 'Vishal' },
+      ];
+
+      const merged = buildPosTables(floorPlan, savedTables);
+      // Base floor plan has 3 tables; ghost variants 01 & 02 must merge into Table 1 & Table 2
+      // and NOT create duplicate floating tables
+      expect(merged).toHaveLength(3);
+
+      const table1 = merged.find(t => String(t.id) === '1');
+      expect(table1).toBeDefined();
+      expect(table1.status).toBe('ordered');
+      expect(table1.guestName).toBe('Prince');
+
+      const table2 = merged.find(t => String(t.id) === '2');
+      expect(table2).toBeDefined();
+      expect(table2.status).toBe('ordered');
+      expect(table2.guestName).toBe('Vishal');
+    });
+
+    it('matchTableEntry matches ghost variants (tbl_01, tbl_05, tbl_1o) with canonical tables', () => {
+      expect(matchTableEntry({ id: 'tbl_01', number: '01' }, { id: 1, number: 1 })).toBe(true);
+      expect(matchTableEntry({ id: 'tbl_05', number: '05' }, { id: 5, number: 5 })).toBe(true);
+      expect(matchTableEntry({ id: 'tbl_1o', number: '1o' }, { id: 10, number: 10 })).toBe(true);
+    });
+
+    it('resolveTableSavedOrder resolves orders stored under canonical or ghost keys', () => {
+      const savedOrders = {
+        tbl_01: [{ name: 'Burger', qty: 1, price: 150 }],
+        '5': [{ name: 'Fries', qty: 2, price: 80 }],
+        tbl_1o: [{ name: 'Shake', qty: 1, price: 120 }],
+      };
+
+      const table1 = { id: 1, number: 1 };
+      const table5 = { id: 't5', number: 5 };
+      const table10 = { id: 10, number: 10 };
+
+      expect(resolveTableSavedOrder(savedOrders, table1)).toHaveLength(1);
+      expect(resolveTableSavedOrder(savedOrders, table1)[0].name).toBe('Burger');
+
+      expect(resolveTableSavedOrder(savedOrders, table5)).toHaveLength(1);
+      expect(resolveTableSavedOrder(savedOrders, table5)[0].name).toBe('Fries');
+
+      expect(resolveTableSavedOrder(savedOrders, table10)).toHaveLength(1);
+      expect(resolveTableSavedOrder(savedOrders, table10)[0].name).toBe('Shake');
     });
   });
 

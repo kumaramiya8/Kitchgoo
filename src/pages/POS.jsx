@@ -1285,11 +1285,58 @@ const PosVoidModal = ({ cart = [], activeTable, unassignedTab, settings = {}, on
 };
 
 
+// ─── Table Saved Orders Key Resolver ─────────────────────────────────────────
+export const resolveTableSavedOrder = (savedOrders, table) => {
+  if (!savedOrders || !table) return [];
+  const clean = (s) => {
+    let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-|_)+/i, '');
+    if (str === '1o') str = '10';
+    const stripped = str.replace(/^0+/, '');
+    return stripped || str;
+  };
+  const tId = table.id != null ? String(table.id) : '';
+  const tNum = table.number != null ? String(table.number) : '';
+  const cleanId = clean(tId);
+  const cleanNum = clean(tNum);
+
+  const keys = [
+    tId,
+    tNum,
+    `tbl_${tId}`,
+    `tbl_${tNum}`,
+    `table_${tId}`,
+    `table_${tNum}`,
+    cleanId,
+    cleanNum,
+    cleanId ? `tbl_${cleanId}` : null,
+    cleanNum ? `tbl_${cleanNum}` : null,
+    cleanId ? `tbl_0${cleanId}` : null,
+    cleanNum ? `tbl_0${cleanNum}` : null,
+    cleanId ? `0${cleanId}` : null,
+    cleanNum ? `0${cleanNum}` : null,
+    cleanId === '10' ? 'tbl_1o' : null,
+    cleanNum === '10' ? 'tbl_1o' : null,
+    cleanId === '10' ? '1o' : null,
+    cleanNum === '10' ? '1o' : null,
+  ].filter(Boolean);
+
+  for (const k of keys) {
+    const val = savedOrders[k];
+    if (val !== undefined && val !== null) {
+      if (Array.isArray(val)) return val;
+      if (Array.isArray(val.items)) return val.items;
+      return val;
+    }
+  }
+  return [];
+};
+
+
 // ─── Check Merge Modal ──────────────────────────────────────────────────────
 const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) => {
   const [selectedTable, setSelectedTable] = useState(null);
   const occupiedTables = tables.filter(t =>
-    t.status !== 'available' && String(t.id) !== String(currentTableId) && savedOrders[t.id]?.length > 0
+    t.status !== 'available' && String(t.id) !== String(currentTableId) && resolveTableSavedOrder(savedOrders, t).length > 0
   );
 
   return (
@@ -1301,25 +1348,28 @@ const MergeModal = ({ currentTableId, tables, savedOrders, onMerge, onClose }) =
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {occupiedTables.map(t => (
-              <button key={t.id} onClick={() => setSelectedTable(t.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '12px 14px', borderRadius: 'var(--r-md)', cursor: 'pointer',
-                  border: `1.5px solid ${selectedTable === t.id ? 'rgba(30, 94, 74,0.4)' : 'var(--border-subtle)'}`,
-                  background: selectedTable === t.id ? 'rgba(30, 94, 74,0.06)' : 'rgba(255,255,255,0.5)',
-                }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Table {t.id}</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    {t.guestName || 'Guest'} - {savedOrders[t.id]?.length || 0} items
+            {occupiedTables.map(t => {
+              const tOrders = resolveTableSavedOrder(savedOrders, t);
+              return (
+                <button key={t.id} onClick={() => setSelectedTable(t.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '12px 14px', borderRadius: 'var(--r-md)', cursor: 'pointer',
+                    border: `1.5px solid ${selectedTable === t.id ? 'rgba(30, 94, 74,0.4)' : 'var(--border-subtle)'}`,
+                    background: selectedTable === t.id ? 'rgba(30, 94, 74,0.06)' : 'rgba(255,255,255,0.5)',
+                  }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Table {t.number || t.id}</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {t.guestName || 'Guest'} - {tOrders.length} items
+                    </div>
                   </div>
-                </div>
-                <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.9rem' }}>
-                  {(savedOrders[t.id] || []).reduce((s, i) => s + i.price * i.qty, 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
-                </div>
-              </button>
-            ))}
+                  <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.9rem' }}>
+                    {tOrders.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1344,7 +1394,7 @@ const ShiftTableModal = ({ currentTable, tables, savedOrders, currentCart, onShi
 
   const currentItems = (currentCart && currentCart.length > 0)
     ? currentCart
-    : (savedOrders[currentTable?.id] || savedOrders[String(currentTable?.id)] || []);
+    : resolveTableSavedOrder(savedOrders, currentTable);
 
   const totalAmount = currentItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
 
@@ -5442,35 +5492,7 @@ const POS = () => {
 
   // Helper to look up active order items for a table across all possible key representations
   const getTableSavedOrder = useCallback((table) => {
-    if (!savedOrders || !table) return [];
-    const clean = (s) => String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
-    const tId = table.id != null ? String(table.id) : '';
-    const tNum = table.number != null ? String(table.number) : '';
-    const cleanId = clean(tId);
-    const cleanNum = clean(tNum);
-
-    const keys = [
-      tId,
-      tNum,
-      `tbl_${tId}`,
-      `tbl_${tNum}`,
-      `table_${tId}`,
-      `table_${tNum}`,
-      cleanId,
-      cleanNum,
-      cleanId ? `tbl_${cleanId}` : null,
-      cleanNum ? `tbl_${cleanNum}` : null,
-    ].filter(Boolean);
-
-    for (const k of keys) {
-      const val = savedOrders[k];
-      if (val !== undefined && val !== null) {
-        if (Array.isArray(val)) return val;
-        if (Array.isArray(val.items)) return val.items;
-        return val;
-      }
-    }
-    return [];
+    return resolveTableSavedOrder(savedOrders, table);
   }, [savedOrders]);
 
   // Status to DISPLAY for a table (layers the reservation overlay on top, and displays ordered if items exist)
@@ -5924,7 +5946,7 @@ const POS = () => {
     if (!table) return null;
     const items = (activeTable && String(activeTable.id) === String(table.id) && cart.length > 0)
       ? cart
-      : (savedOrders[table.id] || []);
+      : getTableSavedOrder(table);
 
     return calculateTableBill({
       items,
@@ -5933,7 +5955,7 @@ const POS = () => {
       discountAmount: (activeTable && String(activeTable.id) === String(table.id)) ? discountAmount : 0,
       orderType: 'dine-in',
     });
-  }, [activeTable, cart, savedOrders, settings, discountAmount]);
+  }, [activeTable, cart, getTableSavedOrder, settings, discountAmount]);
 
   const handleDirectSettle = (table, e) => {
     if (e) {
@@ -5942,7 +5964,7 @@ const POS = () => {
     }
     const tableItems = (activeTable && String(activeTable.id) === String(table.id) && cart.length > 0)
       ? cart
-      : (savedOrders[table.id] || []);
+      : getTableSavedOrder(table);
 
     if (tableItems.length === 0) {
       showSuccess(`Table ${table.number || table.id} has no ordered items to settle.`);
@@ -6418,10 +6440,10 @@ const POS = () => {
     if (cart.length === 0) return;
 
     const tableId = unassignedTab ? `tab_${unassignedTab.id}` : (activeTable?.id || (orderType === 'delivery' ? 'delivery' : 'takeout'));
-    const previousRaw = savedOrders[tableId];
+    const previousRaw = unassignedTab ? savedOrders[tableId] : resolveTableSavedOrder(savedOrders, activeTable);
 
     // For unassigned tabs, diff against firedItems (items actually sent to KDS/kitchen).
-    // For regular tables, diff against previous savedOrders[tableId].
+    // For regular tables, diff against previous saved order items.
     const previousItems = unassignedTab
       ? ((typeof previousRaw === 'object' && !Array.isArray(previousRaw) ? previousRaw?.firedItems : unassignedTab.firedItems) || [])
       : (Array.isArray(previousRaw) ? previousRaw : (previousRaw?.items || []));
@@ -6556,7 +6578,8 @@ const POS = () => {
 
   // ── Merge ─────────────────────────────────────────────────
   const handleMerge = (fromTableId) => {
-    const fromItems = savedOrders[fromTableId] || savedOrders[String(fromTableId)] || [];
+    const fromTable = tables.find(t => String(t.id) === String(fromTableId));
+    const fromItems = fromTable ? resolveTableSavedOrder(savedOrders, fromTable) : (savedOrders[fromTableId] || savedOrders[String(fromTableId)] || []);
     const merged = [...cart];
     fromItems.forEach(item => {
       const existing = merged.find(i => (i._cartKey || i.id) === (item._cartKey || item.id));
@@ -6571,6 +6594,12 @@ const POS = () => {
       const next = { ...prev };
       delete next[fromTableId];
       delete next[String(fromTableId)];
+      if (fromTable) {
+        delete next[fromTable.number];
+        delete next[String(fromTable.number)];
+        delete next[`tbl_${fromTable.id}`];
+        delete next[`tbl_${fromTable.number}`];
+      }
       if (activeTable?.id) {
         next[activeTable.id] = merged;
         next[String(activeTable.id)] = merged;
@@ -6581,7 +6610,7 @@ const POS = () => {
       ? { ...t, status: 'available', guestName: null, guestId: null, seatedAt: null }
       : t
     ));
-    showSuccess(`Table ${fromTableId} merged into current tab`);
+    showSuccess(`Table ${fromTable?.number || fromTableId} merged into current tab`);
   };
 
   // ── Shift / Transfer Table ────────────────────────────────
@@ -6597,9 +6626,9 @@ const POS = () => {
     // Items from current cart or saved order
     const fromItems = (cart && cart.length > 0)
       ? cart
-      : (savedOrders[fromKey] || savedOrders[String(fromKey)] || []);
+      : resolveTableSavedOrder(savedOrders, fromTable);
 
-    const targetExistingItems = savedOrders[toKey] || savedOrders[String(toKey)] || [];
+    const targetExistingItems = resolveTableSavedOrder(savedOrders, toTable);
 
     // Combine items if target already has an order, else take fromItems
     let finalTargetItems = [];
@@ -6719,12 +6748,37 @@ const POS = () => {
     const tableId = tableToRelease.id;
     const tableNum = tableToRelease.number || tableToRelease.id;
     const isActive = activeTable && String(activeTable.id) === String(tableId);
-    const currentItems = (isActive && cart && cart.length > 0) ? cart : (savedOrders[tableId] || []);
+    const currentItems = (isActive && cart && cart.length > 0) ? cart : resolveTableSavedOrder(savedOrders, tableToRelease);
 
-    // 1. Clear saved orders for this table
+    // 1. Clear saved orders for this table across all representations
     setSavedOrders(prev => {
       const next = { ...prev };
-      delete next[tableId];
+      const clean = (s) => {
+        let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-)+/i, '');
+        if (str === '1o') str = '10';
+        const stripped = str.replace(/^0+/, '');
+        return stripped || str;
+      };
+      const cId = clean(tableId);
+      const cNum = clean(tableNum);
+      const keysToDelete = [
+        tableId, String(tableId),
+        tableNum, String(tableNum),
+        `tbl_${tableId}`, `tbl_${tableNum}`,
+        `table_${tableId}`, `table_${tableNum}`,
+        cId, cNum,
+        cId ? `tbl_${cId}` : null,
+        cNum ? `tbl_${cNum}` : null,
+        cId ? `tbl_0${cId}` : null,
+        cNum ? `tbl_0${cNum}` : null,
+        cId ? `0${cId}` : null,
+        cNum ? `0${cNum}` : null,
+        cId === '10' ? 'tbl_1o' : null,
+        cNum === '10' ? 'tbl_1o' : null,
+        cId === '10' ? '1o' : null,
+        cNum === '10' ? '1o' : null,
+      ].filter(Boolean);
+      keysToDelete.forEach(k => delete next[k]);
       return next;
     });
 
@@ -6783,7 +6837,7 @@ const POS = () => {
 
   const requestReleaseTable = () => {
     if (!activeTable) return;
-    const items = (cart && cart.length > 0) ? cart : (savedOrders[activeTable.id] || []);
+    const items = (cart && cart.length > 0) ? cart : getTableSavedOrder(activeTable);
     if (items.length === 0) {
       // Empty table: release immediately to available
       handleReleaseTable({ markStatus: 'available', cancelKds: false });
@@ -7523,7 +7577,7 @@ const POS = () => {
           t.status !== 'cancelled'
         )
       );
-      const tableFired = currentActiveTable && (savedOrders[currentActiveTable.id]?.length > 0);
+      const tableFired = currentActiveTable && (getTableSavedOrder(currentActiveTable).length > 0);
       const wasFired = tableFired || tabFired;
 
       if (!wasFired && isKdsEnabled) {
@@ -7795,7 +7849,7 @@ const POS = () => {
       let restoreToTable = false;
       if (targetTable) {
         const isOccupied = (targetTable.status && targetTable.status !== 'available' && targetTable.status !== 'needs-bussing') || 
-                           (savedOrders[targetTable.id] && savedOrders[targetTable.id].length > 0);
+                           (getTableSavedOrder(targetTable).length > 0);
         if (isOccupied) {
           const makeFloating = window.confirm(`Table ${targetTable.number} is currently occupied! Would you like to restore this order as a Floating Tab with a Token number instead?`);
           if (!makeFloating) return;
@@ -8874,7 +8928,7 @@ const POS = () => {
                   className="btn btn-secondary btn-sm"
                   style={{ flexShrink: 0, padding: isMobile ? '5px 8px' : '6px 10px' }}
                   onClick={() => {
-                    const items = (cart && cart.length > 0) ? cart : (activeTable ? (savedOrders[activeTable.id] || savedOrders[String(activeTable.id)] || []) : []);
+                    const items = (cart && cart.length > 0) ? cart : (activeTable ? getTableSavedOrder(activeTable) : []);
                     if (activeTable && items.length === 0 && (activeTable.status === 'seated' || activeTable.guestName)) {
                       if (window.confirm(`Table ${activeTable.number || activeTable.id} has no orders. Release table and mark it available?`)) {
                         handleReleaseTable({ markStatus: 'available', cancelKds: false });
@@ -9922,8 +9976,8 @@ const POS = () => {
       {releaseModal && activeTable && (
         <ReleaseTableModal
           table={activeTable}
-          hasItems={((cart && cart.length > 0) ? cart : (savedOrders[activeTable.id] || [])).length > 0}
-          itemCount={((cart && cart.length > 0) ? cart : (savedOrders[activeTable.id] || [])).reduce((s, i) => s + (i.qty || 1), 0)}
+          hasItems={((cart && cart.length > 0) ? cart : getTableSavedOrder(activeTable)).length > 0}
+          itemCount={((cart && cart.length > 0) ? cart : getTableSavedOrder(activeTable)).reduce((s, i) => s + (i.qty || 1), 0)}
           onConfirm={handleReleaseTable}
           onClose={() => setReleaseModal(false)}
         />
