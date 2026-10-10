@@ -251,6 +251,81 @@ function sortByCreatedAt(list) {
   return [...list].sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
 }
 
+/**
+ * Merges incoming KDS tickets with local cache to prevent in-flight or recent bumps
+ * from being reverted by background polling or stale sync responses.
+ */
+export function mergeKDSTickets(localTickets = [], incomingTickets = []) {
+  if (!Array.isArray(incomingTickets)) return Array.isArray(localTickets) ? localTickets : [];
+  if (!Array.isArray(localTickets) || localTickets.length === 0) return incomingTickets;
+
+  const localMap = new Map();
+  for (const lt of localTickets) {
+    if (lt && lt.id) localMap.set(String(lt.id), lt);
+  }
+
+  const merged = incomingTickets.map(st => {
+    if (!st || !st.id) return st;
+    const lt = localMap.get(String(st.id));
+    if (!lt) return st;
+
+    // Check if local ticket was bumped or cancelled recently and has not landed on server yet
+    const localIsInactive = lt.status === 'completed' || lt.status === 'cancelled' || Boolean(lt.bumpedAt);
+    const serverIsRecalled = Boolean(
+      st.updatedAt && lt.bumpedAt &&
+      new Date(st.updatedAt).getTime() > new Date(lt.bumpedAt).getTime() &&
+      st.status === 'active'
+    );
+
+    let resolvedStatus = st.status;
+    let resolvedBumpedAt = st.bumpedAt;
+    let resolvedCompletedAt = st.completedAt;
+
+    if (localIsInactive && !serverIsRecalled) {
+      resolvedStatus = lt.status;
+      resolvedBumpedAt = lt.bumpedAt || st.bumpedAt || new Date().toISOString();
+      resolvedCompletedAt = lt.completedAt || st.completedAt || resolvedBumpedAt;
+    }
+
+    // Reconcile items: keep local item bump status unless ticket was recalled
+    const mergedItems = (st.items || []).map((sItem, idx) => {
+      const lItem = Array.isArray(lt.items) ? (lt.items[idx] || lt.items.find(li => li && li.name === sItem.name)) : null;
+      if (!lItem) return sItem;
+
+      if (lItem.status === 'bumped' && sItem.status !== 'bumped' && !serverIsRecalled) {
+        return {
+          ...sItem,
+          status: 'bumped',
+          bumpedAt: lItem.bumpedAt || lt.bumpedAt || new Date().toISOString(),
+        };
+      }
+      return sItem;
+    });
+
+    return {
+      ...lt,
+      ...st,
+      status: resolvedStatus,
+      bumpedAt: resolvedBumpedAt,
+      completedAt: resolvedCompletedAt,
+      items: mergedItems,
+    };
+  });
+
+  // Preserve any local tickets that were created within the last 45s and haven't appeared in incomingTickets yet
+  const incomingIds = new Set(incomingTickets.map(t => String(t.id)));
+  for (const lt of localTickets) {
+    if (lt && lt.id && !incomingIds.has(String(lt.id))) {
+      const ageMs = Date.now() - new Date(lt.createdAt || lt.firedAt || Date.now()).getTime();
+      if (ageMs < 45000) {
+        merged.push(lt);
+      }
+    }
+  }
+
+  return merged;
+}
+
 // Start of the orders window currently held in the cache (ISO), keyed per tenant.
 // Older ranges are pulled on demand via ensureOrdersSince().
 let _ordersLoadedFrom = {};
@@ -292,6 +367,8 @@ function applyTenantPayload(payload) {
           const remoteOrders = payload.collections[col] || {};
           const currentCached = _cache[col] || {};
           _cache[col] = { ...currentCached, ...remoteOrders };
+        } else if (col === 'kds_tickets') {
+          _cache[col] = mergeKDSTickets(_cache[col] || [], payload.collections[col] || []);
         } else {
           _cache[col] = payload.collections[col];
         }
@@ -371,6 +448,8 @@ export async function syncOneCollection(name) {
       }
     } else if (name === 'settings') {
       _cache['settings'] = res.value;
+    } else if (name === 'kds_tickets') {
+      _cache['kds_tickets'] = mergeKDSTickets(_cache['kds_tickets'] || [], res.value || []);
     } else {
       _cache[name] = res.value;
     }

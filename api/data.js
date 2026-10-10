@@ -783,24 +783,27 @@ app.post('/api/data/flex/:name', wrap(async (req, res) => {
     }
   }
 
-  const current = (await getFlex(db, tenant, name, [])) || [];
-  const arr = Array.isArray(current) ? current : [];
   const withId = { ...item, id: item.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` };
-  let toArchive = [];
-  const next = arr.some(x => x.id === withId.id)
-    ? arr
-    : capCollection(name, [...arr, withId], (pruned) => { toArchive = pruned; });
+  await queueTenantFlexMutation(tenant, async () => {
+    const current = (await getFlex(db, tenant, name, [])) || [];
+    const arr = Array.isArray(current) ? current : [];
+    let toArchive = [];
+    const next = arr.some(x => x.id === withId.id)
+      ? arr
+      : capCollection(name, [...arr, withId], (pruned) => { toArchive = pruned; });
 
-  const { error } = await db.from('tenant_data').upsert({
-    account_id: tenant, collection_name: name, value: next,
+    const { error } = await db.from('tenant_data').upsert({
+      account_id: tenant, collection_name: name, value: next,
+    });
+    if (error) throw error;
+
+    if (toArchive.length > 0) {
+      archiveKDSTickets(db, tenant, toArchive).catch(() => {});
+    }
+
+    broadcastChange(tenant, name);
   });
-  if (error) throw error;
 
-  if (toArchive.length > 0) {
-    archiveKDSTickets(db, tenant, toArchive).catch(() => {});
-  }
-
-  broadcastChange(tenant, name);
   res.json({ success: true, item: withId });
 }));
 
@@ -815,28 +818,31 @@ app.patch('/api/data/flex/:name/:id', wrap(async (req, res) => {
     return res.status(400).json({ success: false, error: 'data payload required' });
   }
 
-  const current = (await getFlex(db, tenant, name, [])) || [];
-  const arr = Array.isArray(current) ? current : [];
-  let found = false;
-  const next = arr.map(x => {
-    if (String(x.id) === String(id)) { found = true; return { ...x, ...data, id: x.id }; }
-    return x;
-  });
-  if (!found) next.push({ ...data, id });
+  await queueTenantFlexMutation(tenant, async () => {
+    const current = (await getFlex(db, tenant, name, [])) || [];
+    const arr = Array.isArray(current) ? current : [];
+    let found = false;
+    const next = arr.map(x => {
+      if (String(x.id) === String(id)) { found = true; return { ...x, ...data, id: x.id }; }
+      return x;
+    });
+    if (!found) next.push({ ...data, id });
 
-  const { error } = await db.from('tenant_data').upsert({
-    account_id: tenant, collection_name: name, value: next,
-  });
-  if (error) throw error;
+    const { error } = await db.from('tenant_data').upsert({
+      account_id: tenant, collection_name: name, value: next,
+    });
+    if (error) throw error;
 
-  if (name === 'kds_tickets') {
-    const patched = next.find(x => String(x.id) === String(id));
-    if (patched && patched.status === 'completed') {
-      archiveKDSTickets(db, tenant, [patched]).catch(() => {});
+    if (name === 'kds_tickets') {
+      const patched = next.find(x => String(x.id) === String(id));
+      if (patched && patched.status === 'completed') {
+        archiveKDSTickets(db, tenant, [patched]).catch(() => {});
+      }
     }
-  }
 
-  broadcastChange(tenant, name);
+    broadcastChange(tenant, name);
+  });
+
   res.json({ success: true });
 }));
 
@@ -847,16 +853,19 @@ app.delete('/api/data/flex/:name/:id', wrap(async (req, res) => {
   assertFlexArray(name);
   const tenant = resolveTenant(req);
 
-  const current = (await getFlex(db, tenant, name, [])) || [];
-  const arr = Array.isArray(current) ? current : [];
-  const next = arr.filter(x => String(x.id) !== String(id));
+  await queueTenantFlexMutation(tenant, async () => {
+    const current = (await getFlex(db, tenant, name, [])) || [];
+    const arr = Array.isArray(current) ? current : [];
+    const next = arr.filter(x => String(x.id) !== String(id));
 
-  const { error } = await db.from('tenant_data').upsert({
-    account_id: tenant, collection_name: name, value: next,
+    const { error } = await db.from('tenant_data').upsert({
+      account_id: tenant, collection_name: name, value: next,
+    });
+    if (error) throw error;
+
+    broadcastChange(tenant, name);
   });
-  if (error) throw error;
 
-  broadcastChange(tenant, name);
   res.json({ success: true });
 }));
 
