@@ -17,7 +17,7 @@ import {
   LayoutGrid, CalendarCheck, ChefHat, ShoppingBag,
   Heart, Megaphone, Building2, ShieldCheck, Lock,
   Database, Download, FileSpreadsheet, Calendar,
-  Pin, TrendingUp, Search, ExternalLink, Flame
+  Pin, TrendingUp, Search, ExternalLink, Flame, Star, Award, Tag
 } from 'lucide-react';
 import { todayLocalStr, localDayStr } from '../../shared/dates';
 import { generateDailyOperationsWorkbook, downloadExcelWorkbook } from '../utils/excelExport';
@@ -554,6 +554,23 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
   const trendingIds = Array.isArray(data.trendingItemIds) ? data.trendingItemIds : [];
   const pinnedIds = Array.isArray(data.pinnedItemIds) ? data.pinnedItemIds : [];
   const hiddenIds = Array.isArray(data.hiddenItemIds) ? data.hiddenItemIds : [];
+  const chefsPickIds = Array.isArray(data.chefsPickItemIds) ? data.chefsPickItemIds : [];
+  const mostOrderedIds = Array.isArray(data.mostOrderedItemIds) ? data.mostOrderedItemIds : [];
+  const itemCustomTags = (data.itemCustomTags && typeof data.itemCustomTags === 'object') ? data.itemCustomTags : {};
+
+  const handleToggleChefsPick = (itemId) => {
+    const next = chefsPickIds.includes(itemId)
+      ? chefsPickIds.filter(id => id !== itemId)
+      : [...chefsPickIds, itemId];
+    onChange('chefsPickItemIds', next);
+  };
+
+  const handleToggleMostOrdered = (itemId) => {
+    const next = mostOrderedIds.includes(itemId)
+      ? mostOrderedIds.filter(id => id !== itemId)
+      : [...mostOrderedIds, itemId];
+    onChange('mostOrderedItemIds', next);
+  };
 
   const handleToggleTrending = (itemId) => {
     const next = trendingIds.includes(itemId)
@@ -584,11 +601,13 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
 
   const subTabs = [
     { id: 'branding', label: 'Cover & Header' },
+    { id: 'tags', label: 'Item Tags & Badges' },
+    { id: 'service', label: 'Staff Service' },
     { id: 'trending', label: 'Trending Hits' },
-    { id: 'sorting', label: 'Custom Tags & Pins' },
+    { id: 'sorting', label: 'Sorting & Pins' },
     { id: 'timings', label: 'Operating Hours' },
     { id: 'visibility', label: 'Item Visibility' },
-    { id: 'ai', label: 'AI Ordering' },
+    { id: 'ai', label: 'AI Ordering & Copilot' },
   ];
 
   return (
@@ -706,7 +725,225 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
         </div>
       )}
 
-      {/* 2. Trending Hits Configuration */}
+      {/* 2. Item Tags & Badges ('Chef's Pick' & 'Most Ordered') */}
+      {activeSubTab === 'tags' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Manually assign <strong>Chef's Pick</strong> and <strong>Most Ordered</strong> badges on any menu item. Only dishes you tag below will display these highlight badges on your digital QR Menu.
+          </div>
+
+          {/* Badge Label Customizers */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', background: 'rgba(30, 94, 74, 0.04)', padding: '16px', borderRadius: '14px', border: '1px solid rgba(30, 94, 74, 0.12)' }}>
+            <Field label="Custom Tag 1: Chef's Pick" hint="Badge label for chef's signature recommendations.">
+              <Input
+                value={data.chefsPickTagLabel ?? "Chef's Pick"}
+                onChange={v => onChange('chefsPickTagLabel', v)}
+                placeholder="Chef's Pick"
+              />
+            </Field>
+            <Field label="Custom Tag 2: Most Ordered" hint="Badge label for popular crowd-pleasers.">
+              <Input
+                value={data.mostOrderedTagLabel ?? "Most Ordered"}
+                onChange={v => onChange('mostOrderedTagLabel', v)}
+                placeholder="Most Ordered"
+              />
+            </Field>
+          </div>
+
+          {/* Category Filter & Counts Summary */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  className={selectedCategory === cat ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                  onClick={() => setSelectedCategory(cat)}
+                  style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '16px' }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              ⭐ {chefsPickIds.length} Chef's Pick • 🔥 {mostOrderedIds.length} Most Ordered
+            </div>
+          </div>
+
+          {/* Dish Search */}
+          <div style={{ position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              className="input-field"
+              style={{ paddingLeft: '36px' }}
+              placeholder="Search dishes to apply tags…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          {/* Dishes List with Tag Apply Toggles */}
+          <div style={{ maxHeight: '420px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {filteredMenuItems.map(item => {
+              const isChefsPick = chefsPickIds.includes(item.id);
+              const isMostOrdered = mostOrderedIds.includes(item.id);
+
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    background: (isChefsPick || isMostOrdered) ? 'rgba(234, 88, 12, 0.03)' : 'var(--card-bg, #ffffff)',
+                    border: `1px solid ${(isChefsPick || isMostOrdered) ? 'rgba(234, 88, 12, 0.25)' : 'var(--border-subtle)'}`,
+                    gap: '12px',
+                    flexWrap: isMobile ? 'wrap' : 'nowrap'
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>{item.name}</span>
+                      {isChefsPick && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, background: '#fef9c3', color: '#854d0e', padding: '2px 8px', borderRadius: '9999px', display: 'inline-flex', alignItems: 'center', gap: 3, border: '1px solid #fef08a' }}>
+                          <Star size={10} color="#ca8a04" fill="#ca8a04" /> {data.chefsPickTagLabel || "Chef's Pick"}
+                        </span>
+                      )}
+                      {isMostOrdered && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, background: '#fff7ed', color: '#c2410c', padding: '2px 8px', borderRadius: '9999px', display: 'inline-flex', alignItems: 'center', gap: 3, border: '1px solid #ffedd5' }}>
+                          <Flame size={10} color="#ea580c" /> {data.mostOrderedTagLabel || "Most Ordered"}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {item.category || 'General'} • ₹{item.price}
+                    </div>
+                  </div>
+
+                  {/* Manual Tag Toggles */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleChefsPick(item.id)}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: isChefsPick ? '1px solid #ca8a04' : '1px solid var(--border-subtle)',
+                        background: isChefsPick ? '#fef9c3' : '#ffffff',
+                        color: isChefsPick ? '#854d0e' : 'var(--text-secondary)'
+                      }}
+                    >
+                      <Star size={12} color={isChefsPick ? '#ca8a04' : '#94a3b8'} fill={isChefsPick ? '#ca8a04' : 'none'} />
+                      {isChefsPick ? "Chef's Pick ✓" : "+ Chef's Pick"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleMostOrdered(item.id)}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        border: isMostOrdered ? '1px solid #ea580c' : '1px solid var(--border-subtle)',
+                        background: isMostOrdered ? '#fff7ed' : '#ffffff',
+                        color: isMostOrdered ? '#c2410c' : 'var(--text-secondary)'
+                      }}
+                    >
+                      <Flame size={12} color={isMostOrdered ? '#ea580c' : '#94a3b8'} />
+                      {isMostOrdered ? 'Most Ordered ✓' : '+ Most Ordered'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredMenuItems.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                No matching dishes found.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3. Staff Service Area Toggle */}
+      {activeSubTab === 'service' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Configure the <strong>Staff Service</strong> companion bar in your digital QR Menu. Seated guests can use this to quickly request assistance from waitstaff.
+          </div>
+
+          <Toggle
+            label="Display Staff Service Bar in QR Menu"
+            description="Allows seated diners to call a waiter, ask for water, or request their bill directly from the menu. Turn this off to completely remove the staff service area from the QR Menu."
+            value={data.showStaffService !== false}
+            onChange={v => onChange('showStaffService', v)}
+          />
+
+          {/* Live Preview */}
+          <div style={{ marginTop: '12px' }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              Preview in Guest QR Menu:
+            </div>
+            {data.showStaffService !== false ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#f8fafc',
+                borderRadius: 16,
+                padding: '10px 14px',
+                border: '1px solid #e2e8f0',
+                maxWidth: 420
+              }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <Bell size={14} color="#ea580c" /> Staff Service
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a' }}>
+                    🛎️ Call Waiter
+                  </span>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a' }}>
+                    💧 Water
+                  </span>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a' }}>
+                    💳 Bill
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                background: 'rgba(148, 163, 184, 0.08)',
+                border: '1px dashed #cbd5e1',
+                borderRadius: 14,
+                padding: '16px',
+                color: 'var(--text-muted)',
+                fontSize: '0.82rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <EyeOff size={16} /> Staff service area is disabled and will NOT be shown on guest devices.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 4. Trending Hits Configuration */}
       {activeSubTab === 'trending' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -888,23 +1125,14 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
             onChange={v => onChange('sortBySales', v)}
           />
 
-          {/* Custom Tag Labels for QR Menu Badges */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', background: 'rgba(30, 94, 74, 0.04)', padding: '16px', borderRadius: '14px', border: '1px solid rgba(30, 94, 74, 0.12)' }}>
-            <Field label="Custom Tag for Pinned Dishes" hint="Badge on pinned dishes (e.g. Chef's Pick, Signature, Must Try).">
-              <Input
-                value={data.pinnedTagLabel ?? "Chef's Pick"}
-                onChange={v => onChange('pinnedTagLabel', v)}
-                placeholder="Chef's Pick"
-              />
-            </Field>
-            <Field label="Custom Tag for Most Ordered Dishes" hint="Badge on popular dishes without showing sales numbers (e.g. Most Ordered, Bestseller, Popular).">
-              <Input
-                value={data.mostOrderedTagLabel ?? "Most Ordered"}
-                onChange={v => onChange('mostOrderedTagLabel', v)}
-                placeholder="Most Ordered"
-              />
-            </Field>
-          </div>
+          {/* Custom Tag Label for Pinned Dishes */}
+          <Field label="Custom Tag for Pinned Dishes" hint="Badge text on pinned dishes (e.g. Pinned, Featured, Signature).">
+            <Input
+              value={data.pinnedTagLabel ?? 'Pinned'}
+              onChange={v => onChange('pinnedTagLabel', v)}
+              placeholder="Pinned"
+            />
+          </Field>
 
           {/* Golden Rule Banner */}
           <div style={{
@@ -1105,11 +1333,11 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
         </div>
       )}
 
-      {/* 5. AI Ordering Strategy */}
+      {/* 5. AI Ordering Strategy & Button Configuration */}
       {activeSubTab === 'ai' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Configure how the AI Food Guide interacts with your guests. Enhance revenue by subtly highlighting high-margin specialties and crowd favorites while maintaining a warm dining persona.
+            Configure how the AI Food Guide interacts with your guests and customize the floating assistant button appearance in the QR Menu.
           </div>
 
           <Toggle
@@ -1118,6 +1346,95 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
             value={data.aiPromoteHighMargin !== false}
             onChange={v => onChange('aiPromoteHighMargin', v)}
           />
+
+          {/* AI Copilot Button Customization */}
+          <div style={{ background: 'rgba(124, 58, 237, 0.04)', padding: '16px', borderRadius: '14px', border: '1px solid rgba(124, 58, 237, 0.15)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Sparkles size={16} color="#7c3aed" /> Customize 'Ask AI Copilot' Button
+            </div>
+
+            <Field label="Button Text" hint="Customize the label for the floating assistant button. The button size dynamically adapts to your text length.">
+              <Input
+                value={data.aiButtonText || 'Ask AI Copilot'}
+                onChange={v => onChange('aiButtonText', v)}
+                placeholder="Ask AI Copilot"
+              />
+            </Field>
+
+            <Field label="Button Background Colour" hint="Choose a solid colour or hex value for the button.">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <input
+                  type="color"
+                  value={data.aiButtonColor?.startsWith('#') ? data.aiButtonColor : '#7c3aed'}
+                  onChange={e => onChange('aiButtonColor', e.target.value)}
+                  style={{ width: 40, height: 38, borderRadius: 8, border: '1px solid var(--border-subtle)', cursor: 'pointer', padding: 2, background: 'none' }}
+                />
+                <input
+                  className="input-field"
+                  style={{ width: '130px' }}
+                  value={data.aiButtonColor || '#7c3aed'}
+                  onChange={e => onChange('aiButtonColor', e.target.value)}
+                  placeholder="#7c3aed"
+                />
+
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Violet', color: '#7c3aed' },
+                    { label: 'Emerald', color: '#059669' },
+                    { label: 'Orange', color: '#ea580c' },
+                    { label: 'Blue', color: '#2563eb' },
+                    { label: 'Rose', color: '#e11d48' },
+                    { label: 'Dark', color: '#0f172a' },
+                  ].map(p => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => onChange('aiButtonColor', p.color)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        borderRadius: '12px',
+                        border: data.aiButtonColor === p.color ? `2px solid ${p.color}` : '1px solid var(--border-subtle)',
+                        background: '#fff',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}
+                    >
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Field>
+
+            {/* Live Mockup */}
+            <div style={{ marginTop: '4px' }}>
+              <div style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Live Button Preview (Size automatically adapts to text):
+              </div>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                padding: '9px 16px',
+                borderRadius: 9999,
+                background: data.aiButtonColor || '#7c3aed',
+                color: '#ffffff',
+                fontWeight: 750,
+                fontSize: '0.82rem',
+                boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+                whiteSpace: 'nowrap',
+                width: 'auto'
+              }}>
+                <Sparkles size={16} />
+                <span>{data.aiButtonText || 'Ask AI Copilot'}</span>
+              </div>
+            </div>
+          </div>
 
           <div style={{
             background: 'rgba(30, 94, 74, 0.05)',

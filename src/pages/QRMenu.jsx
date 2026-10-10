@@ -316,11 +316,18 @@ const QRMenu = () => {
   const pinnedItemIds = Array.isArray(qrMenuSettings.pinnedItemIds) ? qrMenuSettings.pinnedItemIds : [];
   const hiddenItemIds = Array.isArray(qrMenuSettings.hiddenItemIds) ? qrMenuSettings.hiddenItemIds : [];
   const aiPromoteHighMargin = qrMenuSettings.aiPromoteHighMargin !== false;
-  const pinnedTagLabel = qrMenuSettings.pinnedTagLabel ?? "Chef's Pick";
-  const mostOrderedTagLabel = qrMenuSettings.mostOrderedTagLabel ?? "Most Ordered";
+  const pinnedTagLabel = qrMenuSettings.pinnedTagLabel ?? 'Pinned';
+  const chefsPickTagLabel = qrMenuSettings.chefsPickTagLabel || "Chef's Pick";
+  const mostOrderedTagLabel = qrMenuSettings.mostOrderedTagLabel || 'Most Ordered';
+  const chefsPickItemIds = Array.isArray(qrMenuSettings.chefsPickItemIds) ? qrMenuSettings.chefsPickItemIds : [];
+  const mostOrderedItemIds = Array.isArray(qrMenuSettings.mostOrderedItemIds) ? qrMenuSettings.mostOrderedItemIds : [];
+  const itemCustomTags = (qrMenuSettings.itemCustomTags && typeof qrMenuSettings.itemCustomTags === 'object') ? qrMenuSettings.itemCustomTags : {};
   const showTrending = qrMenuSettings.showTrending !== false;
   const trendingTitle = qrMenuSettings.trendingTitle || 'Trending Hits';
   const trendingItemIds = Array.isArray(qrMenuSettings.trendingItemIds) ? qrMenuSettings.trendingItemIds : [];
+  const showStaffService = qrMenuSettings.showStaffService !== false;
+  const aiButtonText = qrMenuSettings.aiButtonText || 'Ask AI Copilot';
+  const aiButtonColor = qrMenuSettings.aiButtonColor || '#7c3aed';
 
   const isStoreOpen = useMemo(() => {
     if (!syncTimings) return true;
@@ -1074,41 +1081,43 @@ const QRMenu = () => {
         )}
 
         {/* ── Table Service Companion Bar (In-Seat Assistance) ─── */}
-        <div style={{ padding: '14px 16px 0 16px' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: '#f8fafc',
-            borderRadius: 16,
-            padding: '8px 12px',
-            border: '1px solid #e2e8f0'
-          }}>
-            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Bell size={13} color="#ea580c" /> Staff Service
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button
-                onClick={() => handleServiceCall('waiter')}
-                style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
-              >
-                🛎️ Call Waiter
-              </button>
-              <button
-                onClick={() => handleServiceCall('water')}
-                style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
-              >
-                💧 Water
-              </button>
-              <button
-                onClick={() => handleServiceCall('bill')}
-                style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
-              >
-                💳 Bill
-              </button>
+        {showStaffService && (
+          <div style={{ padding: '14px 16px 0 16px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#f8fafc',
+              borderRadius: 16,
+              padding: '8px 12px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Bell size={13} color="#ea580c" /> Staff Service
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => handleServiceCall('waiter')}
+                  style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
+                >
+                  🛎️ Call Waiter
+                </button>
+                <button
+                  onClick={() => handleServiceCall('water')}
+                  style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
+                >
+                  💧 Water
+                </button>
+                <button
+                  onClick={() => handleServiceCall('bill')}
+                  style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
+                >
+                  💳 Bill
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* ── Active Table Order Tracker (if dining and order exists) ── */}
         {guestTableOrder && guestTableOrder.length > 0 && (
@@ -1365,15 +1374,31 @@ const QRMenu = () => {
                       </span>
                     ) : null}
 
-                    {pinnedItemIds.includes(item.id) && pinnedTagLabel && (
+                    {/* Pinned item badge */}
+                    {(pinnedItemIds.includes(item.id) || item.pinned) && pinnedTagLabel && (
                       <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 9999, border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <Pin size={10} /> {pinnedTagLabel}
                       </span>
                     )}
 
-                    {!pinnedItemIds.includes(item.id) && salesCount > 0 && mostOrderedTagLabel && (
+                    {/* Manually assigned Chef's Pick tag */}
+                    {(chefsPickItemIds.includes(item.id) || item.chefsPick) && chefsPickTagLabel && (
+                      <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#fef9c3', color: '#854d0e', padding: '2px 8px', borderRadius: 9999, border: '1px solid #fef08a', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Star size={10} color="#ca8a04" fill="#ca8a04" /> {chefsPickTagLabel}
+                      </span>
+                    )}
+
+                    {/* Manually assigned Most Ordered tag */}
+                    {(mostOrderedItemIds.includes(item.id) || item.mostOrdered) && mostOrderedTagLabel && (
                       <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#fff7ed', color: '#c2410c', padding: '2px 8px', borderRadius: 9999, border: '1px solid #ffedd5', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <Flame size={10} color="#ea580c" /> {mostOrderedTagLabel}
+                      </span>
+                    )}
+
+                    {/* Item custom tag */}
+                    {itemCustomTags[item.id] && (
+                      <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#f1f5f9', color: '#334155', padding: '2px 8px', borderRadius: 9999, border: '1px solid #e2e8f0', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Award size={10} color="#64748b" /> {itemCustomTags[item.id]}
                       </span>
                     )}
                   </div>
@@ -1555,22 +1580,25 @@ const QRMenu = () => {
                 bottom: cartItemsCount > 0 ? 84 : 24,
                 right: 20,
                 zIndex: 42,
-                padding: '9px 15px',
+                padding: '9px 16px',
                 borderRadius: 9999,
-                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                background: aiButtonColor || 'linear-gradient(135deg, #7c3aed, #4f46e5)',
                 color: '#ffffff',
                 border: 'none',
                 cursor: 'pointer',
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
                 gap: 7,
-                boxShadow: '0 6px 20px rgba(124,58,237,0.35)',
+                boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
                 fontWeight: 750,
                 fontSize: '0.82rem',
+                width: 'auto',
+                maxWidth: 'calc(100vw - 40px)',
+                whiteSpace: 'nowrap',
               }}
             >
               <Sparkles size={16} />
-              <span>Ask AI Copilot</span>
+              <span>{aiButtonText || 'Ask AI Copilot'}</span>
             </button>
 
             {/* AI Assistant Drawer */}
