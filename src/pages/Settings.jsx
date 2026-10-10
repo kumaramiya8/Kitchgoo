@@ -16,7 +16,8 @@ import {
   Apple, Smartphone, Globe, Package, Bike, Settings2,
   LayoutGrid, CalendarCheck, ChefHat, ShoppingBag,
   Heart, Megaphone, Building2, ShieldCheck, Lock,
-  Database, Download, FileSpreadsheet, Calendar
+  Database, Download, FileSpreadsheet, Calendar,
+  Pin, TrendingUp, Search, ExternalLink
 } from 'lucide-react';
 import { todayLocalStr, localDayStr } from '../../shared/dates';
 import { generateDailyOperationsWorkbook, downloadExcelWorkbook } from '../utils/excelExport';
@@ -29,6 +30,7 @@ const SECTIONS = [
   { id: 'billing', label: 'Billing & Taxes', icon: CreditCard },
   { id: 'payments', label: 'Payment Methods', icon: DollarSign },
   { id: 'operations', label: 'Operations', icon: Clock },
+  { id: 'qrMenu', label: 'QR Menu & AI', icon: QrCode },
   { id: 'menuConfig', label: 'Menu Categories', icon: LayoutGrid },
   { id: 'delivery', label: 'Delivery Platforms', icon: Truck, module: 'delivery' },
   { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -488,6 +490,535 @@ const PrinterSection = ({ data, onChange, isMobile }) => (
     <Toggle label="Auto-print Bill" description="Print bill automatically after payment" value={data.autoPrintBill} onChange={v => onChange('autoPrintBill', v)} />
   </div>
 );
+
+// ─── QR Menu & AI Section ─────────────────────────────────
+const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
+  const { menu = [], orders = [] } = useApp();
+  const [activeSubTab, setActiveSubTab] = useState('branding'); // 'branding' | 'timings' | 'sorting' | 'visibility' | 'ai'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const currentDay = daysOfWeek[new Date().getDay()];
+  const workingDays = operations?.workingDays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const isWorkingDay = workingDays.includes(currentDay);
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const [openH, openM] = (operations?.openingTime || '09:00').split(':').map(Number);
+  const [closeH, closeM] = (operations?.closingTime || '23:00').split(':').map(Number);
+  const openMinutes = (isNaN(openH) ? 0 : openH) * 60 + (isNaN(openM) ? 0 : openM);
+  const closeMinutes = (isNaN(closeH) ? 23 : closeH) * 60 + (isNaN(closeM) ? 59 : closeM);
+
+  const isStoreCurrentlyOpen = isWorkingDay && (
+    openMinutes <= closeMinutes
+      ? (currentMinutes >= openMinutes && currentMinutes <= closeMinutes)
+      : (currentMinutes >= openMinutes || currentMinutes <= closeMinutes)
+  );
+
+  // All-time item sales counts from orders
+  const itemSalesMap = useMemo(() => {
+    const map = {};
+    (orders || []).forEach(o => {
+      (o.items || []).forEach(it => {
+        const key = it.id || it.itemId || it.name;
+        map[key] = (map[key] || 0) + (Number(it.qty) || 1);
+        if (it.name) {
+          map[it.name] = (map[it.name] || 0) + (Number(it.qty) || 1);
+        }
+      });
+    });
+    return map;
+  }, [orders]);
+
+  const categories = useMemo(() => {
+    const cats = [...new Set((menu || []).map(i => i.category).filter(Boolean))];
+    return ['All', ...cats];
+  }, [menu]);
+
+  const filteredMenuItems = useMemo(() => {
+    let list = menu || [];
+    if (selectedCategory !== 'All') {
+      list = list.filter(i => i.category === selectedCategory);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(i =>
+        (i.name && i.name.toLowerCase().includes(q)) ||
+        (i.category && i.category.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [menu, selectedCategory, searchQuery]);
+
+  const pinnedIds = Array.isArray(data.pinnedItemIds) ? data.pinnedItemIds : [];
+  const hiddenIds = Array.isArray(data.hiddenItemIds) ? data.hiddenItemIds : [];
+
+  const handleTogglePin = (itemId) => {
+    const next = pinnedIds.includes(itemId)
+      ? pinnedIds.filter(id => id !== itemId)
+      : [...pinnedIds, itemId];
+    onChange('pinnedItemIds', next);
+  };
+
+  const handleToggleVisibility = (itemId) => {
+    const next = hiddenIds.includes(itemId)
+      ? hiddenIds.filter(id => id !== itemId)
+      : [...hiddenIds, itemId];
+    onChange('hiddenItemIds', next);
+  };
+
+  const sampleImages = [
+    { label: 'Warm Ambience', url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80' },
+    { label: 'Gourmet Dining', url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80' },
+    { label: 'Artisan Kitchen', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1200&q=80' },
+  ];
+
+  const subTabs = [
+    { id: 'branding', label: 'Cover & Header' },
+    { id: 'timings', label: 'Operating Hours' },
+    { id: 'sorting', label: 'Sorting & Pins' },
+    { id: 'visibility', label: 'Item Visibility' },
+    { id: 'ai', label: 'AI Ordering' },
+  ];
+
+  return (
+    <div>
+      {/* Sub Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px', flexWrap: 'wrap' }}>
+        {subTabs.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            className={activeSubTab === t.id ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+            onClick={() => setActiveSubTab(t.id)}
+            style={{ padding: '6px 14px', borderRadius: '20px' }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 1. Header & Cover Image */}
+      {activeSubTab === 'branding' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Personalize the top hero header on your digital QR Menu. Use a high-resolution direct image link (HTTPS) to replace the plain background colour with an appetising restaurant visual.
+          </div>
+
+          <Field label="Header Background Image (Direct Link URL)" hint="Enter a direct image link (e.g. Unsplash, Cloudinary, Imgur, or your CDN).">
+            <Input
+              value={data.headerBgImage || ''}
+              onChange={v => onChange('headerBgImage', v)}
+              placeholder="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4..."
+            />
+          </Field>
+
+          {/* Quick presets & clear */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 600 }}>Quick Presets:</span>
+            {sampleImages.map(img => (
+              <button
+                key={img.label}
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onChange('headerBgImage', img.url)}
+                style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px' }}
+              >
+                {img.label}
+              </button>
+            ))}
+            {data.headerBgImage && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onChange('headerBgImage', '')}
+                style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', color: 'var(--danger, #ef4444)' }}
+              >
+                Clear Image (Use Solid Color)
+              </button>
+            )}
+          </div>
+
+          {/* Live Mockup Preview */}
+          <div style={{ marginTop: '12px' }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              Live Guest View Preview:
+            </div>
+            <div style={{
+              borderRadius: '20px',
+              padding: '24px 20px',
+              color: 'white',
+              position: 'relative',
+              overflow: 'hidden',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              background: data.headerBgImage
+                ? `linear-gradient(135deg, rgba(20, 50, 40, 0.78) 0%, rgba(10, 30, 24, 0.88) 100%), url("${data.headerBgImage}") center/cover no-repeat`
+                : 'linear-gradient(135deg, var(--primary, #1e5e4a), #2e7d5b)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: 'rgba(255,255,255,0.2)',
+                    backdropFilter: 'blur(8px)',
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    marginBottom: '8px'
+                  }}>
+                    <span>Table 4</span>
+                    <span style={{ opacity: 0.6 }}>•</span>
+                    <span>Dine-In</span>
+                  </div>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 4px 0', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
+                    Your Restaurant Name
+                  </h3>
+                  <div style={{ fontSize: '0.78rem', opacity: 0.9 }}>
+                    ⭐ 4.9 (500+ reviews) • Authentic Cuisine
+                  </div>
+                </div>
+                <div style={{
+                  padding: '6px 12px',
+                  borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.2)',
+                  backdropFilter: 'blur(8px)',
+                  fontSize: '0.72rem',
+                  fontWeight: 600
+                }}>
+                  Digital Menu
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Restaurant Timings Sync */}
+      {activeSubTab === 'timings' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Synchronize your kitchen operating hours with the QR Menu. When enabled, guests cannot submit orders outside your operating hours, while still being able to freely browse your dishes.
+          </div>
+
+          <Toggle
+            label="Sync Restaurant Timings with QR Menu"
+            description="Prevent guest order placement when the restaurant is closed according to operating hours."
+            value={data.syncTimings !== false}
+            onChange={v => onChange('syncTimings', v)}
+          />
+
+          {/* Operating Hours Status Card */}
+          <div style={{
+            background: 'rgba(30, 94, 74, 0.04)',
+            border: '1px solid rgba(30, 94, 74, 0.15)',
+            borderRadius: '14px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock size={18} style={{ color: 'var(--primary)' }} />
+                <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>Configured Operating Hours</span>
+              </div>
+              <div style={{
+                padding: '4px 10px',
+                borderRadius: '12px',
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                background: isStoreCurrentlyOpen ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                color: isStoreCurrentlyOpen ? 'var(--success, #16a34a)' : 'var(--danger, #dc2626)',
+              }}>
+                {isStoreCurrentlyOpen ? '● Currently Open for Orders' : '○ Currently Closed (Browsing Only)'}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', fontSize: '0.8rem' }}>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Daily Hours: </span>
+                <strong>{operations?.openingTime || '09:00'} — {operations?.closingTime || '23:00'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Working Days: </span>
+                <strong>{(operations?.workingDays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).join(', ')}</strong>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', borderTop: '1px dashed var(--border-subtle)', paddingTop: '8px' }}>
+              Tip: You can edit opening/closing times and working days anytime under the <strong>Operations</strong> configuration tab.
+            </div>
+          </div>
+
+          <Field label="Custom Closed Notice for Guests" hint="Displayed on a banner across the top of the QR Menu when kitchen is closed.">
+            <Input
+              value={data.closedMessage || ''}
+              onChange={v => onChange('closedMessage', v)}
+              placeholder="Our kitchen is currently closed for orders outside operating hours."
+            />
+          </Field>
+        </div>
+      )}
+
+      {/* 3. Menu Sorting & Pinned Items */}
+      {activeSubTab === 'sorting' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Optimize your menu order. You can prioritize best-selling dishes automatically, while keeping chef-curated dishes pinned at the top.
+          </div>
+
+          <Toggle
+            label="Sort Menu by Item Sales (Most Sold First)"
+            description="Automatically ranks items by order volume so popular dishes appear at the top of each category."
+            value={data.sortBySales === true}
+            onChange={v => onChange('sortBySales', v)}
+          />
+
+          {/* Golden Rule Banner */}
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            borderRadius: '12px',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            fontSize: '0.82rem',
+            color: '#b45309'
+          }}>
+            <Pin size={20} style={{ flexShrink: 0 }} />
+            <div>
+              <strong>Pinned Items Rule:</strong> Any dishes you pin below are <u>guaranteed</u> to appear at the very top of the QR Menu, regardless of sales ranking or category settings.
+            </div>
+          </div>
+
+          {/* Pinned Search & Management */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Pinned Dishes ({pinnedIds.length} Pinned)
+              </div>
+            </div>
+
+            <div style={{ position: 'relative', marginBottom: '12px' }}>
+              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                className="input-field"
+                style={{ paddingLeft: '36px' }}
+                placeholder="Search dishes to pin or unpin…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div style={{ maxHeight: '340px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {filteredMenuItems.map(item => {
+                const isPinned = pinnedIds.includes(item.id);
+                const sales = itemSalesMap[item.id] || itemSalesMap[item.name] || 0;
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      background: isPinned ? 'rgba(245, 158, 11, 0.06)' : 'var(--card-bg, #ffffff)',
+                      border: `1px solid ${isPinned ? 'rgba(245, 158, 11, 0.3)' : 'var(--border-subtle)'}`,
+                      gap: '12px'
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{item.name}</span>
+                        {isPinned && (
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '6px' }}>
+                            📌 Pinned on Top
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', gap: '8px' }}>
+                        <span>{item.category || 'General'}</span>
+                        <span>•</span>
+                        <span>₹{item.price}</span>
+                        <span>•</span>
+                        <span style={{ color: sales > 0 ? 'var(--primary)' : 'inherit', fontWeight: sales > 0 ? 600 : 'normal' }}>
+                          {sales} sold
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={isPinned ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'}
+                      onClick={() => handleTogglePin(item.id)}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        flexShrink: 0
+                      }}
+                    >
+                      <Pin size={13} />
+                      {isPinned ? 'Unpin' : 'Pin to Top'}
+                    </button>
+                  </div>
+                );
+              })}
+              {filteredMenuItems.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                  No matching dishes found.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Item Visibility */}
+      {activeSubTab === 'visibility' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Choose which dishes appear on the digital QR Menu. Hiding an item excludes it from guest viewing, but keeps it 100% active and available for in-house staff on the POS and in inventory.
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  className={selectedCategory === cat ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                  onClick={() => setSelectedCategory(cat)}
+                  style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '16px' }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+              {hiddenIds.length} hidden from QR Menu
+            </div>
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              className="input-field"
+              style={{ paddingLeft: '36px' }}
+              placeholder="Filter items by name…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          <div style={{ maxHeight: '380px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {filteredMenuItems.map(item => {
+              const isHidden = hiddenIds.includes(item.id);
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    background: isHidden ? 'rgba(148, 163, 184, 0.08)' : 'var(--card-bg, #ffffff)',
+                    border: `1px solid ${isHidden ? 'rgba(148, 163, 184, 0.25)' : 'var(--border-subtle)'}`,
+                    gap: '12px',
+                    opacity: isHidden ? 0.8 : 1,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: isHidden ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                        {item.name}
+                      </span>
+                      {isHidden && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '6px' }}>
+                          Hidden from QR
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {item.category || 'General'} • ₹{item.price}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={isHidden ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'}
+                    onClick={() => handleToggleVisibility(item.id)}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      flexShrink: 0
+                    }}
+                  >
+                    {isHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {isHidden ? 'Hidden (Show)' : 'Visible (Hide)'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 5. AI Ordering Strategy */}
+      {activeSubTab === 'ai' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Configure how the AI Food Guide interacts with your guests. Enhance revenue by subtly highlighting high-margin specialties and crowd favorites while maintaining a warm dining persona.
+          </div>
+
+          <Toggle
+            label="Suggest High Margin & Popular Dishes via AI"
+            description="The AI ordering assistant will prioritize high-margin house specialties and top-selling items when guests ask for recommendations."
+            value={data.aiPromoteHighMargin !== false}
+            onChange={v => onChange('aiPromoteHighMargin', v)}
+          />
+
+          <div style={{
+            background: 'rgba(30, 94, 74, 0.05)',
+            border: '1px solid rgba(30, 94, 74, 0.15)',
+            borderRadius: '14px',
+            padding: '18px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sparkles size={18} style={{ color: 'var(--primary)' }} />
+              <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>Customer Privacy & Discretion Guarantee</span>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              • <strong>100% Subtle & Organic:</strong> Recommended dishes are framed enthusiastically as <em>"house signatures"</em>, <em>"chef specialties"</em>, or <em>"guest favorites"</em>.
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              • <strong>Zero Margin Leakage:</strong> The AI is strictly prompt-engineered to NEVER mention margins, costs, profits, revenue, or backend algorithms under any circumstances.
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              • <strong>Upsell Synergy:</strong> Naturally suggests drink pairings or artisan dessert accompaniments to increase the guest's average ticket size.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Module Toggles ───────────────────────────────────────
 const MODULE_DEFS = [
@@ -2091,6 +2622,14 @@ const Settings = () => {
       case 'billing': return <BillingSection data={s} onChange={sectionChange} isMobile={isMobile} />;
       case 'payments': return <PaymentsSection data={s} onChange={sectionChange} isMobile={isMobile} />;
       case 'operations': return <OperationsSection data={s} onChange={sectionChange} isMobile={isMobile} />;
+      case 'qrMenu': return (
+        <QRMenuSection
+          data={localSettings.qrMenu || {}}
+          operations={localSettings.operations || {}}
+          onChange={sectionChange}
+          isMobile={isMobile}
+        />
+      );
       case 'menuConfig': return <MenuCategoriesSection data={localSettings.menuCategories || {}} onChange={data => handleChange('menuCategories', null, data)} isMobile={isMobile} />;
       case 'delivery': return <DeliverySection data={s} onChange={sectionChange} isMobile={isMobile} />;
       case 'notifications': return <NotificationsSection data={s} onChange={sectionChange} isMobile={isMobile} />;

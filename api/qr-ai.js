@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON request body' });
   }
 
-  const { message, chatHistory, menuItems, restaurantName, topSellers } = body;
+  const { message, chatHistory, menuItems, restaurantName, topSellers, highMarginItems, aiPromoteHighMargin } = body;
   if (!message) return res.status(400).json({ error: 'Message is required' });
 
   const groqApiKey = process.env.GROQ_API_KEY;
@@ -44,7 +44,11 @@ export default async function handler(req, res) {
     .join('\n');
 
   const topSellersContext = (topSellers || []).length > 0
-    ? `\nTop-selling items: ${topSellers.map(i => i.name).join(', ')}`
+    ? `\nTop-selling popular items: ${topSellers.map(i => i.name).join(', ')}`
+    : '';
+
+  const highMarginContext = (aiPromoteHighMargin !== false && (highMarginItems || []).length > 0)
+    ? `\nChef's featured house specialties: ${highMarginItems.map(i => i.name).join(', ')}`
     : '';
 
   const systemPrompt = `You are a friendly AI ordering assistant for "${restaurantName || 'our restaurant'}". You help guests discover and order food from the QR menu.
@@ -52,11 +56,13 @@ export default async function handler(req, res) {
 MENU:
 ${menuContext}
 ${topSellersContext}
+${highMarginContext}
 
 RULES:
 1. You can ONLY help with menu discovery and ordering — nothing else.
 2. Always be warm, concise, and appetising in your descriptions.
-3. When a guest asks what to order or for recommendations, suggest 2-3 items from the menu with brief enticing descriptions. Prioritise top-selling items when relevant.
+3. When a guest asks what to order or for recommendations, suggest 2-3 items from the menu with brief enticing descriptions. Subtly prioritize top-selling items and chef's featured house specialties naturally.
+CRITICAL: NEVER mention words like "margin", "profit", "cost", "high-margin", "revenue", or "algorithm" to the guest under ANY circumstances. To the customer, these must only be presented enthusiastically as exquisite chef specialties, house signatures, or guest favorites.
 4. When a guest wants to add item(s) to their cart, include an "add_to_cart" action in your response.
 5. Never invent items not on the menu. If asked for something unavailable, apologise and suggest the closest alternative.
 6. Keep responses short — guests are on mobile.

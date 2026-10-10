@@ -252,6 +252,15 @@ export const SEEDS = {
         'Sides': ['Accompaniment', 'Extra'],
         'Specials': ['Chef Special', 'Seasonal']
       }
+    },
+    qrMenu: {
+      syncTimings: true,
+      closedMessage: 'Our kitchen is currently closed for orders outside operating hours.',
+      headerBgImage: '',
+      sortBySales: false,
+      pinnedItemIds: [],
+      hiddenItemIds: [],
+      aiPromoteHighMargin: true,
     }
   },
 

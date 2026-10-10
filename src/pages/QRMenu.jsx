@@ -5,8 +5,109 @@ import { useAuth } from '../db/AuthContext';
 import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTableOrder, getAll, setGuestTable, upsertGuestFromQR } from '../db/database';
 import {
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award,
-  Sparkles, Send, Bot, Loader2
+  Sparkles, Send, Bot, Loader2, Pin, Clock, AlertTriangle
 } from 'lucide-react';
+
+export function isRestaurantOpen(operations = {}, now = new Date()) {
+  const {
+    openingTime = '09:00',
+    closingTime = '23:00',
+    workingDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+  } = operations || {};
+
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const currentDay = daysOfWeek[now.getDay()];
+
+  if (Array.isArray(workingDays) && workingDays.length > 0) {
+    if (!workingDays.includes(currentDay)) {
+      return false;
+    }
+  }
+
+  const [openH, openM] = (openingTime || '00:00').split(':').map(Number);
+  const [closeH, closeM] = (closingTime || '23:59').split(':').map(Number);
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const openMinutes = (isNaN(openH) ? 0 : openH) * 60 + (isNaN(openM) ? 0 : openM);
+  const closeMinutes = (isNaN(closeH) ? 23 : closeH) * 60 + (isNaN(closeM) ? 59 : closeM);
+
+  if (openMinutes <= closeMinutes) {
+    return nowMinutes >= openMinutes && nowMinutes <= closeMinutes;
+  } else {
+    // Overnight schedule (e.g. 18:00 to 02:00)
+    return nowMinutes >= openMinutes || nowMinutes <= closeMinutes;
+  }
+}
+
+export function sortAndFilterMenuItems(items = [], options = {}) {
+  const {
+    hiddenItemIds = [],
+    pinnedItemIds = [],
+    sortBySales = false,
+    salesMap = {},
+    category = 'All',
+    searchQuery = '',
+  } = options;
+
+  const hiddenSet = new Set(hiddenItemIds || []);
+  const pinnedSet = new Set(pinnedItemIds || []);
+
+  // 1. Filter out inactive, 86'd, and hidden items
+  let list = (items || []).filter(item => {
+    if (!item) return false;
+    if (item.active === false || item.sold86) return false;
+    if (hiddenSet.has(item.id)) return false;
+    return true;
+  });
+
+  // 2. Filter by search query or category
+  if (searchQuery && searchQuery.trim()) {
+    const q = searchQuery.trim().toLowerCase();
+    list = list.filter(i =>
+      (i.name && i.name.toLowerCase().includes(q)) ||
+      (i.description && i.description.toLowerCase().includes(q)) ||
+      (i.category && i.category.toLowerCase().includes(q))
+    );
+  } else if (category && category !== 'All') {
+    list = list.filter(i => i.category === category);
+  }
+
+  // 3. Sort:
+  // - Pinned items ALWAYS on top (regardless of any other setting)
+  // - If both or neither pinned, sort by sales count descending if sortBySales is true
+  list.sort((a, b) => {
+    const aPinned = pinnedSet.has(a.id);
+    const bPinned = pinnedSet.has(b.id);
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+
+    if (sortBySales) {
+      const aSales = Number(salesMap[a.id] ?? salesMap[a.name] ?? 0);
+      const bSales = Number(salesMap[b.id] ?? salesMap[b.name] ?? 0);
+      if (bSales !== aSales) {
+        return bSales - aSales;
+      }
+    }
+
+    return 0;
+  });
+
+  return list;
+}
+
+export function computeHighMarginItems(items = []) {
+  if (!Array.isArray(items)) return [];
+  return items.filter(item => {
+    const price = Number(item.price) || 0;
+    const cost = Number(item.costPrice ?? item.cost) || 0;
+    if (price <= 0) return false;
+    if (cost > 0) {
+      const margin = (price - cost) / price;
+      return margin >= 0.4;
+    }
+    return Boolean(item.chefSpecial || item.isSpecial || item.isPopular);
+  });
+}
 
 export function cleanTableId(raw) {
   if (raw === null || raw === undefined) return '';
@@ -211,11 +312,46 @@ const QRMenu = () => {
   const effectiveMenu = (guestMenu && guestMenu.length > 0) ? guestMenu : menu;
   const effectiveSettings = guestSettings || settings;
 
-  // Derived active menu items
+  const qrMenuSettings = effectiveSettings?.qrMenu || {};
+  const syncTimings = qrMenuSettings.syncTimings !== false;
+  const closedMessage = qrMenuSettings.closedMessage || 'Our kitchen is currently closed for orders outside operating hours.';
+  const headerBgImage = qrMenuSettings.headerBgImage || '';
+  const sortBySales = qrMenuSettings.sortBySales === true;
+  const pinnedItemIds = Array.isArray(qrMenuSettings.pinnedItemIds) ? qrMenuSettings.pinnedItemIds : [];
+  const hiddenItemIds = Array.isArray(qrMenuSettings.hiddenItemIds) ? qrMenuSettings.hiddenItemIds : [];
+  const aiPromoteHighMargin = qrMenuSettings.aiPromoteHighMargin !== false;
+
+  // Real-time Operating Hours Check
+  const isStoreOpen = useMemo(() => {
+    if (!syncTimings) return true;
+    return isRestaurantOpen(effectiveSettings?.operations);
+  }, [syncTimings, effectiveSettings?.operations]);
+
+  // All-time item sales counts from orders
+  const salesMap = useMemo(() => {
+    const counts = {};
+    (orders || []).forEach(o => {
+      (o.items || []).forEach(it => {
+        const key = it.id || it.itemId || it.name;
+        counts[key] = (counts[key] || 0) + (Number(it.qty) || 1);
+        if (it.name) counts[it.name] = (counts[it.name] || 0) + (Number(it.qty) || 1);
+      });
+    });
+    return counts;
+  }, [orders]);
+
+  // Derived active menu items (with hidden items filtered & pinned items prioritized)
   const menuItems = useMemo(() => {
     if (!effectiveMenu) return [];
-    return effectiveMenu.filter(item => item.active !== false && !item.sold86);
-  }, [effectiveMenu]);
+    return sortAndFilterMenuItems(effectiveMenu, {
+      hiddenItemIds,
+      pinnedItemIds,
+      sortBySales,
+      salesMap,
+      category: 'All',
+      searchQuery: '',
+    });
+  }, [effectiveMenu, hiddenItemIds, pinnedItemIds, sortBySales, salesMap]);
 
   // Categories list
   const categories = useMemo(() => {
@@ -225,15 +361,15 @@ const QRMenu = () => {
 
   // Filtered menu list
   const filteredItems = useMemo(() => {
-    let items = menuItems;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      items = items.filter(i => i.name?.toLowerCase().includes(q) || i.description?.toLowerCase().includes(q));
-    } else if (activeCategory !== 'All') {
-      items = items.filter(i => i.category === activeCategory);
-    }
-    return items;
-  }, [menuItems, activeCategory, searchQuery]);
+    return sortAndFilterMenuItems(menuItems, {
+      hiddenItemIds,
+      pinnedItemIds,
+      sortBySales,
+      salesMap,
+      category: activeCategory,
+      searchQuery,
+    });
+  }, [menuItems, hiddenItemIds, pinnedItemIds, sortBySales, salesMap, activeCategory, searchQuery]);
 
   // Fetch active items on the table from posSavedOrders
   const guestTableOrder = useMemo(() => {
@@ -297,6 +433,9 @@ const QRMenu = () => {
 
   // Core order placement — used by both the cart form and the AI chat flow.
   const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems, extra = {}) => {
+    if (!isStoreOpen) {
+      return { ok: false, error: closedMessage };
+    }
     const resolvedName = (guestName && guestName.trim()) || 'Walk-in';
     const rawTable = (tableNum && String(tableNum).trim()) || (tableParam && String(tableParam).trim()) || '';
     const resolvedTable = cleanTableId(rawTable);
@@ -431,7 +570,7 @@ const QRMenu = () => {
     window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
 
     return { ok: true, tableId: targetTable.id, kdsOrderId };
-  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated, tableParam, notes, phone]);
+  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated, tableParam, notes, phone, isStoreOpen, closedMessage]);
 
   const sendAiMessage = useCallback(async (text) => {
     if (!text.trim() || aiLoading) return;
@@ -547,6 +686,8 @@ const QRMenu = () => {
           menuItems: menuItems.map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, description: i.description })),
           restaurantName: restaurantName || '',
           topSellers: topSellers.map(i => ({ name: i.name })),
+          highMarginItems: computeHighMarginItems(menuItems).map(i => ({ name: i.name })),
+          aiPromoteHighMargin,
         }),
       });
       const data = await res.json();
@@ -560,11 +701,19 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiLoading, aiMessages, menuItems, effectiveSettings, restaurantName, topSellers, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
+  }, [aiLoading, aiMessages, menuItems, effectiveSettings, restaurantName, topSellers, aiPromoteHighMargin, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
 
   // Place the order suggested by the AI.
   // Collects table number and/or guest name in-chat if not already known.
   const handleAiOrder = useCallback(async (aiItems) => {
+    if (!isStoreOpen) {
+      setAiMessages(prev => [...prev, {
+        role: 'assistant',
+        text: `Our kitchen is currently closed for orders outside operating hours. (${closedMessage}) You can still browse our dishes or ask me questions! 😊`
+      }]);
+      return;
+    }
+
     const cartItems = aiItems.map(aiItem => {
       const match = menuItems.find(m => m.id === aiItem.id || m.name.toLowerCase() === aiItem.name.toLowerCase());
       return match ? { item: match, qty: aiItem.qty || 1, notes: '' } : null;
@@ -607,7 +756,7 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [menuItems, tableNumber, customerName, phone, doPlaceOrder]);
+  }, [menuItems, tableNumber, customerName, phone, doPlaceOrder, isStoreOpen, closedMessage]);
 
   const handleAddToCart = (item) => {
     setCart(prev => {
@@ -655,6 +804,10 @@ const QRMenu = () => {
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
+    if (!isStoreOpen) {
+      alert(closedMessage);
+      return;
+    }
     if (!customerName.trim() || !phone.trim() || !tableNumber.trim()) {
       alert('Please fill out your Name, Phone Number, and Table Number.');
       return;
@@ -750,7 +903,9 @@ const QRMenu = () => {
       
       {/* Premium Cover Banner */}
       <div style={{ 
-        background: 'linear-gradient(135deg, var(--primary), #2e7d5b)', 
+        background: headerBgImage
+          ? `linear-gradient(135deg, rgba(20, 50, 40, 0.78) 0%, rgba(10, 30, 24, 0.88) 100%), url("${headerBgImage}") center/cover no-repeat`
+          : 'linear-gradient(135deg, var(--primary), #2e7d5b)', 
         color: 'white', 
         padding: '30px 20px 24px 20px', 
         borderBottomLeftRadius: 24, 
@@ -773,6 +928,33 @@ const QRMenu = () => {
           )}
         </div>
       </div>
+
+      {/* Operating Hours Alert Banner */}
+      {!isStoreOpen && (
+        <div style={{
+          margin: '14px 16px 0 16px',
+          padding: '14px 16px',
+          background: 'linear-gradient(135deg, #fef2f2, #fee2e2)',
+          border: '1px solid #fca5a5',
+          borderRadius: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          color: '#991b1b',
+          boxShadow: '0 2px 8px rgba(239, 68, 68, 0.08)'
+        }}>
+          <Clock size={22} style={{ flexShrink: 0, color: '#dc2626' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700 }}>Kitchen Closed for Ordering</div>
+            <div style={{ fontSize: '0.78rem', color: '#7f1d1d', marginTop: '2px', lineHeight: 1.4 }}>
+              {closedMessage}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: '#991b1b', marginTop: '4px', opacity: 0.9 }}>
+              Operating Hours: {effectiveSettings?.operations?.openingTime || '09:00'} — {effectiveSettings?.operations?.closingTime || '23:00'}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Body */}
       <div style={{ padding: '16px 16px 0 16px' }}>
@@ -936,7 +1118,14 @@ const QRMenu = () => {
 
                 {/* Details */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 3px 0', color: '#1e1b4b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{item.name}</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                    <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: '#1e1b4b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{item.name}</h3>
+                    {pinnedItemIds.includes(item.id) && (
+                      <span style={{ fontSize: '0.65rem', fontWeight: 700, background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 6, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Pin size={10} /> Chef's Pick
+                      </span>
+                    )}
+                  </div>
                   {item.description && (
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 6px 0', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {item.description}
@@ -958,7 +1147,13 @@ const QRMenu = () => {
                         </button>
                         <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--primary)', minWidth: 14, textAlign: 'center' }}>{cartQty}</span>
                         <button 
-                          onClick={() => handleAddToCart(item)}
+                          onClick={() => {
+                            if (!isStoreOpen) {
+                              alert(closedMessage);
+                              return;
+                            }
+                            handleAddToCart(item);
+                          }}
                           style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
                         >
                           <Plus size={13} strokeWidth={2.5} />
@@ -966,7 +1161,13 @@ const QRMenu = () => {
                       </div>
                     ) : (
                       <button 
-                        onClick={() => handleAddToCart(item)}
+                        onClick={() => {
+                          if (!isStoreOpen) {
+                            alert(closedMessage);
+                            return;
+                          }
+                          handleAddToCart(item);
+                        }}
                         className="btn btn-secondary btn-sm"
                         style={{ padding: '4px 12px', fontSize: '0.78rem', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4 }}
                       >
@@ -1319,11 +1520,18 @@ const QRMenu = () => {
 
                 <button 
                   type="submit" 
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !isStoreOpen}
                   className="btn btn-primary" 
-                  style={{ width: '100%', padding: '12px', borderRadius: 12, fontWeight: 700 }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: 12,
+                    fontWeight: 700,
+                    opacity: !isStoreOpen ? 0.6 : 1,
+                    cursor: !isStoreOpen ? 'not-allowed' : 'pointer',
+                  }}
                 >
-                  {isSubmitting ? 'Sending Order...' : 'Send Order to Kitchen'}
+                  {!isStoreOpen ? 'Kitchen Closed (Browsing Only)' : (isSubmitting ? 'Sending Order...' : 'Send Order to Kitchen')}
                 </button>
               </form>
 

@@ -32,7 +32,7 @@ const guestWriteLimiter = rateLimit({
 // Settings sections a guest device may see
 const GUEST_SETTINGS_SECTIONS = [
   'restaurant', 'billing', 'payments', 'naming', 'modules',
-  'menuCategories', 'operations', 'appearance', 'receipt',
+  'menuCategories', 'operations', 'appearance', 'receipt', 'qrMenu',
 ];
 
 const wrap = (fn) => (req, res) => {
