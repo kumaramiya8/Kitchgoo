@@ -82,8 +82,8 @@ export function sortAndFilterMenuItems(items = [], options = {}) {
     if (!aPinned && bPinned) return 1;
 
     if (sortBySales) {
-      const aSales = Number(salesMap[a.id] ?? salesMap[a.name] ?? 0);
-      const bSales = Number(salesMap[b.id] ?? salesMap[b.name] ?? 0);
+      const aSales = Number(salesMap[a.id] ?? (a.name ? salesMap[a.name] : undefined) ?? a.salesCount ?? 0);
+      const bSales = Number(salesMap[b.id] ?? (b.name ? salesMap[b.name] : undefined) ?? b.salesCount ?? 0);
       if (bSales !== aSales) {
         return bSales - aSales;
       }
@@ -167,6 +167,7 @@ const QRMenu = () => {
   const [loading, setLoading] = useState(true);
   const [guestMenu, setGuestMenu] = useState(null);
   const [guestSettings, setGuestSettings] = useState(null);
+  const [guestItemSales, setGuestItemSales] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState({}); // { itemId: { item, qty, notes } }
@@ -248,6 +249,7 @@ const QRMenu = () => {
         if (!cancelled && payload) {
           if (payload.menu) setGuestMenu(payload.menu);
           if (payload.settings) setGuestSettings(payload.settings);
+          if (payload.itemSales) setGuestItemSales(payload.itemSales);
           await reload(true);
         }
       } catch (err) {
@@ -327,9 +329,15 @@ const QRMenu = () => {
     return isRestaurantOpen(effectiveSettings?.operations);
   }, [syncTimings, effectiveSettings?.operations]);
 
-  // All-time item sales counts from orders
+  // All-time item sales counts: prefer server/guest itemSales, fallback to item.salesCount or orders
   const salesMap = useMemo(() => {
-    const counts = {};
+    const counts = { ...(guestItemSales || {}) };
+    (effectiveMenu || []).forEach(it => {
+      if (it && typeof it.salesCount === 'number') {
+        if (it.id && counts[it.id] === undefined) counts[it.id] = it.salesCount;
+        if (it.name && counts[it.name] === undefined) counts[it.name] = it.salesCount;
+      }
+    });
     (orders || []).forEach(o => {
       (o.items || []).forEach(it => {
         const key = it.id || it.itemId || it.name;
@@ -338,7 +346,7 @@ const QRMenu = () => {
       });
     });
     return counts;
-  }, [orders]);
+  }, [guestItemSales, effectiveMenu, orders]);
 
   // Derived active menu items (with hidden items filtered & pinned items prioritized)
   const menuItems = useMemo(() => {
@@ -393,20 +401,18 @@ const QRMenu = () => {
   const cartItemsCount = Object.values(cart).reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = Object.values(cart).reduce((sum, item) => sum + (item.item.price * item.qty), 0);
 
-  // Derive top-selling items from order history; fall back to first 4 menu items
+  // Derive top-selling items from order history/salesMap; fall back to first 4 menu items
   const topSellers = useMemo(() => {
-    const counts = {};
-    (orders || []).forEach(o => {
-      (o.items || []).forEach(it => {
-        counts[it.name] = (counts[it.name] || 0) + (it.qty || 1);
-      });
-    });
-    const withCounts = menuItems.filter(m => counts[m.name]);
+    const withCounts = menuItems.filter(m => (salesMap[m.id] || (m.name && salesMap[m.name]) || m.salesCount || 0) > 0);
     if (withCounts.length >= 2) {
-      return withCounts.sort((a, b) => (counts[b.name] || 0) - (counts[a.name] || 0)).slice(0, 4);
+      return withCounts.sort((a, b) => {
+        const aCount = salesMap[a.id] || (a.name && salesMap[a.name]) || a.salesCount || 0;
+        const bCount = salesMap[b.id] || (b.name && salesMap[b.name]) || b.salesCount || 0;
+        return bCount - aCount;
+      }).slice(0, 4);
     }
     return menuItems.slice(0, 4);
-  }, [orders, menuItems]);
+  }, [menuItems, salesMap]);
 
   const aiOrderingEnabled = effectiveSettings?.modules?.qrAiOrdering !== false;
   const pricesIncludeGst = effectiveSettings?.billing?.pricesIncludeGst !== false;

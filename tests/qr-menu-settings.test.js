@@ -212,6 +212,58 @@ describe('QR Menu Settings & AI Ordering Strategies', () => {
 
       expect(result[0].id).toBe('item-c');
     });
+
+    it('sorts all items from most sold to least sold across all categories when All is selected', () => {
+      const multiCatItems = [
+        { id: '1', name: 'Starter Soup', category: 'Starters', salesCount: 15, active: true },
+        { id: '2', name: 'Main Biryani', category: 'Main Course', salesCount: 150, active: true },
+        { id: '3', name: 'Dessert Brownie', category: 'Desserts', salesCount: 80, active: true },
+        { id: '4', name: 'Starter Wings', category: 'Starters', salesCount: 45, active: true },
+      ];
+
+      const result = sortAndFilterMenuItems(multiCatItems, {
+        category: 'All',
+        sortBySales: true,
+      });
+
+      expect(result.map(i => i.id)).toEqual(['2', '3', '4', '1']);
+    });
+
+    it('sorts according to selected category from most sold to least sold', () => {
+      const multiCatItems = [
+        { id: '1', name: 'Starter Soup', category: 'Starters', salesCount: 15, active: true },
+        { id: '2', name: 'Main Biryani', category: 'Main Course', salesCount: 150, active: true },
+        { id: '3', name: 'Dessert Brownie', category: 'Desserts', salesCount: 80, active: true },
+        { id: '4', name: 'Starter Wings', category: 'Starters', salesCount: 45, active: true },
+        { id: '5', name: 'Starter Spring Roll', category: 'Starters', salesCount: 5, active: true },
+      ];
+
+      const result = sortAndFilterMenuItems(multiCatItems, {
+        category: 'Starters',
+        sortBySales: true,
+      });
+
+      expect(result.map(i => i.id)).toEqual(['4', '1', '5']);
+    });
+
+    it('keeps pinned items on top within category while sorting remaining by sales', () => {
+      const multiCatItems = [
+        { id: '1', name: 'Starter Soup', category: 'Starters', salesCount: 15, active: true },
+        { id: '4', name: 'Starter Wings', category: 'Starters', salesCount: 45, active: true },
+        { id: '5', name: 'Starter Spring Roll', category: 'Starters', salesCount: 5, active: true },
+      ];
+
+      // Pin the lowest-selling Spring Roll
+      const result = sortAndFilterMenuItems(multiCatItems, {
+        category: 'Starters',
+        pinnedItemIds: ['5'],
+        sortBySales: true,
+      });
+
+      expect(result[0].id).toBe('5'); // Pinned Spring Roll on top
+      expect(result[1].id).toBe('4'); // 45 sales
+      expect(result[2].id).toBe('1'); // 15 sales
+    });
   });
 
   describe('High-Margin Suggestion Strategy (computeHighMarginItems)', () => {

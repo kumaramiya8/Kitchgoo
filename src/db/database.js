@@ -569,9 +569,26 @@ export async function initGuestTenantDB(tenantName, tableParam = '') {
 
   if (!isLive()) {
     await initTenantDB(tenantName);
+    const localOrders = getAll('orders') || [];
+    const itemSalesMap = {};
+    localOrders.forEach(o => {
+      (o.items || []).forEach(it => {
+        if (!it) return;
+        const qty = Number(it.qty) || 1;
+        const id = it.id || it.itemId;
+        const name = it.name;
+        if (id) itemSalesMap[id] = (itemSalesMap[id] || 0) + qty;
+        if (name) itemSalesMap[name] = (itemSalesMap[name] || 0) + qty;
+      });
+    });
+    const localMenu = (getAll('menu') || []).map(m => ({
+      ...m,
+      salesCount: itemSalesMap[m.id] ?? (m.name ? itemSalesMap[m.name] : undefined) ?? 0,
+    }));
     return {
-      menu: getAll('menu') || [],
+      menu: localMenu,
       settings: getSettings() || {},
+      itemSales: itemSalesMap,
       collections: {
         pos_tables: getAll('pos_tables') || [],
         pos_saved_orders: getAll('pos_saved_orders') || {},

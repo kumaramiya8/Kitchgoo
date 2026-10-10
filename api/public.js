@@ -80,14 +80,41 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   }
   const canonicalTenant = account.id;
 
-  const [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers] = await Promise.all([
+  const [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers, ordersData] = await Promise.all([
     db.from('menu').select('*').eq('account_id', canonicalTenant),
     db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', GUEST_SETTINGS_SECTIONS),
     getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
     getFlex(db, canonicalTenant, 'pos_tables', []),
     getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
     getFlex(db, canonicalTenant, 'modifiers', []),
+    (async () => {
+      try {
+        const res = await db.from('orders').select('items').eq('account_id', canonicalTenant).order('created_at', { ascending: false }).limit(2000);
+        return res?.data || [];
+      } catch {
+        return [];
+      }
+    })(),
   ]);
+
+  // Aggregate item sales counts so QR menu can sort by sales without leaking customer bills
+  const itemSalesMap = {};
+  (ordersData || []).forEach(o => {
+    const items = Array.isArray(o?.items) ? o.items : [];
+    items.forEach(it => {
+      if (!it) return;
+      const qty = Number(it.qty) || 1;
+      const id = it.id || it.itemId;
+      const name = it.name;
+      if (id) itemSalesMap[id] = (itemSalesMap[id] || 0) + qty;
+      if (name) itemSalesMap[name] = (itemSalesMap[name] || 0) + qty;
+    });
+  });
+
+  const enrichedMenu = (menuRows || []).map(item => {
+    const count = itemSalesMap[item.id] ?? (item.name ? itemSalesMap[item.name] : undefined) ?? 0;
+    return { ...item, salesCount: count };
+  });
 
   const settings = {};
   GUEST_SETTINGS_SECTIONS.forEach(s => { settings[s] = SEEDS.settings[s]; });
@@ -192,8 +219,9 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   res.json({
     success: true,
     tenant: canonicalTenant,
-    menu: menuRows || [],
+    menu: enrichedMenu || [],
     settings,
+    itemSales: itemSalesMap,
     collections: {
       floor_plans: floorPlans,
       pos_tables: mergedPosTables,
