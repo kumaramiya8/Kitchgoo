@@ -5,7 +5,8 @@ import { useAuth } from '../db/AuthContext';
 import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTableOrder, getAll, setGuestTable, upsertGuestFromQR } from '../db/database';
 import {
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award,
-  Sparkles, Send, Bot, Loader2, Pin, Clock, AlertTriangle
+  Sparkles, Send, Bot, Loader2, Pin, Clock, AlertTriangle, Flame, Leaf, Bell, Droplets,
+  CreditCard, ChevronDown, ChevronUp, Star, MessageSquare
 } from 'lucide-react';
 
 export function isRestaurantOpen(operations = {}, now = new Date()) {
@@ -170,9 +171,14 @@ const QRMenu = () => {
   const [guestItemSales, setGuestItemSales] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
+  const [dietaryFilter, setDietaryFilter] = useState('all'); // 'all' | 'veg' | 'non-veg'
+  const [sortMode, setSortMode] = useState('default'); // 'default' | 'sales' | 'price_asc'
   const [cart, setCart] = useState({}); // { itemId: { item, qty, notes } }
   const [showCart, setShowCart] = useState(false);
-  
+  const [serviceToast, setServiceToast] = useState(null);
+  const [activeNoteItemId, setActiveNoteItemId] = useState(null);
+  const [activeTableOrderExpanded, setActiveTableOrderExpanded] = useState(true);
+
   // Checkout form state
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
@@ -187,8 +193,6 @@ const QRMenu = () => {
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const aiEndRef = useRef(null);
-  // Pending AI order: items waiting to be confirmed once table + name are collected.
-  // pendingAiStep tracks what info the chat is currently collecting: 'table' | 'name' | null
   const [pendingAiOrder, setPendingAiOrder] = useState(null);
   const [pendingAiStep, setPendingAiStep] = useState(null);
 
@@ -198,7 +202,7 @@ const QRMenu = () => {
     const origHtmlOverflow = document.documentElement.style.overflow;
     const origBodyHeight = document.body.style.height;
     const origHtmlHeight = document.documentElement.style.height;
-    
+
     const rootEl = document.getElementById('root');
     const origRootHeight = rootEl ? rootEl.style.height : '';
 
@@ -232,9 +236,7 @@ const QRMenu = () => {
     }
   }, [showCart]);
 
-  // Re-init whenever the tenant OR table changes — a QR page navigated from
-  // ?table=1 to ?table=13 must reload as a fresh guest, not keep table 1's
-  // scoped data, name, or cart.
+  // Re-init whenever tenant or tableParam changes
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -262,17 +264,13 @@ const QRMenu = () => {
     return () => { cancelled = true; };
   }, [tenantId, tableParam]);
 
-  // Leaving the QR page: drop guest-mode scoping so an authenticated session
-  // in the same browser gets its full data back (otherwise POS sees this
-  // one table's slice and other tables look empty). Refs keep the cleanup
-  // stable without re-running on every render.
+  // Cleanup guest mode when navigating away
   const userRef = useRef(user);
   const reloadRef = useRef(reload);
   userRef.current = user;
   reloadRef.current = reload;
   useEffect(() => {
     return () => {
-      // Only restore authenticated tenant if the user is actually navigating AWAY from the QR menu
       if (typeof window !== 'undefined' && window.location?.pathname?.startsWith('/qrmenu/')) {
         return;
       }
@@ -284,8 +282,7 @@ const QRMenu = () => {
     };
   }, []);
 
-  // Prefill the guest's name and phone only when they haven't typed them yet, and only
-  // from THIS table's record — never carry details across tables.
+  // Prefill guest name and phone only from this table's record
   useEffect(() => {
     if (tableNumber && posTables && posTables.length > 0) {
       const targetTable = matchTable(posTables, tableNumber);
@@ -300,7 +297,7 @@ const QRMenu = () => {
     }
   }, [tableNumber, posTables, customerName, phone]);
 
-  // Sync guest table ID to sessionStorage and db memory for concurrency-safe database merging
+  // Sync guest table ID to sessionStorage and db memory
   useEffect(() => {
     if (tableNumber && posTables && posTables.length > 0) {
       const targetTable = matchTable(posTables, tableNumber);
@@ -310,7 +307,6 @@ const QRMenu = () => {
     }
   }, [tableNumber, posTables]);
 
-  // Effective data sources for the QR Menu (prefer direct guest-loaded data for this tenant)
   const effectiveMenu = (guestMenu && guestMenu.length > 0) ? guestMenu : menu;
   const effectiveSettings = guestSettings || settings;
 
@@ -318,12 +314,11 @@ const QRMenu = () => {
   const syncTimings = qrMenuSettings.syncTimings !== false;
   const closedMessage = qrMenuSettings.closedMessage || 'Our kitchen is currently closed for orders outside operating hours.';
   const headerBgImage = qrMenuSettings.headerBgImage || '';
-  const sortBySales = qrMenuSettings.sortBySales === true;
+  const sortBySalesSetting = qrMenuSettings.sortBySales === true;
   const pinnedItemIds = Array.isArray(qrMenuSettings.pinnedItemIds) ? qrMenuSettings.pinnedItemIds : [];
   const hiddenItemIds = Array.isArray(qrMenuSettings.hiddenItemIds) ? qrMenuSettings.hiddenItemIds : [];
   const aiPromoteHighMargin = qrMenuSettings.aiPromoteHighMargin !== false;
 
-  // Real-time Operating Hours Check
   const isStoreOpen = useMemo(() => {
     if (!syncTimings) return true;
     return isRestaurantOpen(effectiveSettings?.operations);
@@ -348,18 +343,18 @@ const QRMenu = () => {
     return counts;
   }, [guestItemSales, effectiveMenu, orders]);
 
-  // Derived active menu items (with hidden items filtered & pinned items prioritized)
+  // Base menu items
   const menuItems = useMemo(() => {
     if (!effectiveMenu) return [];
     return sortAndFilterMenuItems(effectiveMenu, {
       hiddenItemIds,
       pinnedItemIds,
-      sortBySales,
+      sortBySales: sortBySalesSetting,
       salesMap,
       category: 'All',
       searchQuery: '',
     });
-  }, [effectiveMenu, hiddenItemIds, pinnedItemIds, sortBySales, salesMap]);
+  }, [effectiveMenu, hiddenItemIds, pinnedItemIds, sortBySalesSetting, salesMap]);
 
   // Categories list
   const categories = useMemo(() => {
@@ -367,17 +362,49 @@ const QRMenu = () => {
     return ['All', ...cats];
   }, [menuItems]);
 
-  // Filtered menu list
+  // Filtered menu list with category, search, dietary pills, and sort modes
   const filteredItems = useMemo(() => {
-    return sortAndFilterMenuItems(menuItems, {
+    const effectiveSortBySales = sortBySalesSetting || sortMode === 'sales';
+    let list = sortAndFilterMenuItems(menuItems, {
       hiddenItemIds,
       pinnedItemIds,
-      sortBySales,
+      sortBySales: effectiveSortBySales,
       salesMap,
       category: activeCategory,
       searchQuery,
     });
-  }, [menuItems, hiddenItemIds, pinnedItemIds, sortBySales, salesMap, activeCategory, searchQuery]);
+
+    // Dietary filter
+    if (dietaryFilter === 'veg') {
+      list = list.filter(i => {
+        const t = (i.type || '').toLowerCase();
+        const d = Array.isArray(i.dietary) ? i.dietary.join(' ').toLowerCase() : String(i.dietary || '').toLowerCase();
+        const cat = String(i.category || '').toLowerCase();
+        return t === 'veg' || t === 'vegan' || d.includes('veg') || (cat.includes('veg') && !cat.includes('non-veg'));
+      });
+    } else if (dietaryFilter === 'non-veg') {
+      list = list.filter(i => {
+        const t = (i.type || '').toLowerCase();
+        const d = Array.isArray(i.dietary) ? i.dietary.join(' ').toLowerCase() : String(i.dietary || '').toLowerCase();
+        const cat = String(i.category || '').toLowerCase();
+        return t === 'non-veg' || d.includes('meat') || d.includes('chicken') || d.includes('fish') || cat.includes('non-veg');
+      });
+    }
+
+    // Price sort (while preserving pinned items at the top)
+    if (sortMode === 'price_asc' || sortMode === 'price_desc') {
+      const pinnedSet = new Set(pinnedItemIds || []);
+      list = [...list].sort((a, b) => {
+        const aPinned = pinnedSet.has(a.id);
+        const bPinned = pinnedSet.has(b.id);
+        if (aPinned && !bPinned) return -1;
+        if (!aPinned && bPinned) return 1;
+        return sortMode === 'price_asc' ? (a.price - b.price) : (b.price - a.price);
+      });
+    }
+
+    return list;
+  }, [menuItems, hiddenItemIds, pinnedItemIds, sortBySalesSetting, sortMode, salesMap, activeCategory, searchQuery, dietaryFilter]);
 
   // Fetch active items on the table from posSavedOrders
   const guestTableOrder = useMemo(() => {
@@ -397,11 +424,10 @@ const QRMenu = () => {
     }, 0);
   }, [guestTableOrder]);
 
-  // Helper values
   const cartItemsCount = Object.values(cart).reduce((sum, item) => sum + item.qty, 0);
   const cartSubtotal = Object.values(cart).reduce((sum, item) => sum + (item.item.price * item.qty), 0);
 
-  // Derive top-selling items from order history/salesMap; fall back to first 4 menu items
+  // Derive top-selling items from order history/salesMap
   const topSellers = useMemo(() => {
     const withCounts = menuItems.filter(m => (salesMap[m.id] || (m.name && salesMap[m.name]) || m.salesCount || 0) > 0);
     if (withCounts.length >= 2) {
@@ -409,7 +435,7 @@ const QRMenu = () => {
         const aCount = salesMap[a.id] || (a.name && salesMap[a.name]) || a.salesCount || 0;
         const bCount = salesMap[b.id] || (b.name && salesMap[b.name]) || b.salesCount || 0;
         return bCount - aCount;
-      }).slice(0, 4);
+      }).slice(0, 6);
     }
     return menuItems.slice(0, 4);
   }, [menuItems, salesMap]);
@@ -421,14 +447,14 @@ const QRMenu = () => {
   const isKitchgooFallback = rawResName && rawResName.toLowerCase() === 'kitchgoo' && tenantId && tenantId.toLowerCase() !== 'kitchgoo';
   const restaurantName = (!isKitchgooFallback && rawResName) ? rawResName : (tenantId || 'Kitchgoo');
 
-  // Initialise welcome message when chat first opens
+  // AI Welcome message
   useEffect(() => {
     if (showAiChat && aiMessages.length === 0) {
-      const restaurantLabel = restaurantName || 'our restaurant';
-      const topNames = topSellers.slice(0, 2).map(i => i.name).join(' and ');
+      const restaurantLabel = restaurantName || 'our kitchen';
+      const topNames = topSellers.slice(0, 2).map(i => i.name).join(' & ');
       setAiMessages([{
         role: 'assistant',
-        text: `Hi! 👋 I'm your AI food guide at **${restaurantLabel}**. Ask me what to order, I can add items to your cart for you!\n\n${topNames ? `🔥 Popular right now: ${topNames}` : 'What are you in the mood for?'}`,
+        text: `Hey there! 👋 I'm your AI Food Copilot at **${restaurantLabel}**.\n\nTell me what you're craving or your budget, and I'll recommend the best dishes and add them to your table!${topNames ? `\n\n🔥 Trending right now: ${topNames}` : ''}`,
       }]);
     }
   }, [showAiChat, restaurantName, topSellers]);
@@ -437,7 +463,7 @@ const QRMenu = () => {
     if (showAiChat) aiEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiMessages, showAiChat]);
 
-  // Core order placement — used by both the cart form and the AI chat flow.
+  // Core order placement
   const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems, extra = {}) => {
     if (!isStoreOpen) {
       return { ok: false, error: closedMessage };
@@ -449,7 +475,6 @@ const QRMenu = () => {
 
     let targetTable = matchTable(posTables || [], resolvedTable);
     if (!targetTable) {
-      // Dynamic fallback table so orders are NEVER lost if the floor plan table is missing
       const safeId = `tbl_${resolvedTable.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
       targetTable = {
         id: safeId,
@@ -481,7 +506,6 @@ const QRMenu = () => {
       };
     });
 
-    // Lookup existing items from posSavedOrders or database cache under table.id or table.number
     const cachedOrders = getAll('pos_saved_orders') || {};
     const existingItems = ((posSavedOrders && (posSavedOrders[targetTable.id] || (targetTable.number && posSavedOrders[String(targetTable.number)]))) ||
                            cachedOrders[targetTable.id] ||
@@ -510,10 +534,8 @@ const QRMenu = () => {
       seatedAt: isFreeOrBussing ? new Date().toISOString() : (targetTable.seatedAt || new Date().toISOString()),
     };
 
-    // 1. Immediately pin guest table ID in session storage and db memory for scoped syncing
     setGuestTable(targetTable.id);
 
-    // 2. Optimistic UI update
     setPosTables(prev => {
       const exists = (prev || []).some(t => String(t.id) === String(targetTable.id));
       if (exists) {
@@ -528,7 +550,6 @@ const QRMenu = () => {
       return next;
     });
 
-    // 3. Direct persistence to backend / database
     try {
       await saveTableState(targetTable.id, updatedTable);
     } catch (err) {
@@ -541,7 +562,6 @@ const QRMenu = () => {
       console.warn('[QRMenu] Error saving table order:', err);
     }
 
-    // 3b. Save / update customer in Guest List (CRM)
     if ((resolvedName && resolvedName.toLowerCase() !== 'walk-in') || guestPhoneNum) {
       try {
         await upsertGuestFromQR({
@@ -554,7 +574,6 @@ const QRMenu = () => {
       }
     }
 
-    // 4. Fire to KDS
     const kdsOrderId = `QR-${targetTable.number || targetTable.id}-${Date.now().toString().slice(-4)}`;
     try {
       await fireToKDS(kdsOrderId, newItems, targetTable.id, 'dine-in', {
@@ -572,7 +591,6 @@ const QRMenu = () => {
       console.warn('[QRMenu] Broadcast order error:', bErr);
     }
 
-    // Also dispatch locally so KDS on the same device (e.g. staff tablet) reacts immediately
     window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
 
     return { ok: true, tableId: targetTable.id, kdsOrderId };
@@ -582,7 +600,6 @@ const QRMenu = () => {
     if (!text.trim() || aiLoading) return;
     setAiInput('');
 
-    // Pending order — collecting missing info before placing
     if (pendingAiOrder) {
       const input = text.trim();
       setAiMessages(prev => [...prev, { role: 'user', text: input }]);
@@ -593,11 +610,9 @@ const QRMenu = () => {
           setAiMessages(prev => [...prev, { role: 'assistant', text: 'Please enter a valid table number using digits only (e.g. 5) 😊' }]);
           return;
         }
-        // Validate the table exists in this restaurant's floor plan or match flexibly
         const tableMatch = matchTable(posTables || [], digits);
         const resolvedTableStr = tableMatch ? String(tableMatch.number || tableMatch.id).replace(/\D/g, '') || digits : digits;
         setTableNumber(resolvedTableStr);
-        // Table confirmed — now check if name or phone is needed
         if (!customerName.trim()) {
           setPendingAiStep('name');
           setAiMessages(prev => [...prev, { role: 'assistant', text: `Got Table ${resolvedTableStr}! What name should I put on the order? 😊` }]);
@@ -605,10 +620,9 @@ const QRMenu = () => {
         }
         if (!phone.trim()) {
           setPendingAiStep('phone');
-          setAiMessages(prev => [...prev, { role: 'assistant', text: `Got Table ${resolvedTableStr}! What's your phone number for order updates and rewards? 📱` }]);
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Got Table ${resolvedTableStr}! What's your phone number for order updates? 📱` }]);
           return;
         }
-        // Have everything — place the order now (pass input directly, state update is async)
         setAiLoading(true);
         try {
           const result = await doPlaceOrder(customerName, resolvedTableStr, pendingAiOrder, { phone });
@@ -632,14 +646,14 @@ const QRMenu = () => {
         setCustomerName(name);
         if (!phone.trim()) {
           setPendingAiStep('phone');
-          setAiMessages(prev => [...prev, { role: 'assistant', text: `Nice to meet you, ${name}! What's your phone number for order updates and rewards? 📱` }]);
+          setAiMessages(prev => [...prev, { role: 'assistant', text: `Nice to meet you, ${name}! What's your phone number for updates? 📱` }]);
           return;
         }
         setAiLoading(true);
         try {
           const result = await doPlaceOrder(name, tableNumber, pendingAiOrder, { phone });
           if (result.ok) {
-            setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Got it, ${name}! Your order is on its way to the kitchen. Enjoy! 🍽️` }]);
+            setAiMessages(prev => [...prev, { role: 'assistant', text: `✅ Got it, ${name}! Your order is fired to the kitchen. Enjoy! 🍽️` }]);
           } else {
             setAiMessages(prev => [...prev, { role: 'assistant', text: `Sorry — ${result.error}` }]);
           }
@@ -657,7 +671,7 @@ const QRMenu = () => {
         const pInput = input.trim();
         const cleanDigits = pInput.replace(/\D/g, '');
         if (cleanDigits.length < 7) {
-          setAiMessages(prev => [...prev, { role: 'assistant', text: 'Please enter a valid phone number (at least 7 digits) so we can link your order 😊' }]);
+          setAiMessages(prev => [...prev, { role: 'assistant', text: 'Please enter a valid phone number (at least 7 digits) 😊' }]);
           return;
         }
         setPhone(pInput);
@@ -707,10 +721,8 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiLoading, aiMessages, menuItems, effectiveSettings, restaurantName, topSellers, aiPromoteHighMargin, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
+  }, [aiLoading, aiMessages, menuItems, restaurantName, topSellers, aiPromoteHighMargin, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
 
-  // Place the order suggested by the AI.
-  // Collects table number and/or guest name in-chat if not already known.
   const handleAiOrder = useCallback(async (aiItems) => {
     if (!isStoreOpen) {
       setAiMessages(prev => [...prev, {
@@ -726,7 +738,6 @@ const QRMenu = () => {
     }).filter(Boolean);
     if (!cartItems.length) return;
 
-    // Collect missing info in the chat — never send the guest away to a form
     if (!tableNumber.trim()) {
       setPendingAiOrder(cartItems);
       setPendingAiStep('table');
@@ -744,11 +755,10 @@ const QRMenu = () => {
     if (!phone.trim()) {
       setPendingAiOrder(cartItems);
       setPendingAiStep('phone');
-      setAiMessages(prev => [...prev, { role: 'assistant', text: "What's your phone number for order updates and rewards? 📱" }]);
+      setAiMessages(prev => [...prev, { role: 'assistant', text: "What's your phone number for order updates? 📱" }]);
       return;
     }
 
-    // All info present — place immediately
     setAiLoading(true);
     try {
       const result = await doPlaceOrder(customerName, tableNumber, cartItems, { phone });
@@ -844,340 +854,761 @@ const QRMenu = () => {
     }
   };
 
+  const handleServiceCall = (type) => {
+    const table = tableNumber || 'your table';
+    let message = `🛎️ Waiter notified for Table ${table}! Someone is heading over.`;
+    if (type === 'water') message = `💧 Water refill requested for Table ${table}! Server notified.`;
+    if (type === 'bill') message = `💳 Bill requested for Table ${table}! Server is preparing it.`;
+    setServiceToast({ type, text: message });
+    setTimeout(() => setServiceToast(null), 3500);
+  };
+
   if (loading) {
     return (
-      <div style={{ 
+      <div style={{
         position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        background: '#f8fafc', 
-        color: 'var(--text-secondary)' 
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#f8fafc',
+        color: '#64748b'
       }}>
-        <Utensils className="animate-spin" size={32} style={{ color: 'var(--primary)', marginBottom: 12 }} />
-        <p style={{ fontWeight: 600 }}>Loading digital menu...</p>
+        <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(15, 23, 42, 0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+          <Utensils className="animate-spin" size={28} style={{ color: '#0f172a' }} />
+        </div>
+        <p style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a', margin: 0 }}>Opening live menu...</p>
+        <span style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: 4 }}>Loading freshest items</span>
       </div>
     );
   }
 
   if (orderSuccess) {
     return (
-      <div style={{ 
+      <div style={{
         position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        inset: 0,
         overflowY: 'auto',
         WebkitOverflowScrolling: 'touch',
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        background: '#f8fafc', 
-        padding: 24, 
-        textAlign: 'center' 
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(180deg, #f8fafc 0%, #edf2f7 100%)',
+        padding: 24,
+        textAlign: 'center'
       }}>
-        <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,185,129,0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
-          <Check size={40} strokeWidth={3} />
+        <div style={{
+          width: 80,
+          height: 80,
+          borderRadius: '50%',
+          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          color: '#ffffff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 20,
+          boxShadow: '0 12px 28px rgba(16, 185, 129, 0.35)'
+        }}>
+          <Check size={44} strokeWidth={3} />
         </div>
-        <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e1b4b', marginBottom: 8 }}>Order Placed Successfully!</h2>
-        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', maxWidth: 300, margin: '0 auto 24px auto', lineHeight: 1.5 }}>
-          Your order has been sent directly to the kitchen. Please sit back and relax while we prepare your food!
+        <span style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: '#059669', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 12px', borderRadius: 9999, marginBottom: 10 }}>
+          Order Confirmed
+        </span>
+        <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', margin: '0 0 8px 0', letterSpacing: '-0.5px' }}>
+          Sent to Kitchen! 🔥
+        </h2>
+        <p style={{ fontSize: '0.92rem', color: '#64748b', maxWidth: 320, margin: '0 auto 20px auto', lineHeight: 1.5 }}>
+          Your order is being prepped. Sit back, relax, and track items from this screen anytime!
         </p>
-        <button className="btn btn-primary" onClick={() => setOrderSuccess(false)}>
-          Back to Menu
+
+        {tableNumber && (
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, padding: '10px 20px', marginBottom: 24, boxShadow: '0 4px 14px rgba(0,0,0,0.03)' }}>
+            <span style={{ fontSize: '0.78rem', color: '#64748b' }}>Assigned Table</span>
+            <div style={{ fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>Table {tableNumber}</div>
+          </div>
+        )}
+
+        <button
+          onClick={() => setOrderSuccess(false)}
+          style={{
+            background: '#0f172a',
+            color: '#ffffff',
+            border: 'none',
+            padding: '14px 28px',
+            borderRadius: 9999,
+            fontWeight: 800,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
+        >
+          <Utensils size={16} /> View & Add More Dishes
         </button>
       </div>
     );
   }
 
   return (
-    <div style={{ 
+    <div style={{
       minHeight: '100vh',
-      background: '#f8fafc', 
-      paddingBottom: cartItemsCount > 0 ? 100 : 40, 
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      display: 'flex',
-      flexDirection: 'column'
+      background: '#f1f5f9',
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif",
+      color: '#0f172a',
+      WebkitTapHighlightColor: 'transparent',
     }}>
-      
-      {/* Premium Cover Banner */}
-      <div style={{ 
-        background: headerBgImage
-          ? `linear-gradient(135deg, rgba(20, 50, 40, 0.78) 0%, rgba(10, 30, 24, 0.88) 100%), url("${headerBgImage}") center/cover no-repeat`
-          : 'linear-gradient(135deg, var(--primary), #2e7d5b)', 
-        color: 'white', 
-        padding: '30px 20px 24px 20px', 
-        borderBottomLeftRadius: 24, 
-        borderBottomRightRadius: 24,
-        boxShadow: '0 4px 20px rgba(30, 94, 74, 0.15)',
-        position: 'relative'
+      {/* Smartphone frame container */}
+      <div style={{
+        maxWidth: 500,
+        margin: '0 auto',
+        minHeight: '100vh',
+        background: '#ffffff',
+        boxShadow: '0 0 50px rgba(0,0,0,0.06)',
+        position: 'relative',
+        paddingBottom: cartItemsCount > 0 ? 110 : 50,
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.9, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginBottom: 4 }}>
-              <Award size={13} /> Digital QR Menu
-            </div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, letterSpacing: '-0.5px', margin: 0 }}>{restaurantName}</h1>
-            <p style={{ fontSize: '0.82rem', opacity: 0.85, marginTop: 4, marginBottom: 0 }}>Welcome! Scan, order, and enjoy.</p>
-          </div>
-          {tableNumber && (
-            <div style={{ background: 'rgba(255,255,255,0.2)', padding: '6px 12px', borderRadius: 12, fontWeight: 800, fontSize: '0.82rem', border: '1px solid rgba(255,255,255,0.3)', backdropFilter: 'blur(4px)' }}>
-              Table {tableNumber}
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* Operating Hours Alert Banner */}
-      {!isStoreOpen && (
-        <div style={{
-          margin: '14px 16px 0 16px',
-          padding: '14px 16px',
-          background: 'linear-gradient(135deg, #fef2f2, #fee2e2)',
-          border: '1px solid #fca5a5',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          color: '#991b1b',
-          boxShadow: '0 2px 8px rgba(239, 68, 68, 0.08)'
-        }}>
-          <Clock size={22} style={{ flexShrink: 0, color: '#dc2626' }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '0.88rem', fontWeight: 700 }}>Kitchen Closed for Ordering</div>
-            <div style={{ fontSize: '0.78rem', color: '#7f1d1d', marginTop: '2px', lineHeight: 1.4 }}>
-              {closedMessage}
-            </div>
-            <div style={{ fontSize: '0.72rem', color: '#991b1b', marginTop: '4px', opacity: 0.9 }}>
-              Operating Hours: {effectiveSettings?.operations?.openingTime || '09:00'} — {effectiveSettings?.operations?.closingTime || '23:00'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Body */}
-      <div style={{ padding: '16px 16px 0 16px' }}>
-        
-        {guestTableOrder && guestTableOrder.length > 0 && (
+        {/* ── Toast Alert Banner ─────────────────────────────────── */}
+        {serviceToast && (
           <div style={{
-            background: 'linear-gradient(135deg, #ffffff 0%, #f6f7f4 100%)',
-            borderRadius: 20,
-            padding: 16,
-            marginBottom: 20,
-            border: '1px solid rgba(30, 94, 74, 0.15)',
-            boxShadow: '0 8px 30px rgba(30, 94, 74, 0.06)'
+            position: 'fixed',
+            top: 20,
+            left: 20,
+            right: 20,
+            maxWidth: 460,
+            margin: '0 auto',
+            zIndex: 100,
+            background: '#0f172a',
+            color: '#ffffff',
+            padding: '12px 18px',
+            borderRadius: 16,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '0.84rem',
+            fontWeight: 650,
+            animation: 'slideDown 0.25s ease-out',
+            border: '1px solid rgba(255,255,255,0.1)'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Utensils size={18} style={{ color: 'var(--primary)' }} />
-                <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#1e1b4b' }}>Active Table Order</span>
-              </div>
-              <span style={{ 
-                fontSize: '0.7rem', 
-                fontWeight: 700, 
-                color: '#d97706', 
-                background: 'rgba(217, 119, 6, 0.08)', 
-                padding: '4px 10px', 
-                borderRadius: 20,
-                border: '1px solid rgba(217, 119, 6, 0.15)'
+            <span>{serviceToast.text}</span>
+            <button onClick={() => setServiceToast(null)} style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', padding: 2 }}>
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
+        {/* ── 1. Immersive Hero Header (Editorial Cover Style) ─── */}
+        <div style={{
+          position: 'relative',
+          minHeight: 180,
+          background: headerBgImage
+            ? `linear-gradient(180deg, rgba(15,23,42,0.45) 0%, rgba(15,23,42,0.85) 100%), url("${headerBgImage}") center/cover no-repeat`
+            : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+          color: '#ffffff',
+          padding: '24px 20px 24px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+        }}>
+          {/* Top Status Row */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'rgba(255, 255, 255, 0.15)',
+              backdropFilter: 'blur(8px)',
+              padding: '5px 12px',
+              borderRadius: 9999,
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              letterSpacing: '0.4px',
+              border: '1px solid rgba(255, 255, 255, 0.2)'
+            }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isStoreOpen ? '#22c55e' : '#f59e0b', display: 'inline-block' }} />
+              {isStoreOpen ? 'KITCHEN OPEN' : 'ORDERS CLOSED'}
+            </div>
+
+            {tableNumber && (
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(8px)',
+                padding: '5px 14px',
+                borderRadius: 9999,
+                fontWeight: 800,
+                fontSize: '0.82rem',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5
               }}>
-                PAYMENT PENDING
-              </span>
-            </div>
+                📍 Table {tableNumber}
+              </div>
+            )}
+          </div>
 
-            {/* List of items already ordered */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 160, overflowY: 'auto', paddingRight: 4 }}>
-              {guestTableOrder.map((item, idx) => {
-                const modPrice = (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0);
-                const itemTotal = (item.price + modPrice) * item.qty;
-                return (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.82rem', borderBottom: '1px dashed rgba(0,0,0,0.04)', paddingBottom: 6 }}>
-                    <div>
-                      <span style={{ fontWeight: 800, color: 'var(--primary)', marginRight: 6 }}>{item.qty}x</span>
-                      <span style={{ fontWeight: 600, color: '#374151' }}>{item.name}</span>
-                      {item.specialInstructions && (
-                        <div style={{ fontSize: '0.72rem', color: '#b45309', fontStyle: 'italic', marginTop: 2 }}>
-                          Note: {item.specialInstructions}
-                        </div>
-                      )}
-                    </div>
-                    <span style={{ fontWeight: 700, color: '#1e1b4b' }}>
-                      ₹{itemTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                );
-              })}
+          {/* Restaurant Identity */}
+          <div style={{ marginTop: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.85, fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 4 }}>
+              <Award size={13} /> Digital Table Experience
             </div>
-
-            <div style={{ height: '1px', background: 'rgba(0,0,0,0.06)', margin: '12px 0' }} />
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                {pricesIncludeGst ? 'Current Bill (Incl. GST):' : 'Current Bill (Subtotal):'}
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0, letterSpacing: '-0.5px', lineHeight: 1.15 }}>
+              {restaurantName}
+            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, fontSize: '0.8rem', opacity: 0.9 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 700, color: '#fbbf24' }}>
+                <Star size={13} fill="#fbbf24" strokeWidth={0} /> 4.9
               </span>
-              <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--primary)' }}>
-                ₹{billTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
+              <span>•</span>
+              <span>Fast in-seat ordering</span>
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: 8 }}>
-              You can add more items to this order by selecting from the menu below.
+          </div>
+        </div>
+
+        {/* ── Closed Kitchen Banner Notice ──────────────────────── */}
+        {!isStoreOpen && (
+          <div style={{
+            margin: '14px 16px 0 16px',
+            padding: '12px 14px',
+            background: '#fef2f2',
+            border: '1px solid #fecaca',
+            borderRadius: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            color: '#991b1b',
+          }}>
+            <Clock size={20} style={{ flexShrink: 0, color: '#dc2626' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 800 }}>Kitchen Currently Closed for New Orders</div>
+              <div style={{ fontSize: '0.75rem', color: '#7f1d1d', marginTop: 2, lineHeight: 1.3 }}>
+                {closedMessage}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Search Bar */}
-        <div style={{ position: 'relative', marginBottom: 16 }}>
-          <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input 
-            type="text" 
-            placeholder="Search delicious dishes..." 
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{ 
-              width: '100%', 
-              padding: '12px 16px 12px 40px', 
-              borderRadius: 16, 
-              border: '1.5px solid var(--border-subtle)', 
-              background: '#fff', 
-              fontSize: '0.9rem',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
-              outline: 'none',
-              transition: 'border-color var(--t-fast)'
-            }} 
-          />
-          {searchQuery && (
-            <X 
-              size={16} 
-              style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer' }}
-              onClick={() => setSearchQuery('')}
-            />
-          )}
+        {/* ── Table Service Companion Bar (In-Seat Assistance) ─── */}
+        <div style={{ padding: '14px 16px 0 16px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: '#f8fafc',
+            borderRadius: 16,
+            padding: '8px 12px',
+            border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Bell size={13} color="#ea580c" /> Staff Service
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => handleServiceCall('waiter')}
+                style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
+              >
+                🛎️ Call Waiter
+              </button>
+              <button
+                onClick={() => handleServiceCall('water')}
+                style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
+              >
+                💧 Water
+              </button>
+              <button
+                onClick={() => handleServiceCall('bill')}
+                style={{ fontSize: '0.7rem', fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer' }}
+              >
+                💳 Bill
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Categories Scroller */}
-        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, margin: '0 -16px 8px -16px', paddingLeft: 16, paddingRight: 16 }} className="scrollbar-hide">
-          {categories.map(cat => (
+        {/* ── Active Table Order Tracker (if dining and order exists) ── */}
+        {guestTableOrder && guestTableOrder.length > 0 && (
+          <div style={{ padding: '14px 16px 0 16px' }}>
+            <div style={{
+              background: '#f0fdf4',
+              borderRadius: 18,
+              padding: 14,
+              border: '1px solid #bbf7d0',
+              boxShadow: '0 4px 14px rgba(22, 101, 52, 0.05)'
+            }}>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => setActiveTableOrderExpanded(!activeTableOrderExpanded)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Utensils size={15} style={{ color: '#16a34a' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#14532d' }}>Active Table Order</div>
+                    <div style={{ fontSize: '0.72rem', color: '#166534' }}>{guestTableOrder.length} item{guestTableOrder.length > 1 ? 's' : ''} in kitchen</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#14532d' }}>
+                    ₹{billTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                  {activeTableOrderExpanded ? <ChevronUp size={16} color="#166534" /> : <ChevronDown size={16} color="#166534" />}
+                </div>
+              </div>
+
+              {activeTableOrderExpanded && (
+                <div style={{ marginTop: 12, borderTop: '1px dashed #86efac', paddingTop: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 130, overflowY: 'auto' }}>
+                    {guestTableOrder.map((item, idx) => {
+                      const modPrice = (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0);
+                      const itemTotal = (item.price + modPrice) * item.qty;
+                      return (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
+                          <span style={{ color: '#166534', fontWeight: 600 }}>
+                            <strong style={{ color: '#14532d' }}>{item.qty}×</strong> {item.name}
+                          </span>
+                          <span style={{ fontWeight: 700, color: '#14532d' }}>₹{itemTotal.toFixed(2)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#15803d', marginTop: 8, textAlign: 'center', fontWeight: 600 }}>
+                    You can add more dishes anytime from the menu below!
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── 2. "Trending Now" Horizontal Stories / Reels Carousel ── */}
+        {topSellers.length > 0 && !searchQuery && activeCategory === 'All' && (
+          <div style={{ marginTop: 18, marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 18px', marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.3px' }}>🔥 Trending Hits</span>
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#c2410c', background: '#fff7ed', padding: '2px 8px', borderRadius: 9999, border: '1px solid #ffedd5' }}>
+                  Popular
+                </span>
+              </div>
+              <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>Swipe →</span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '2px 18px 12px 18px', scrollSnapType: 'x mandatory' }} className="scrollbar-hide">
+              {topSellers.map(item => {
+                const cartQty = cart[item.id]?.qty || 0;
+                const count = salesMap[item.id] || (item.name && salesMap[item.name]) || item.salesCount || 0;
+                return (
+                  <div
+                    key={`top-${item.id}`}
+                    style={{
+                      width: 140,
+                      minWidth: 140,
+                      background: '#ffffff',
+                      borderRadius: 18,
+                      border: '1px solid #f1f5f9',
+                      boxShadow: '0 4px 14px rgba(0,0,0,0.04)',
+                      overflow: 'hidden',
+                      scrollSnapAlign: 'start',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      position: 'relative'
+                    }}
+                  >
+                    <div style={{ width: '100%', height: 96, position: 'relative', background: '#f8fafc' }}>
+                      {item.image ? (
+                        typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
+                          <div className="svg-img-container" style={{ width: '100%', height: '100%' }} dangerouslySetInnerHTML={{ __html: item.image }} />
+                        ) : (
+                          <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        )
+                      ) : (
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>🍽️</div>
+                      )}
+                      {count > 0 && (
+                        <span style={{ position: 'absolute', top: 6, left: 6, fontSize: '0.64rem', fontWeight: 800, background: 'rgba(15, 23, 42, 0.88)', backdropFilter: 'blur(4px)', color: '#fff', padding: '2px 6px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 3 }}>
+                          <Flame size={10} color="#f97316" /> {count}+
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ padding: '8px 10px 10px 10px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between' }}>
+                      <div>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {item.name}
+                        </div>
+                        <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#0f172a', marginTop: 2 }}>
+                          ₹{item.price.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 8 }}>
+                        {cartQty > 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#0f172a', color: '#fff', borderRadius: 9999, padding: '3px 8px' }}>
+                            <button onClick={() => handleRemoveFromCart(item.id)} style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                              <Minus size={11} strokeWidth={3} />
+                            </button>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 800 }}>{cartQty}</span>
+                            <button onClick={() => { if (!isStoreOpen) { alert(closedMessage); return; } handleAddToCart(item); }} style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                              <Plus size={11} strokeWidth={3} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              if (!isStoreOpen) { alert(closedMessage); return; }
+                              handleAddToCart(item);
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '5px 0',
+                              borderRadius: 9999,
+                              border: '1.5px solid #e2e8f0',
+                              background: '#fff',
+                              fontSize: '0.75rem',
+                              fontWeight: 800,
+                              color: '#0f172a',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 4
+                            }}
+                          >
+                            <Plus size={11} strokeWidth={3} /> ADD
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── 3. Sticky Filter & Category Bar ───────────────────── */}
+        <div style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 30,
+          background: 'rgba(255, 255, 255, 0.94)',
+          backdropFilter: 'blur(16px)',
+          borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
+          paddingTop: 12,
+        }}>
+          {/* Search Input */}
+          <div style={{ padding: '0 16px', marginBottom: 10 }}>
+            <div style={{ position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input
+                type="text"
+                placeholder="Search delicious dishes, ingredients..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px 10px 38px',
+                  borderRadius: 9999,
+                  border: '1.5px solid #e2e8f0',
+                  background: '#f8fafc',
+                  fontSize: '0.86rem',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+              {searchQuery && (
+                <X
+                  size={15}
+                  style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', cursor: 'pointer' }}
+                  onClick={() => setSearchQuery('')}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Quick Dietary & Sort Micro-Toggles */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '0 16px 10px 16px' }} className="scrollbar-hide">
             <button
-              key={cat}
-              onClick={() => { setActiveCategory(cat); setSearchQuery(''); }}
+              onClick={() => setDietaryFilter('all')}
               style={{
-                padding: '8px 16px',
-                borderRadius: 20,
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                border: 'none',
-                background: activeCategory === cat ? 'var(--primary)' : '#fff',
-                color: activeCategory === cat ? 'white' : 'var(--text-secondary)',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: 9999,
+                border: dietaryFilter === 'all' ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
+                background: dietaryFilter === 'all' ? '#0f172a' : '#ffffff',
+                color: dietaryFilter === 'all' ? '#ffffff' : '#64748b',
                 cursor: 'pointer',
-                transition: 'all var(--t-fast)'
+                whiteSpace: 'nowrap'
               }}
             >
-              {cat}
+              All Types
             </button>
-          ))}
-        </div>
+            <button
+              onClick={() => setDietaryFilter(dietaryFilter === 'veg' ? 'all' : 'veg')}
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: 9999,
+                border: dietaryFilter === 'veg' ? '1.5px solid #16a34a' : '1px solid #e2e8f0',
+                background: dietaryFilter === 'veg' ? '#f0fdf4' : '#ffffff',
+                color: dietaryFilter === 'veg' ? '#15803d' : '#64748b',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a' }} />
+              Pure Veg
+            </button>
+            <button
+              onClick={() => setDietaryFilter(dietaryFilter === 'non-veg' ? 'all' : 'non-veg')}
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: 9999,
+                border: dietaryFilter === 'non-veg' ? '1.5px solid #dc2626' : '1px solid #e2e8f0',
+                background: dietaryFilter === 'non-veg' ? '#fef2f2' : '#ffffff',
+                color: dietaryFilter === 'non-veg' ? '#b91c1c' : '#64748b',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626' }} />
+              Non-Veg
+            </button>
+            <button
+              onClick={() => setSortMode(sortMode === 'sales' ? 'default' : 'sales')}
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: 9999,
+                border: sortMode === 'sales' ? '1.5px solid #ea580c' : '1px solid #e2e8f0',
+                background: sortMode === 'sales' ? '#fff7ed' : '#ffffff',
+                color: sortMode === 'sales' ? '#c2410c' : '#64748b',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              <Flame size={12} color="#ea580c" />
+              Most Sold First
+            </button>
+            <button
+              onClick={() => setSortMode(sortMode === 'price_asc' ? 'default' : 'price_asc')}
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: 9999,
+                border: sortMode === 'price_asc' ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
+                background: sortMode === 'price_asc' ? '#0f172a' : '#ffffff',
+                color: sortMode === 'price_asc' ? '#ffffff' : '#64748b',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              ₹ Low to High
+            </button>
+          </div>
 
-        {/* Menu Items List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filteredItems.map(item => {
-            const cartQty = cart[item.id]?.qty || 0;
-            return (
-              <div 
-                key={item.id} 
-                className="card" 
-                style={{ 
-                  padding: 12, 
-                  display: 'flex', 
-                  gap: 12, 
-                  alignItems: 'center', 
-                  background: '#fff', 
-                  borderRadius: 16,
-                  border: '1px solid var(--border-subtle)',
-                  boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
+          {/* Categories Horizontal Scroller */}
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '0 16px 12px 16px' }} className="scrollbar-hide">
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => { setActiveCategory(cat); setSearchQuery(''); }}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 9999,
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  border: 'none',
+                  background: activeCategory === cat ? '#0f172a' : '#f1f5f9',
+                  color: activeCategory === cat ? '#ffffff' : '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
                 }}
               >
-                {/* Item Thumbnail Crop */}
-                <div style={{ width: 80, height: 80, borderRadius: 12, overflow: 'hidden', background: 'rgba(30, 94, 74,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {item.image ? (
-                    typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
-                      <div 
-                        className="svg-img-container" 
-                        style={{ width: '100%', height: '100%', overflow: 'hidden' }}
-                        dangerouslySetInnerHTML={{ __html: item.image }} 
-                      />
-                    ) : (
-                      <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    )
-                  ) : (
-                    <div style={{ fontSize: '1.8rem', opacity: 0.2 }}>🍔</div>
-                  )}
-                </div>
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
 
-                {/* Details */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
-                    <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: '#1e1b4b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{item.name}</h3>
+        {/* ── 4. Main Menu Items List ───────────────────────────── */}
+        <div style={{ padding: '16px 16px 0 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {filteredItems.map(item => {
+            const cartQty = cart[item.id]?.qty || 0;
+            const salesCount = salesMap[item.id] || (item.name && salesMap[item.name]) || item.salesCount || 0;
+            const isVeg = item.type === 'Veg' || item.type === 'Vegan' || (item.dietary && (item.dietary.includes('vegetarian') || item.dietary.includes('vegan'))) || (item.category && item.category.toLowerCase().includes('veg') && !item.category.toLowerCase().includes('non-veg'));
+            const isNonVeg = item.type === 'Non-Veg' || (item.dietary && (item.dietary.includes('meat') || item.dietary.includes('chicken') || item.dietary.includes('fish'))) || (item.category && item.category.toLowerCase().includes('non-veg'));
+
+            return (
+              <div
+                key={item.id}
+                style={{
+                  background: '#ffffff',
+                  borderRadius: 20,
+                  padding: '14px 14px',
+                  border: '1px solid #f1f5f9',
+                  boxShadow: '0 2px 10px rgba(0, 0, 0, 0.02)',
+                  display: 'flex',
+                  gap: 12,
+                  alignItems: 'flex-start',
+                  position: 'relative'
+                }}
+              >
+                {/* Left: Info */}
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                  {/* Badges row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                    {isVeg ? (
+                      <span title="Vegetarian" style={{ width: 14, height: 14, border: '1.5px solid #16a34a', borderRadius: 3, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a' }} />
+                      </span>
+                    ) : isNonVeg ? (
+                      <span title="Non-Vegetarian" style={{ width: 14, height: 14, border: '1.5px solid #dc2626', borderRadius: 3, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626' }} />
+                      </span>
+                    ) : null}
+
                     {pinnedItemIds.includes(item.id) && (
-                      <span style={{ fontSize: '0.65rem', fontWeight: 700, background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 6, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 9999, border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <Pin size={10} /> Chef's Pick
                       </span>
                     )}
+
+                    {salesCount > 0 && (
+                      <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#fff7ed', color: '#c2410c', padding: '2px 8px', borderRadius: 9999, border: '1px solid #ffedd5', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Flame size={10} color="#ea580c" /> {salesCount} ordered
+                      </span>
+                    )}
                   </div>
+
+                  {/* Title */}
+                  <h3 style={{ fontSize: '0.95rem', fontWeight: 750, margin: '2px 0 3px 0', color: '#0f172a', letterSpacing: '-0.2px', lineHeight: 1.3 }}>
+                    {item.name}
+                  </h3>
+
+                  {/* Price */}
+                  <div style={{ fontSize: '0.94rem', fontWeight: 800, color: '#0f172a', marginBottom: 5 }}>
+                    ₹{item.price.toLocaleString('en-IN')}
+                  </div>
+
+                  {/* Description */}
                   {item.description && (
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 6px 0', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0 0 8px 0', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {item.description}
                     </p>
                   )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.9rem' }}>
-                      ₹{item.price.toLocaleString('en-IN')}
-                    </span>
 
-                    {/* Quantity controller */}
-                    {cartQty > 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--primary-light)', padding: '2px 4px', borderRadius: 8 }}>
-                        <button 
-                          onClick={() => handleRemoveFromCart(item.id)}
-                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+                  {/* Note Editing when item in cart */}
+                  {cartQty > 0 && (
+                    <div style={{ marginTop: 'auto' }}>
+                      {activeNoteItemId === item.id ? (
+                        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                          <input
+                            type="text"
+                            placeholder="e.g. less spicy, no onion"
+                            value={cart[item.id]?.notes || ''}
+                            onChange={e => handleUpdateNotes(item.id, e.target.value)}
+                            style={{ flex: 1, padding: '4px 8px', fontSize: '0.72rem', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none' }}
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => setActiveNoteItemId(null)}
+                            style={{ fontSize: '0.72rem', padding: '4px 8px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer' }}
+                          >
+                            Done
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setActiveNoteItemId(item.id)}
+                          style={{ border: 'none', background: 'none', padding: 0, fontSize: '0.72rem', color: '#ea580c', fontWeight: 650, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                         >
-                          <Minus size={13} strokeWidth={2.5} />
+                          <MessageSquare size={11} /> {cart[item.id]?.notes ? `Note: "${cart[item.id].notes}"` : '+ Add note'}
                         </button>
-                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--primary)', minWidth: 14, textAlign: 'center' }}>{cartQty}</span>
-                        <button 
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Dish Photo & Morphing Add Button */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 96, flexShrink: 0 }}>
+                  <div style={{ width: 96, height: 96, borderRadius: 16, overflow: 'hidden', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    {item.image ? (
+                      typeof item.image === 'string' && item.image.trim().startsWith('<svg') ? (
+                        <div className="svg-img-container" style={{ width: '100%', height: '100%' }} dangerouslySetInnerHTML={{ __html: item.image }} />
+                      ) : (
+                        <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )
+                    ) : (
+                      <div style={{ fontSize: '2.2rem', opacity: 0.25 }}>🍔</div>
+                    )}
+                  </div>
+
+                  {/* Morphing Stepper CTA */}
+                  <div style={{ marginTop: -14, zIndex: 2 }}>
+                    {cartQty > 0 ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f172a', color: '#fff', padding: '5px 10px', borderRadius: 9999, boxShadow: '0 4px 12px rgba(15,23,42,0.25)' }}>
+                        <button
+                          onClick={() => handleRemoveFromCart(item.id)}
+                          style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
+                        >
+                          <Minus size={12} strokeWidth={3} />
+                        </button>
+                        <span style={{ fontWeight: 800, fontSize: '0.82rem', minWidth: 14, textAlign: 'center' }}>{cartQty}</span>
+                        <button
                           onClick={() => {
-                            if (!isStoreOpen) {
-                              alert(closedMessage);
-                              return;
-                            }
+                            if (!isStoreOpen) { alert(closedMessage); return; }
                             handleAddToCart(item);
                           }}
-                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+                          style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
                         >
-                          <Plus size={13} strokeWidth={2.5} />
+                          <Plus size={12} strokeWidth={3} />
                         </button>
                       </div>
                     ) : (
-                      <button 
+                      <button
                         onClick={() => {
-                          if (!isStoreOpen) {
-                            alert(closedMessage);
-                            return;
-                          }
+                          if (!isStoreOpen) { alert(closedMessage); return; }
                           handleAddToCart(item);
                         }}
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '4px 12px', fontSize: '0.78rem', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4 }}
+                        style={{
+                          padding: '6px 18px',
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          borderRadius: 9999,
+                          border: '1.5px solid #e2e8f0',
+                          background: '#ffffff',
+                          color: '#0f172a',
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
                       >
-                        <Plus size={12} /> Add
+                        <Plus size={12} strokeWidth={3} /> ADD
                       </button>
                     )}
                   </div>
@@ -1185,366 +1616,428 @@ const QRMenu = () => {
               </div>
             );
           })}
+
           {filteredItems.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)' }}>
-              <Utensils size={32} style={{ strokeWidth: 1.5, margin: '0 auto 12px auto', opacity: 0.5 }} />
-              <p style={{ fontSize: '0.88rem' }}>No items match your search.</p>
+            <div style={{ textAlign: 'center', padding: '56px 16px', color: '#94a3b8' }}>
+              <Utensils size={36} style={{ strokeWidth: 1.5, margin: '0 auto 12px auto', opacity: 0.4 }} />
+              <p style={{ fontSize: '0.92rem', fontWeight: 700, color: '#475569', margin: '0 0 4px 0' }}>No dishes found</p>
+              <span style={{ fontSize: '0.78rem' }}>Try clearing filters or searching another keyword.</span>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Sticky Bottom Cart Bar */}
-      {cartItemsCount > 0 && (
-        <div style={{ 
-          position: 'fixed', 
-          bottom: 0, 
-          left: 0, 
-          right: 0, 
-          background: 'rgba(255,255,255,0.9)', 
-          backdropFilter: 'blur(20px)',
-          borderTop: '1px solid var(--border-subtle)', 
-          padding: '12px 16px', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between',
-          zIndex: 10,
-          boxShadow: '0 -4px 20px rgba(0,0,0,0.05)'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>{cartItemsCount} item{cartItemsCount > 1 ? 's' : ''} added</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--primary)' }}>₹{cartSubtotal.toLocaleString('en-IN')}</div>
-          </div>
-          <button 
-            className="btn btn-primary" 
-            onClick={() => setShowCart(true)}
-            style={{ padding: '10px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <ShoppingCart size={15} /> View Cart <ChevronRight size={15} />
-          </button>
-        </div>
-      )}
-
-      {/* ── AI Ordering Chat ──────────────────────────────────── */}
-      {aiOrderingEnabled && !orderSuccess && (
-        <>
-          {/* Floating AI button */}
-          <button
-            onClick={() => setShowAiChat(true)}
+        {/* ── 5. Floating Glass Bottom Cart Capsule ──────────────── */}
+        {cartItemsCount > 0 && !showCart && (
+          <div
             style={{
               position: 'fixed',
-              bottom: cartItemsCount > 0 ? 82 : 24,
-              right: 16,
-              zIndex: 20,
-              width: 52,
-              height: 52,
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
-              color: 'white',
-              border: 'none',
-              cursor: 'pointer',
+              bottom: 20,
+              left: 20,
+              right: 20,
+              maxWidth: 460,
+              margin: '0 auto',
+              zIndex: 40,
+              background: 'rgba(15, 23, 42, 0.94)',
+              backdropFilter: 'blur(20px)',
+              borderRadius: 9999,
+              padding: '10px 18px',
+              color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 16px rgba(124,58,237,0.4)',
-              transition: 'all 0.2s ease',
+              justifyContent: 'space-between',
+              boxShadow: '0 12px 36px rgba(15, 23, 42, 0.35)',
+              cursor: 'pointer'
             }}
-            aria-label="AI food assistant"
+            onClick={() => setShowCart(true)}
           >
-            <Sparkles size={22} />
-          </button>
-
-          {/* AI Chat Panel */}
-          {showAiChat && (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 98, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-              {/* Backdrop */}
-              <div style={{ position: 'absolute', inset: 0, background: 'rgba(30,27,75,0.4)' }} onClick={() => setShowAiChat(false)} />
-
-              {/* Sheet */}
-              <div style={{
-                position: 'relative',
-                background: '#fff',
-                borderTopLeftRadius: 24,
-                borderTopRightRadius: 24,
-                height: '80vh',
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 -8px 40px rgba(124,58,237,0.15)',
-                overflow: 'hidden',
-              }}>
-                {/* Header */}
-                <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(124,58,237,0.12)', display: 'flex', alignItems: 'center', gap: 10, background: 'linear-gradient(135deg,rgba(124,58,237,0.06),rgba(79,70,229,0.03))' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Bot size={18} color="white" />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: '#1e1b4b' }}>AI Food Guide</div>
-                    <div style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>Ask me anything about the menu</div>
-                  </div>
-                  <button onClick={() => setShowAiChat(false)} style={{ border: 'none', background: 'rgba(0,0,0,0.05)', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
-                    <X size={14} />
-                  </button>
-                </div>
-
-                {/* Messages */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {aiMessages.map((msg, i) => (
-                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 6 }}>
-                      <div style={{
-                        maxWidth: '85%',
-                        padding: '10px 13px',
-                        borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '4px 16px 16px 16px',
-                        background: msg.role === 'user' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : '#f4f4f8',
-                        color: msg.role === 'user' ? '#fff' : '#1e1b4b',
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        fontWeight: 500,
-                        whiteSpace: 'pre-wrap',
-                      }}>
-                        {msg.text?.replace(/\*\*(.*?)\*\*/g, '$1')}
-                      </div>
-                      {msg.addToCart && msg.addToCart.length > 0 && (
-                        <button
-                          onClick={() => handleAiOrder(msg.addToCart)}
-                          style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 20, border: 'none', background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-                        >
-                          <Send size={13} />
-                          Order now — {msg.addToCart.map(i => `${i.qty || 1}× ${i.name}`).join(', ')}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {aiLoading && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#7c3aed', fontSize: 13 }}>
-                      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Thinking…
-                    </div>
-                  )}
-                  <div ref={aiEndRef} />
-                </div>
-
-                {/* Top sellers quick chips */}
-                {topSellers.length > 0 && (
-                  <div style={{ padding: '8px 14px 0', display: 'flex', gap: 8, overflowX: 'auto', borderTop: '1px solid rgba(0,0,0,0.04)' }} className="scrollbar-hide">
-                    <button
-                      onClick={() => sendAiMessage('What do you recommend?')}
-                      style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, padding: '5px 11px', borderRadius: 20, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
-                    >
-                      ✨ Recommend
-                    </button>
-                    {topSellers.map(item => (
-                      <button
-                        key={item.id}
-                        onClick={() => sendAiMessage(`Tell me about ${item.name} and add it to my cart`)}
-                        style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, padding: '5px 11px', borderRadius: 20, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
-                      >
-                        🔥 {item.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Input */}
-                <div style={{ padding: '10px 14px 14px', display: 'flex', gap: 8, alignItems: 'flex-end', background: '#fff', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                  <input
-                    type="text"
-                    placeholder={
-                      pendingAiStep === 'table' ? 'Type your table number…' :
-                      pendingAiStep === 'name'  ? 'Type your name to confirm…' :
-                      'Ask about the menu…'
-                    }
-                    value={aiInput}
-                    onChange={e => setAiInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(aiInput); } }}
-                    style={{ flex: 1, padding: '10px 14px', borderRadius: 20, border: '1.5px solid rgba(124,58,237,0.25)', fontSize: 13, outline: 'none', background: '#f8f7ff' }}
-                  />
-                  <button
-                    onClick={() => sendAiMessage(aiInput)}
-                    disabled={!aiInput.trim() || aiLoading}
-                    style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: !aiInput.trim() || aiLoading ? 0.5 : 1 }}
-                  >
-                    <Send size={16} />
-                  </button>
-                </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ShoppingCart size={18} />
+                <span style={{ position: 'absolute', top: -3, right: -3, background: '#ea580c', color: '#fff', fontSize: '0.66rem', fontWeight: 900, width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #0f172a' }}>
+                  {cartItemsCount}
+                </span>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>{cartItemsCount} item{cartItemsCount > 1 ? 's' : ''} added</div>
+                <div style={{ fontSize: '1.08rem', fontWeight: 900, letterSpacing: '-0.3px' }}>₹{cartSubtotal.toLocaleString('en-IN')}</div>
               </div>
             </div>
-          )}
-        </>
-      )}
 
-      {/* Cart Drawer / Modal */}
-      {showCart && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          right: 0, 
-          bottom: 0, 
-          background: 'rgba(30,27,75,0.5)', 
-          zIndex: 99, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          justifyContent: 'flex-end' 
-        }}>
-          {/* Dismiss overlay click */}
-          <div style={{ flex: 1 }} onClick={() => setShowCart(false)} />
-          
-          {/* Drawer content */}
-          <div style={{ 
-            background: '#fff', 
-            borderTopLeftRadius: 24, 
-            borderTopRightRadius: 24, 
-            maxHeight: '85vh', 
-            display: 'flex', 
-            flexDirection: 'column',
-            boxShadow: '0 -8px 32px rgba(0,0,0,0.12)',
-            animation: 'slideUp 0.3s ease-out'
-          }}>
-            {/* Header */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e1b4b', margin: 0 }}>Your Cart</h2>
-              <button 
-                onClick={() => setShowCart(false)} 
-                style={{ border: 'none', background: 'rgba(0,0,0,0.04)', width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            {/* Scrollable list */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-              
-              {/* Cart Items */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
-                {Object.entries(cart).map(([itemId, cartItem]) => (
-                  <div key={itemId} style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: 14 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e1b4b' }}>{cartItem.item.name}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2 }}>₹{cartItem.item.price} each</div>
-                      </div>
-                      
-                      {/* Qty selectors */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--primary-light)', padding: '2px 4px', borderRadius: 8 }}>
-                        <button 
-                          onClick={() => handleRemoveFromCart(itemId)}
-                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4 }}
-                        >
-                          <Minus size={12} strokeWidth={2.5} />
-                        </button>
-                        <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--primary)', minWidth: 12, textAlign: 'center' }}>{cartItem.qty}</span>
-                        <button 
-                          onClick={() => handleAddToCart(cartItem.item)}
-                          style={{ border: 'none', background: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 4 }}
-                        >
-                          <Plus size={12} strokeWidth={2.5} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Special instruction for item */}
-                    <input 
-                      type="text" 
-                      placeholder="Add preparation notes (e.g. less spice, no onion)..."
-                      value={cartItem.notes || ''}
-                      onChange={e => handleUpdateNotes(itemId, e.target.value)}
-                      style={{ 
-                        width: '100%', 
-                        padding: '6px 10px', 
-                        borderRadius: 8, 
-                        border: '1px solid var(--border-subtle)', 
-                        fontSize: '0.72rem', 
-                        background: '#f8fafc',
-                        outline: 'none'
-                      }} 
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {/* Checkout Form */}
-              <form onSubmit={handlePlaceOrder} style={{ borderTop: '2px dashed var(--border-subtle)', paddingTop: 16 }}>
-                <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e1b4b', marginBottom: 12 }}>Guest Details</h3>
-                
-                <div className="input-group" style={{ marginBottom: 12 }}>
-                  <label className="input-label" style={{ fontSize: '0.75rem' }}>Your Name *</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder="Enter payee/customer name"
-                    value={customerName}
-                    onChange={e => setCustomerName(e.target.value)}
-                    className="input-field" 
-                    style={{ margin: 0, padding: 10, fontSize: '0.85rem' }}
-                  />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 10, marginBottom: 12 }}>
-                  <div className="input-group">
-                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Phone Number *</label>
-                    <input 
-                      type="tel" 
-                      required
-                      placeholder="e.g. 9876543210"
-                      value={phone}
-                      onChange={e => setPhone(e.target.value)}
-                      className="input-field" 
-                      style={{ margin: 0, padding: 10, fontSize: '0.85rem' }}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label className="input-label" style={{ fontSize: '0.75rem' }}>Table No. *</label>
-                    <input 
-                      type="text" 
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      required 
-                      placeholder="e.g. 5"
-                      value={tableNumber}
-                      onChange={e => setTableNumber(e.target.value.replace(/\D/g, ''))}
-                      className="input-field" 
-                      style={{ margin: 0, padding: 10, fontSize: '0.85rem' }}
-                    />
-                  </div>
-                </div>
-
-                <div className="input-group" style={{ marginBottom: 20 }}>
-                  <label className="input-label" style={{ fontSize: '0.75rem' }}>Additional Remarks / Instructions (Optional)</label>
-                  <textarea 
-                    placeholder="Any general instruction for the kitchen..."
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    className="input-field" 
-                    rows={2}
-                    style={{ margin: 0, padding: 10, fontSize: '0.85rem', resize: 'none' }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Total Amount</span>
-                  <span style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--primary)' }}>₹{cartSubtotal.toLocaleString('en-IN')}</span>
-                </div>
-
-                <button 
-                  type="submit" 
-                  disabled={isSubmitting || !isStoreOpen}
-                  className="btn btn-primary" 
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    borderRadius: 12,
-                    fontWeight: 700,
-                    opacity: !isStoreOpen ? 0.6 : 1,
-                    cursor: !isStoreOpen ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {!isStoreOpen ? 'Kitchen Closed (Browsing Only)' : (isSubmitting ? 'Sending Order...' : 'Send Order to Kitchen')}
-                </button>
-              </form>
-
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#ea580c', padding: '8px 16px', borderRadius: 9999, fontWeight: 800, fontSize: '0.84rem' }}>
+              View Order <ChevronRight size={15} />
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ── 6. AI Food Copilot (Gen Z "Craving Matcher") ─────────── */}
+        {aiOrderingEnabled && !orderSuccess && (
+          <>
+            {/* Floating AI Bubble */}
+            <button
+              onClick={() => setShowAiChat(true)}
+              style={{
+                position: 'fixed',
+                bottom: cartItemsCount > 0 ? 84 : 24,
+                right: 20,
+                zIndex: 42,
+                padding: '9px 15px',
+                borderRadius: 9999,
+                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                color: '#ffffff',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                boxShadow: '0 6px 20px rgba(124,58,237,0.35)',
+                fontWeight: 750,
+                fontSize: '0.82rem',
+              }}
+            >
+              <Sparkles size={16} />
+              <span>Ask AI Copilot</span>
+            </button>
+
+            {/* AI Assistant Drawer */}
+            {showAiChat && (
+              <div style={{ position: 'fixed', inset: 0, zIndex: 98, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)' }} onClick={() => setShowAiChat(false)} />
+
+                <div style={{
+                  position: 'relative',
+                  background: '#ffffff',
+                  borderTopLeftRadius: 28,
+                  borderTopRightRadius: 28,
+                  height: '82vh',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  boxShadow: '0 -10px 40px rgba(0,0,0,0.2)',
+                  overflow: 'hidden',
+                  maxWidth: 500,
+                  width: '100%',
+                  margin: '0 auto'
+                }}>
+                  {/* Header */}
+                  <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%)' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                      <Bot size={20} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.94rem', fontWeight: 800, color: '#0f172a' }}>AI Food Copilot ✨</div>
+                      <div style={{ fontSize: '0.74rem', color: '#7c3aed', fontWeight: 650 }}>Ask cravings, recommendations & combos</div>
+                    </div>
+                    <button onClick={() => setShowAiChat(false)} style={{ border: 'none', background: 'rgba(0,0,0,0.05)', width: 32, height: 32, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <X size={16} color="#64748b" />
+                    </button>
+                  </div>
+
+                  {/* Messages */}
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {aiMessages.map((msg, i) => (
+                      <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: 6 }}>
+                        <div style={{
+                          maxWidth: '85%',
+                          padding: '11px 15px',
+                          borderRadius: msg.role === 'user' ? '20px 20px 4px 20px' : '4px 20px 20px 20px',
+                          background: msg.role === 'user' ? 'linear-gradient(135deg, #7c3aed, #4f46e5)' : '#f8fafc',
+                          color: msg.role === 'user' ? '#ffffff' : '#0f172a',
+                          fontSize: '0.86rem',
+                          lineHeight: 1.5,
+                          fontWeight: 500,
+                          border: msg.role === 'user' ? 'none' : '1px solid #e2e8f0',
+                          whiteSpace: 'pre-wrap'
+                        }}>
+                          {msg.text?.replace(/\*\*(.*?)\*\*/g, '$1')}
+                        </div>
+                        {msg.addToCart && msg.addToCart.length > 0 && (
+                          <button
+                            onClick={() => handleAiOrder(msg.addToCart)}
+                            style={{
+                              fontSize: '0.78rem',
+                              fontWeight: 750,
+                              padding: '8px 16px',
+                              borderRadius: 9999,
+                              border: 'none',
+                              background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                              color: '#ffffff',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              boxShadow: '0 4px 14px rgba(124,58,237,0.3)'
+                            }}
+                          >
+                            <Send size={13} />
+                            Order Now — {msg.addToCart.map(i => `${i.qty || 1}× ${i.name}`).join(', ')}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {aiLoading && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#7c3aed', fontSize: '0.84rem', fontWeight: 650 }}>
+                        <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Generating recommendations…
+                      </div>
+                    )}
+                    <div ref={aiEndRef} />
+                  </div>
+
+                  {/* 1-Tap Vibe Prompts */}
+                  <div style={{ padding: '8px 16px 0 16px', display: 'flex', gap: 6, overflowX: 'auto', borderTop: '1px solid #f1f5f9' }} className="scrollbar-hide">
+                    <button
+                      onClick={() => sendAiMessage('What are the most popular bestsellers right now?')}
+                      style={{ whiteSpace: 'nowrap', fontSize: '0.72rem', fontWeight: 700, padding: '5px 11px', borderRadius: 9999, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      🔥 Most Hyped
+                    </button>
+                    <button
+                      onClick={() => sendAiMessage('Suggest a healthy, light meal under 400 calories')}
+                      style={{ whiteSpace: 'nowrap', fontSize: '0.72rem', fontWeight: 700, padding: '5px 11px', borderRadius: 9999, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      🥑 Healthy & Clean
+                    </button>
+                    <button
+                      onClick={() => sendAiMessage('Suggest the best combo for 2 people under ₹600')}
+                      style={{ whiteSpace: 'nowrap', fontSize: '0.72rem', fontWeight: 700, padding: '5px 11px', borderRadius: 9999, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      💸 Meal for 2
+                    </button>
+                    <button
+                      onClick={() => sendAiMessage('I want something super spicy and comforting')}
+                      style={{ whiteSpace: 'nowrap', fontSize: '0.72rem', fontWeight: 700, padding: '5px 11px', borderRadius: 9999, border: '1.5px solid rgba(124,58,237,0.25)', background: 'rgba(124,58,237,0.05)', color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                      🌶️ Extra Spicy
+                    </button>
+                  </div>
+
+                  {/* Input bar */}
+                  <div style={{ padding: '10px 16px 16px 16px', display: 'flex', gap: 8, alignItems: 'center', background: '#fff' }}>
+                    <input
+                      type="text"
+                      placeholder={
+                        pendingAiStep === 'table' ? 'Type your table number…' :
+                        pendingAiStep === 'name'  ? 'Type your name…' :
+                        'Ask about dishes, ingredients, or pairings…'
+                      }
+                      value={aiInput}
+                      onChange={e => setAiInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(aiInput); } }}
+                      style={{ flex: 1, padding: '11px 16px', borderRadius: 9999, border: '1.5px solid #e2e8f0', fontSize: '0.86rem', outline: 'none', background: '#f8fafc' }}
+                    />
+                    <button
+                      onClick={() => sendAiMessage(aiInput)}
+                      disabled={!aiInput.trim() || aiLoading}
+                      style={{ width: 42, height: 42, borderRadius: '50%', border: 'none', background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: !aiInput.trim() || aiLoading ? 0.5 : 1 }}
+                    >
+                      <Send size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── 7. Slide-Up Bottom Sheet Cart ────────────────────────── */}
+        {showCart && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 99,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end'
+          }}>
+            <div style={{ flex: 1 }} onClick={() => setShowCart(false)} />
+
+            <div style={{
+              background: '#ffffff',
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              maxHeight: '88vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 -10px 40px rgba(0,0,0,0.2)',
+              maxWidth: 500,
+              width: '100%',
+              margin: '0 auto',
+              overflow: 'hidden'
+            }}>
+              {/* Drag Pill Handle */}
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px 0' }}>
+                <div style={{ width: 36, height: 4, borderRadius: 9999, background: '#cbd5e1' }} />
+              </div>
+
+              {/* Header */}
+              <div style={{ padding: '8px 20px 14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.15rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>Your Order Cart</h2>
+                  <span style={{ fontSize: '0.74rem', color: '#64748b' }}>Table {tableNumber || 'Pending'}</span>
+                </div>
+                <button
+                  onClick={() => setShowCart(false)}
+                  style={{ border: 'none', background: '#f1f5f9', width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                >
+                  <X size={15} color="#64748b" />
+                </button>
+              </div>
+
+              {/* Scrollable Cart Content */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+                {/* Items List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+                  {Object.entries(cart).map(([itemId, cartItem]) => (
+                    <div key={itemId} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                        <div>
+                          <div style={{ fontWeight: 750, fontSize: '0.9rem', color: '#0f172a' }}>{cartItem.item.name}</div>
+                          <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 650, marginTop: 2 }}>
+                            ₹{cartItem.item.price} × {cartItem.qty} = <span style={{ color: '#0f172a', fontWeight: 800 }}>₹{cartItem.item.price * cartItem.qty}</span>
+                          </div>
+                        </div>
+
+                        {/* Quantity Stepper */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0f172a', color: '#fff', padding: '4px 10px', borderRadius: 9999 }}>
+                          <button
+                            onClick={() => handleRemoveFromCart(itemId)}
+                            style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2 }}
+                          >
+                            <Minus size={11} strokeWidth={3} />
+                          </button>
+                          <span style={{ fontWeight: 800, fontSize: '0.82rem', minWidth: 12, textAlign: 'center' }}>{cartItem.qty}</span>
+                          <button
+                            onClick={() => handleAddToCart(cartItem.item)}
+                            style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2 }}
+                          >
+                            <Plus size={11} strokeWidth={3} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Item Note */}
+                      <input
+                        type="text"
+                        placeholder="Add cooking note (e.g. less spicy, no mayo)..."
+                        value={cartItem.notes || ''}
+                        onChange={e => handleUpdateNotes(itemId, e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '7px 12px',
+                          borderRadius: 10,
+                          border: '1px solid #e2e8f0',
+                          fontSize: '0.74rem',
+                          background: '#f8fafc',
+                          outline: 'none',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Checkout Form */}
+                <form onSubmit={handlePlaceOrder} style={{ borderTop: '2px dashed #e2e8f0', paddingTop: 16 }}>
+                  <h3 style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>
+                    Guest Details
+                  </h3>
+
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: 4 }}>Your Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Alex"
+                      value={customerName}
+                      onChange={e => setCustomerName(e.target.value)}
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: '0.86rem', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.9fr', gap: 10, marginBottom: 12 }}>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: 4 }}>Phone Number *</label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="e.g. 9876543210"
+                        value={phone}
+                        onChange={e => setPhone(e.target.value)}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: '0.86rem', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: 4 }}>Table No. *</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        required
+                        placeholder="e.g. 4"
+                        value={tableNumber}
+                        onChange={e => setTableNumber(e.target.value.replace(/\D/g, ''))}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: '0.86rem', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: 4 }}>General Remarks (Optional)</label>
+                    <textarea
+                      placeholder="Any overall instructions for table service..."
+                      value={notes}
+                      onChange={e => setNotes(e.target.value)}
+                      rows={2}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: '0.84rem', outline: 'none', resize: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  {/* Summary Breakdown */}
+                  <div style={{ background: '#f8fafc', borderRadius: 16, padding: '12px 14px', marginBottom: 18, border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#64748b', marginBottom: 6 }}>
+                      <span>Subtotal</span>
+                      <span style={{ fontWeight: 700, color: '#0f172a' }}>₹{cartSubtotal.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', color: '#64748b', marginBottom: 8 }}>
+                      <span>Taxes & GST</span>
+                      <span style={{ fontWeight: 650 }}>{pricesIncludeGst ? 'Included' : `+${effectiveSettings?.billing?.gstRate || 5}% GST`}</span>
+                    </div>
+                    <div style={{ height: '1px', background: '#e2e8f0', margin: '6px 0' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0f172a' }}>Total Pay</span>
+                      <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>₹{cartSubtotal.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !isStoreOpen}
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: 9999,
+                      fontWeight: 800,
+                      fontSize: '0.94rem',
+                      background: isStoreOpen ? '#0f172a' : '#94a3b8',
+                      color: '#ffffff',
+                      border: 'none',
+                      cursor: isStoreOpen ? 'pointer' : 'not-allowed',
+                      boxShadow: isStoreOpen ? '0 8px 24px rgba(15, 23, 42, 0.25)' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8
+                    }}
+                  >
+                    {!isStoreOpen ? 'Kitchen Closed' : (isSubmitting ? 'Sending to Kitchen…' : 'Send Order to Kitchen 🔥')}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 };
