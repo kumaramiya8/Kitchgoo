@@ -295,6 +295,11 @@ describe('QR Menu Settings & AI Ordering Strategies', () => {
       expect(Array.isArray(qrConfig.hiddenItemIds)).toBe(true);
       expect(qrConfig.aiPromoteHighMargin).toBe(true);
       expect(typeof qrConfig.closedMessage).toBe('string');
+      expect(qrConfig.pinnedTagLabel).toBe("Chef's Pick");
+      expect(qrConfig.mostOrderedTagLabel).toBe("Most Ordered");
+      expect(qrConfig.showTrending).toBe(true);
+      expect(qrConfig.trendingTitle).toBe("Trending Hits");
+      expect(Array.isArray(qrConfig.trendingItemIds)).toBe(true);
     });
   });
 });

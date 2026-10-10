@@ -261,6 +261,11 @@ export const SEEDS = {
       pinnedItemIds: [],
       hiddenItemIds: [],
       aiPromoteHighMargin: true,
+      pinnedTagLabel: "Chef's Pick",
+      mostOrderedTagLabel: 'Most Ordered',
+      showTrending: true,
+      trendingTitle: 'Trending Hits',
+      trendingItemIds: [],
     }
   },
 

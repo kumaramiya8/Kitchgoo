@@ -171,8 +171,6 @@ const QRMenu = () => {
   const [guestItemSales, setGuestItemSales] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
-  const [dietaryFilter, setDietaryFilter] = useState('all'); // 'all' | 'veg' | 'non-veg'
-  const [sortMode, setSortMode] = useState('default'); // 'default' | 'sales' | 'price_asc'
   const [cart, setCart] = useState({}); // { itemId: { item, qty, notes } }
   const [showCart, setShowCart] = useState(false);
   const [serviceToast, setServiceToast] = useState(null);
@@ -318,6 +316,11 @@ const QRMenu = () => {
   const pinnedItemIds = Array.isArray(qrMenuSettings.pinnedItemIds) ? qrMenuSettings.pinnedItemIds : [];
   const hiddenItemIds = Array.isArray(qrMenuSettings.hiddenItemIds) ? qrMenuSettings.hiddenItemIds : [];
   const aiPromoteHighMargin = qrMenuSettings.aiPromoteHighMargin !== false;
+  const pinnedTagLabel = qrMenuSettings.pinnedTagLabel ?? "Chef's Pick";
+  const mostOrderedTagLabel = qrMenuSettings.mostOrderedTagLabel ?? "Most Ordered";
+  const showTrending = qrMenuSettings.showTrending !== false;
+  const trendingTitle = qrMenuSettings.trendingTitle || 'Trending Hits';
+  const trendingItemIds = Array.isArray(qrMenuSettings.trendingItemIds) ? qrMenuSettings.trendingItemIds : [];
 
   const isStoreOpen = useMemo(() => {
     if (!syncTimings) return true;
@@ -362,49 +365,26 @@ const QRMenu = () => {
     return ['All', ...cats];
   }, [menuItems]);
 
-  // Filtered menu list with category, search, dietary pills, and sort modes
+  // Filtered menu list (pinned items always on top, sorted according to category and settings)
   const filteredItems = useMemo(() => {
-    const effectiveSortBySales = sortBySalesSetting || sortMode === 'sales';
-    let list = sortAndFilterMenuItems(menuItems, {
+    return sortAndFilterMenuItems(menuItems, {
       hiddenItemIds,
       pinnedItemIds,
-      sortBySales: effectiveSortBySales,
+      sortBySales: sortBySalesSetting,
       salesMap,
       category: activeCategory,
       searchQuery,
     });
+  }, [menuItems, hiddenItemIds, pinnedItemIds, sortBySalesSetting, salesMap, activeCategory, searchQuery]);
 
-    // Dietary filter
-    if (dietaryFilter === 'veg') {
-      list = list.filter(i => {
-        const t = (i.type || '').toLowerCase();
-        const d = Array.isArray(i.dietary) ? i.dietary.join(' ').toLowerCase() : String(i.dietary || '').toLowerCase();
-        const cat = String(i.category || '').toLowerCase();
-        return t === 'veg' || t === 'vegan' || d.includes('veg') || (cat.includes('veg') && !cat.includes('non-veg'));
-      });
-    } else if (dietaryFilter === 'non-veg') {
-      list = list.filter(i => {
-        const t = (i.type || '').toLowerCase();
-        const d = Array.isArray(i.dietary) ? i.dietary.join(' ').toLowerCase() : String(i.dietary || '').toLowerCase();
-        const cat = String(i.category || '').toLowerCase();
-        return t === 'non-veg' || d.includes('meat') || d.includes('chicken') || d.includes('fish') || cat.includes('non-veg');
-      });
-    }
-
-    // Price sort (while preserving pinned items at the top)
-    if (sortMode === 'price_asc' || sortMode === 'price_desc') {
-      const pinnedSet = new Set(pinnedItemIds || []);
-      list = [...list].sort((a, b) => {
-        const aPinned = pinnedSet.has(a.id);
-        const bPinned = pinnedSet.has(b.id);
-        if (aPinned && !bPinned) return -1;
-        if (!aPinned && bPinned) return 1;
-        return sortMode === 'price_asc' ? (a.price - b.price) : (b.price - a.price);
-      });
-    }
-
-    return list;
-  }, [menuItems, hiddenItemIds, pinnedItemIds, sortBySalesSetting, sortMode, salesMap, activeCategory, searchQuery, dietaryFilter]);
+  // Curated dishes for Trending Hits section (ONLY dishes configured in settings)
+  const trendingDishes = useMemo(() => {
+    if (!showTrending || trendingItemIds.length === 0) return [];
+    const hiddenSet = new Set(hiddenItemIds || []);
+    return trendingItemIds
+      .map(id => (effectiveMenu || []).find(m => m.id === id))
+      .filter(item => item && item.active !== false && !item.sold86 && !hiddenSet.has(item.id));
+  }, [showTrending, trendingItemIds, effectiveMenu, hiddenItemIds]);
 
   // Fetch active items on the table from posSavedOrders
   const guestTableOrder = useMemo(() => {
@@ -1186,26 +1166,22 @@ const QRMenu = () => {
           </div>
         )}
 
-        {/* ── 2. "Trending Now" Horizontal Stories / Reels Carousel ── */}
-        {topSellers.length > 0 && !searchQuery && activeCategory === 'All' && (
+        {/* ── 2. "Trending Hits" Curated Carousel ── */}
+        {trendingDishes.length > 0 && !searchQuery && activeCategory === 'All' && (
           <div style={{ marginTop: 18, marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 18px', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.3px' }}>🔥 Trending Hits</span>
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#c2410c', background: '#fff7ed', padding: '2px 8px', borderRadius: 9999, border: '1px solid #ffedd5' }}>
-                  Popular
-                </span>
+                <span style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.3px' }}>🔥 {trendingTitle}</span>
               </div>
               <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>Swipe →</span>
             </div>
 
             <div style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '2px 18px 12px 18px', scrollSnapType: 'x mandatory' }} className="scrollbar-hide">
-              {topSellers.map(item => {
+              {trendingDishes.map(item => {
                 const cartQty = cart[item.id]?.qty || 0;
-                const count = salesMap[item.id] || (item.name && salesMap[item.name]) || item.salesCount || 0;
                 return (
                   <div
-                    key={`top-${item.id}`}
+                    key={`trending-${item.id}`}
                     style={{
                       width: 140,
                       minWidth: 140,
@@ -1229,11 +1205,6 @@ const QRMenu = () => {
                         )
                       ) : (
                         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>🍽️</div>
-                      )}
-                      {count > 0 && (
-                        <span style={{ position: 'absolute', top: 6, left: 6, fontSize: '0.64rem', fontWeight: 800, background: 'rgba(15, 23, 42, 0.88)', backdropFilter: 'blur(4px)', color: '#fff', padding: '2px 6px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <Flame size={10} color="#f97316" /> {count}+
-                        </span>
                       )}
                     </div>
 
@@ -1332,102 +1303,6 @@ const QRMenu = () => {
             </div>
           </div>
 
-          {/* Quick Dietary & Sort Micro-Toggles */}
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '0 16px 10px 16px' }} className="scrollbar-hide">
-            <button
-              onClick={() => setDietaryFilter('all')}
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: 9999,
-                border: dietaryFilter === 'all' ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
-                background: dietaryFilter === 'all' ? '#0f172a' : '#ffffff',
-                color: dietaryFilter === 'all' ? '#ffffff' : '#64748b',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              All Types
-            </button>
-            <button
-              onClick={() => setDietaryFilter(dietaryFilter === 'veg' ? 'all' : 'veg')}
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: 9999,
-                border: dietaryFilter === 'veg' ? '1.5px solid #16a34a' : '1px solid #e2e8f0',
-                background: dietaryFilter === 'veg' ? '#f0fdf4' : '#ffffff',
-                color: dietaryFilter === 'veg' ? '#15803d' : '#64748b',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a' }} />
-              Pure Veg
-            </button>
-            <button
-              onClick={() => setDietaryFilter(dietaryFilter === 'non-veg' ? 'all' : 'non-veg')}
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: 9999,
-                border: dietaryFilter === 'non-veg' ? '1.5px solid #dc2626' : '1px solid #e2e8f0',
-                background: dietaryFilter === 'non-veg' ? '#fef2f2' : '#ffffff',
-                color: dietaryFilter === 'non-veg' ? '#b91c1c' : '#64748b',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626' }} />
-              Non-Veg
-            </button>
-            <button
-              onClick={() => setSortMode(sortMode === 'sales' ? 'default' : 'sales')}
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: 9999,
-                border: sortMode === 'sales' ? '1.5px solid #ea580c' : '1px solid #e2e8f0',
-                background: sortMode === 'sales' ? '#fff7ed' : '#ffffff',
-                color: sortMode === 'sales' ? '#c2410c' : '#64748b',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
-            >
-              <Flame size={12} color="#ea580c" />
-              Most Sold First
-            </button>
-            <button
-              onClick={() => setSortMode(sortMode === 'price_asc' ? 'default' : 'price_asc')}
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: 9999,
-                border: sortMode === 'price_asc' ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
-                background: sortMode === 'price_asc' ? '#0f172a' : '#ffffff',
-                color: sortMode === 'price_asc' ? '#ffffff' : '#64748b',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              ₹ Low to High
-            </button>
-          </div>
-
           {/* Categories Horizontal Scroller */}
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '0 16px 12px 16px' }} className="scrollbar-hide">
             {categories.map(cat => (
@@ -1490,15 +1365,15 @@ const QRMenu = () => {
                       </span>
                     ) : null}
 
-                    {pinnedItemIds.includes(item.id) && (
+                    {pinnedItemIds.includes(item.id) && pinnedTagLabel && (
                       <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 9999, border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                        <Pin size={10} /> Chef's Pick
+                        <Pin size={10} /> {pinnedTagLabel}
                       </span>
                     )}
 
-                    {salesCount > 0 && (
+                    {!pinnedItemIds.includes(item.id) && salesCount > 0 && mostOrderedTagLabel && (
                       <span style={{ fontSize: '0.66rem', fontWeight: 750, background: '#fff7ed', color: '#c2410c', padding: '2px 8px', borderRadius: 9999, border: '1px solid #ffedd5', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                        <Flame size={10} color="#ea580c" /> {salesCount} ordered
+                        <Flame size={10} color="#ea580c" /> {mostOrderedTagLabel}
                       </span>
                     )}
                   </div>

@@ -17,7 +17,7 @@ import {
   LayoutGrid, CalendarCheck, ChefHat, ShoppingBag,
   Heart, Megaphone, Building2, ShieldCheck, Lock,
   Database, Download, FileSpreadsheet, Calendar,
-  Pin, TrendingUp, Search, ExternalLink
+  Pin, TrendingUp, Search, ExternalLink, Flame
 } from 'lucide-react';
 import { todayLocalStr, localDayStr } from '../../shared/dates';
 import { generateDailyOperationsWorkbook, downloadExcelWorkbook } from '../utils/excelExport';
@@ -551,8 +551,16 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
     return list;
   }, [menu, selectedCategory, searchQuery]);
 
+  const trendingIds = Array.isArray(data.trendingItemIds) ? data.trendingItemIds : [];
   const pinnedIds = Array.isArray(data.pinnedItemIds) ? data.pinnedItemIds : [];
   const hiddenIds = Array.isArray(data.hiddenItemIds) ? data.hiddenItemIds : [];
+
+  const handleToggleTrending = (itemId) => {
+    const next = trendingIds.includes(itemId)
+      ? trendingIds.filter(id => id !== itemId)
+      : [...trendingIds, itemId];
+    onChange('trendingItemIds', next);
+  };
 
   const handleTogglePin = (itemId) => {
     const next = pinnedIds.includes(itemId)
@@ -576,8 +584,9 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
 
   const subTabs = [
     { id: 'branding', label: 'Cover & Header' },
+    { id: 'trending', label: 'Trending Hits' },
+    { id: 'sorting', label: 'Custom Tags & Pins' },
     { id: 'timings', label: 'Operating Hours' },
-    { id: 'sorting', label: 'Sorting & Pins' },
     { id: 'visibility', label: 'Item Visibility' },
     { id: 'ai', label: 'AI Ordering' },
   ];
@@ -697,7 +706,108 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
         </div>
       )}
 
-      {/* 2. Restaurant Timings Sync */}
+      {/* 2. Trending Hits Configuration */}
+      {activeSubTab === 'trending' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Curate your <strong>Trending Hits</strong> horizontal carousel at the top of the QR Menu. Only dishes you select here will be shown in this section. If no dishes are selected or this section is disabled, it will be hidden from guests.
+          </div>
+
+          <Toggle
+            label="Enable 'Trending Hits' Carousel in QR Menu"
+            description="Display a featured horizontal scroll of your curated highlight dishes right below the header."
+            value={data.showTrending !== false}
+            onChange={v => onChange('showTrending', v)}
+          />
+
+          <Field label="Trending Section Heading" hint="Heading text displayed above the carousel.">
+            <Input
+              value={data.trendingTitle ?? 'Trending Hits'}
+              onChange={v => onChange('trendingTitle', v)}
+              placeholder="Trending Hits"
+            />
+          </Field>
+
+          {/* Curated Dishes Selector */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Curated Dishes ({trendingIds.length} Added to Trending)
+              </div>
+            </div>
+
+            <div style={{ position: 'relative', marginBottom: '12px' }}>
+              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                className="input-field"
+                style={{ paddingLeft: '36px' }}
+                placeholder="Search dishes to add to Trending Hits…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div style={{ maxHeight: '340px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {filteredMenuItems.map(item => {
+                const isTrending = trendingIds.includes(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      background: isTrending ? 'rgba(234, 88, 12, 0.06)' : 'var(--card-bg, #ffffff)',
+                      border: `1px solid ${isTrending ? 'rgba(234, 88, 12, 0.3)' : 'var(--border-subtle)'}`,
+                      gap: '12px'
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{item.name}</span>
+                        {isTrending && (
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, background: '#fff7ed', color: '#c2410c', padding: '2px 6px', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <Flame size={10} color="#ea580c" /> In Trending Hits
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {item.category || 'General'} • ₹{item.price}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={isTrending ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'}
+                      onClick={() => handleToggleTrending(item.id)}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        flexShrink: 0
+                      }}
+                    >
+                      <Flame size={13} color={isTrending ? '#64748b' : '#ffffff'} />
+                      {isTrending ? 'Remove' : 'Add to Trending'}
+                    </button>
+                  </div>
+                );
+              })}
+              {filteredMenuItems.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                  No matching dishes found.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Restaurant Timings Sync */}
       {activeSubTab === 'timings' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -777,6 +887,24 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
             value={data.sortBySales === true}
             onChange={v => onChange('sortBySales', v)}
           />
+
+          {/* Custom Tag Labels for QR Menu Badges */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', background: 'rgba(30, 94, 74, 0.04)', padding: '16px', borderRadius: '14px', border: '1px solid rgba(30, 94, 74, 0.12)' }}>
+            <Field label="Custom Tag for Pinned Dishes" hint="Badge on pinned dishes (e.g. Chef's Pick, Signature, Must Try).">
+              <Input
+                value={data.pinnedTagLabel ?? "Chef's Pick"}
+                onChange={v => onChange('pinnedTagLabel', v)}
+                placeholder="Chef's Pick"
+              />
+            </Field>
+            <Field label="Custom Tag for Most Ordered Dishes" hint="Badge on popular dishes without showing sales numbers (e.g. Most Ordered, Bestseller, Popular).">
+              <Input
+                value={data.mostOrderedTagLabel ?? "Most Ordered"}
+                onChange={v => onChange('mostOrderedTagLabel', v)}
+                placeholder="Most Ordered"
+              />
+            </Field>
+          </div>
 
           {/* Golden Rule Banner */}
           <div style={{
