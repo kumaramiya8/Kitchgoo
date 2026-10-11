@@ -8514,7 +8514,8 @@ const POS = () => {
                     const isOccupied = table.status !== 'available' || tableItems.length > 0;
                     const hasOrder = tableItems.length > 0;
                     const serverName = table.serverId && serverMap[table.serverId]?.name;
-                    const size = table.shape === 'bar' ? 80 : 90;
+                    const effectiveShape = fpTable.shape || table.shape || 'square';
+                    const size = effectiveShape === 'bar' ? 80 : 90;
                     const isHovered = String(hoveredTableId) === String(table.id);
                     const align = posX < 140 ? 'left' : posX > 560 ? 'right' : 'center';
 
@@ -8539,7 +8540,7 @@ const POS = () => {
                             padding: '12px 10px',
                             textAlign: 'center',
                             cursor: 'pointer',
-                            borderRadius: table.shape === 'round' ? '50%' : '14px',
+                            borderRadius: effectiveShape === 'round' ? '50%' : '14px',
                             background: 'var(--card-bg)',
                             backdropFilter: 'blur(20px)',
                             border: `2px solid ${statusColor}40`,
@@ -8632,6 +8633,8 @@ const POS = () => {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12 }}>
                 {tables.map((table, idx) => {
+                  const fpTable = floorPlans?.tables?.find(t => String(t.id) === String(table.id) || String(t.number) === String(table.number)) || {};
+                  const effectiveShape = fpTable.shape || table.shape || 'square';
                   const tableItems = getTableSavedOrder(table);
                   const statusColor = TABLE_STATUS_COLORS[displayStatus(table)] || TABLE_STATUS_COLORS.available;
                   const isOccupied = table.status !== 'available' || tableItems.length > 0;
@@ -8653,15 +8656,15 @@ const POS = () => {
                         style={{
                           width: '100%',
                           padding: '16px 14px', textAlign: 'left', cursor: 'pointer',
-                          borderRadius: table.shape === 'round' ? '50%' : table.shape === 'bar' ? 'var(--r-xl)' : 'var(--r-xl)',
+                          borderRadius: effectiveShape === 'round' ? '50%' : effectiveShape === 'bar' ? 'var(--r-xl)' : 'var(--r-xl)',
                           background: 'var(--card-bg)', backdropFilter: 'blur(20px)',
                           border: `2px solid ${statusColor}40`,
                           boxShadow: `0 4px 14px ${statusColor}15`,
                           transition: 'all 0.2s', position: 'relative',
-                          minHeight: table.shape === 'round' ? 155 : 'auto',
+                          minHeight: effectiveShape === 'round' ? 155 : 'auto',
                           display: 'flex', flexDirection: 'column',
-                          justifyContent: table.shape === 'round' ? 'center' : 'flex-start',
-                          alignItems: table.shape === 'round' ? 'center' : 'stretch',
+                          justifyContent: effectiveShape === 'round' ? 'center' : 'flex-start',
+                          alignItems: effectiveShape === 'round' ? 'center' : 'stretch',
                         }}
                         onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = `0 10px 28px ${statusColor}25`; }}
                         onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 14px ${statusColor}15`; }}
@@ -8669,30 +8672,30 @@ const POS = () => {
                         <div style={{
                           width: 10, height: 10, borderRadius: '50%', background: statusColor,
                           boxShadow: `0 0 8px ${statusColor}80`,
-                          position: table.shape === 'round' ? 'absolute' : 'relative',
-                          top: table.shape === 'round' ? 12 : 'auto',
-                          right: table.shape === 'round' ? 12 : 'auto',
-                          marginBottom: table.shape === 'round' ? 0 : 8,
+                          position: effectiveShape === 'round' ? 'absolute' : 'relative',
+                          top: effectiveShape === 'round' ? 12 : 'auto',
+                          right: effectiveShape === 'round' ? 12 : 'auto',
+                          marginBottom: effectiveShape === 'round' ? 0 : 8,
                         }} />
 
-                        {table.shape === 'round' && <Circle size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
-                        {table.shape === 'bar' && <Coffee size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
-                        {table.shape === 'square' && <Square size={14} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
+                        {effectiveShape === 'round' && <Circle size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
+                        {effectiveShape === 'bar' && <Coffee size={18} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
+                        {effectiveShape === 'square' && <Square size={14} style={{ color: statusColor, marginBottom: 4, opacity: 0.5 }} />}
 
-                        <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: 2, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                        <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: 2, textAlign: effectiveShape === 'round' ? 'center' : 'left' }}>
                           T{table.number}
                         </div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: effectiveShape === 'round' ? 'center' : 'left' }}>
                           {table.seats} seats{table.section ? ` | ${table.section}` : ''}
                         </div>
 
                         {table.status === 'needs-bussing' ? (
-                          <div style={{ marginTop: 4, fontSize: '0.68rem', color: '#64748b', fontWeight: 700, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                          <div style={{ marginTop: 4, fontSize: '0.68rem', color: '#64748b', fontWeight: 700, textAlign: effectiveShape === 'round' ? 'center' : 'left' }}>
                             Bussing
                           </div>
                         ) : isOccupied && (
-                          <div style={{ marginTop: 4, fontSize: '0.7rem', color: 'var(--text-secondary)', textAlign: table.shape === 'round' ? 'center' : 'left' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: table.shape === 'round' ? 'center' : 'flex-start' }}>
+                          <div style={{ marginTop: 4, fontSize: '0.7rem', color: 'var(--text-secondary)', textAlign: effectiveShape === 'round' ? 'center' : 'left' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: effectiveShape === 'round' ? 'center' : 'flex-start' }}>
                               <User size={10} /> {table.guestName || 'Guest'}
                             </div>
                             <TurnTimer seatedAt={table.seatedAt} />
@@ -8700,7 +8703,7 @@ const POS = () => {
                         )}
 
                         {serverName && (
-                          <div style={{ fontSize: '0.62rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2, textAlign: table.shape === 'round' ? 'center' : 'left' }}>
+                          <div style={{ fontSize: '0.62rem', color: 'var(--primary)', fontWeight: 600, marginTop: 2, textAlign: effectiveShape === 'round' ? 'center' : 'left' }}>
                             {serverName}
                           </div>
                         )}

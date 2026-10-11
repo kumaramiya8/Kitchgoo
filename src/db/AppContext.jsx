@@ -137,16 +137,45 @@ export function buildPosTables(fp, savedTables) {
     }
     if (matchedSaved) {
       return {
-        ...t,
         ...matchedSaved,
+        ...t,
+        status: matchedSaved.status || t.status || 'available',
+        guestName: matchedSaved.guestName ?? t.guestName,
+        guestId: matchedSaved.guestId ?? t.guestId,
+        seatedAt: matchedSaved.seatedAt ?? t.seatedAt,
+        serverId: matchedSaved.serverId ?? t.serverId,
         id: t.id,
         number: t.number || matchedSaved.number || t.id,
+        shape: t.shape || matchedSaved.shape || 'square',
+        seats: t.seats || matchedSaved.seats || 4,
+        section: t.section !== undefined ? t.section : matchedSaved.section,
+        label: t.label || matchedSaved.label || t.name || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
+        name: t.name || matchedSaved.name || t.label || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
       };
     }
     return t;
   });
 
+  let savedOrdersMap = null;
+  if (typeof getAll === 'function') {
+    try { savedOrdersMap = getAll('pos_saved_orders') || {}; } catch {}
+  }
+  savedOrdersMap = savedOrdersMap || {};
+
+  const hasSavedOrder = (tId) => {
+    if (!tId) return false;
+    const direct = savedOrdersMap[tId] || savedOrdersMap[String(tId)];
+    if (Array.isArray(direct) && direct.length > 0) return true;
+    const c = cleanTableId(tId);
+    if (c) {
+      const byClean = savedOrdersMap[c] || savedOrdersMap[`tbl_${c}`] || savedOrdersMap[`table_${c}`];
+      if (Array.isArray(byClean) && byClean.length > 0) return true;
+    }
+    return false;
+  };
+
   const extraSaved = [];
+  const hasBasePlan = base.length > 0;
   for (let i = 0; i < saved.length; i++) {
     if (!matchedSavedIndices.has(i)) {
       const s = saved[i];
@@ -155,9 +184,20 @@ export function buildPosTables(fp, savedTables) {
       const isDuplicateOfBase = mergedBase.some(b => cleanTableId(b.number || b.id) === sClean);
       if (isDuplicateOfBase) continue;
 
+      // When the venue has a configured floor plan, only retain unmapped extra saved tables
+      // if they have an active order, a seated guest, or a non-available status (e.g. occupied, billed, bussing).
+      // Completely empty unmapped tables (like default sample seeds 13-16 that were deleted or not created)
+      // are skipped so ghost tables do not pollute the POS.
+      const hasOrder = hasSavedOrder(s.id) || hasSavedOrder(s.number);
+      const hasGuest = Boolean(s.guestName || s.guestId);
+      const isOccupiedStatus = s.status && s.status !== 'available';
+      if (hasBasePlan && !hasOrder && !hasGuest && !isOccupiedStatus) {
+        continue;
+      }
+
       extraSaved.push({
         seats: 4,
-        shape: 'square',
+        shape: s.shape || 'square',
         section: null,
         status: 'available',
         ...s,
@@ -344,7 +384,8 @@ export function AppProvider({ children }) {
     if (!supabase || isDemoMode) {
       try {
         const savedTables = localStorage.getItem(`${tenant}_pos_tables`);
-        setPosTables(savedTables ? JSON.parse(savedTables) : []);
+        const parsed = savedTables ? JSON.parse(savedTables) : [];
+        setPosTables(buildPosTables(getAll('floor_plans'), parsed));
       } catch { setPosTables([]); }
       try {
         const savedOrders = localStorage.getItem(`${tenant}_pos_saved_orders`);

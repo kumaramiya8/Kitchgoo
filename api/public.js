@@ -157,9 +157,25 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
     }
     if (existingKey) {
       const existing = tableMap.get(existingKey);
-      tableMap.set(existingKey, { ...existing, ...t, id: existing.id, number: existing.number || t.number });
+      tableMap.set(existingKey, {
+        ...t,
+        ...existing,
+        status: t.status || existing.status || 'available',
+        guestName: t.guestName ?? existing.guestName,
+        guestId: t.guestId ?? existing.guestId,
+        seatedAt: t.seatedAt ?? existing.seatedAt,
+        serverId: t.serverId ?? existing.serverId,
+        id: existing.id,
+        number: existing.number || t.number || existing.id,
+        shape: existing.shape || t.shape || 'square',
+        seats: existing.seats || t.seats || 4,
+        section: existing.section !== undefined ? existing.section : t.section,
+      });
     } else {
-      tableMap.set(String(t.id), t);
+      const hasGuestOrOrder = Boolean(t.guestName || t.guestId || (t.status && t.status !== 'available'));
+      if (!baseTables.length || hasGuestOrOrder) {
+        tableMap.set(String(t.id), { seats: 4, shape: t.shape || 'square', section: null, status: 'available', ...t });
+      }
     }
   });
   const mergedPosTables = Array.from(tableMap.values());

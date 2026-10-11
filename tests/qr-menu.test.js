@@ -633,6 +633,67 @@ describe('QR Menu Feature for Kiko Cafe & Guests', () => {
       expect(table2.guestName).toBe('Vishal');
     });
 
+    it('enforces floor plan shape (square) over stale saved table shape (round) without affecting active order state', () => {
+      const squareFloorPlan = {
+        tables: [
+          { id: 13, label: 'Table 13', number: 13, seats: 4, shape: 'square', section: 'Main' },
+        ],
+        sections: ['Main'],
+      };
+      // Stale saved table had 'round' from previous seed or cache
+      const staleSaved = [
+        { id: 13, number: 13, shape: 'round', status: 'occupied', guestName: 'Alice', seatedAt: '2026-10-11T12:00:00Z' },
+      ];
+
+      const merged = buildPosTables(squareFloorPlan, staleSaved);
+      expect(merged).toHaveLength(1);
+      expect(merged[0].shape).toBe('square'); // Enforces floor plan square shape
+      expect(merged[0].status).toBe('occupied'); // Preserves active table order/status
+      expect(merged[0].guestName).toBe('Alice'); // Preserves active guest name
+      expect(merged[0].seatedAt).toBe('2026-10-11T12:00:00Z');
+    });
+
+    it('does not resurrect unused empty unmapped tables (e.g. sample seeds) when venue configured their floor plan', () => {
+      const customFloorPlan = {
+        tables: [
+          { id: 1, label: 'Table 1', number: 1, seats: 4, shape: 'square' },
+          { id: 2, label: 'Table 2', number: 2, seats: 4, shape: 'square' },
+        ],
+        sections: ['Main'],
+      };
+      // Tables 14-16 were default sample tables sitting available with no orders
+      const savedWithGhostSeeds = [
+        { id: 1, number: 1, status: 'available' },
+        { id: 2, number: 2, status: 'available' },
+        { id: 14, number: 14, shape: 'round', status: 'available', guestName: null },
+        { id: 15, number: 15, shape: 'round', status: 'available', guestName: null },
+      ];
+
+      const merged = buildPosTables(customFloorPlan, savedWithGhostSeeds);
+      expect(merged).toHaveLength(2); // Only the 2 configured tables, no ghost round tables
+      expect(merged.map(t => t.id)).toEqual([1, 2]);
+    });
+
+    it('retains unmapped dynamic tables if they have an active order or guest', () => {
+      const customFloorPlan = {
+        tables: [
+          { id: 1, label: 'Table 1', number: 1, seats: 4, shape: 'square' },
+        ],
+        sections: ['Main'],
+      };
+      const savedWithActiveUnmapped = [
+        { id: 1, number: 1, status: 'available' },
+        { id: 99, number: 99, status: 'ordered', guestName: 'Active Guest' },
+      ];
+
+      const merged = buildPosTables(customFloorPlan, savedWithActiveUnmapped);
+      expect(merged).toHaveLength(2); // Retains table 99 because it has active order/guest
+      const t99 = merged.find(t => String(t.id) === '99');
+      expect(t99).toBeDefined();
+      expect(t99.status).toBe('ordered');
+      expect(t99.guestName).toBe('Active Guest');
+    });
+
     it('matchTableEntry matches ghost variants (tbl_01, tbl_05, tbl_1o) with canonical tables', () => {
       expect(matchTableEntry({ id: 'tbl_01', number: '01' }, { id: 1, number: 1 })).toBe(true);
       expect(matchTableEntry({ id: 'tbl_05', number: '05' }, { id: 5, number: 5 })).toBe(true);
