@@ -5373,7 +5373,7 @@ const POS = () => {
     menu, settings, floorPlans, staff, guests, modifiers, cashDrawer,
     placeOrder, fireToKDS, transferKDSTickets, cancelKDSTickets, updateCashDrawer, addAuditEntry,
     posTables, setPosTables, posSavedOrders, setPosSavedOrders,
-    onlineOrders, editOnlineOrder, reload, addRegisterClosure, broadcastOrderCreated,
+    onlineOrders, editOnlineOrder, reload, hydrateFromCache, addRegisterClosure, broadcastOrderCreated,
     reservations, orders, kdsTickets, updatePOSOrder, issueWalletCredit, redeemWalletCredit,
   } = useApp();
 
@@ -5534,11 +5534,11 @@ const POS = () => {
   // Instant refresh on external order creations (e.g. from QR Menu)
   useEffect(() => {
     const onOrderCreated = () => {
-      reload(true);
+      hydrateFromCache();
     };
     window.addEventListener('kitchgoo_order_created', onOrderCreated);
     return () => window.removeEventListener('kitchgoo_order_created', onOrderCreated);
-  }, [reload]);
+  }, [hydrateFromCache]);
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [successMsg, setSuccessMsg] = useState('');

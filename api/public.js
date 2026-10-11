@@ -68,6 +68,47 @@ async function getFlex(db, tenant, name, fallback) {
   return data ? data.value : fallback;
 }
 
+// In-memory cache for aggregated item sales counts to prevent pulling 2000 orders on every QR menu load
+const itemSalesCache = new Map(); // tenant -> { timestamp: number, map: Record<string, number> }
+const ITEM_SALES_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+export function invalidateItemSalesCache(tenant) {
+  if (tenant) {
+    itemSalesCache.delete(tenant);
+    itemSalesCache.delete(String(tenant).toLowerCase());
+  }
+}
+
+async function getItemSalesMap(db, tenant) {
+  const cached = itemSalesCache.get(tenant) || itemSalesCache.get(String(tenant).toLowerCase());
+  if (cached && (Date.now() - cached.timestamp < ITEM_SALES_CACHE_TTL)) {
+    return cached.map;
+  }
+  try {
+    const { data: ordersData } = await db.from('orders')
+      .select('items')
+      .eq('account_id', tenant)
+      .order('created_at', { ascending: false })
+      .limit(1000);
+    const map = {};
+    (ordersData || []).forEach(o => {
+      const items = Array.isArray(o?.items) ? o.items : [];
+      items.forEach(it => {
+        if (!it) return;
+        const qty = Number(it.qty) || 1;
+        const id = it.id || it.itemId;
+        const name = it.name;
+        if (id) map[id] = (map[id] || 0) + qty;
+        if (name) map[name] = (map[name] || 0) + qty;
+      });
+    });
+    itemSalesCache.set(tenant, { timestamp: Date.now(), map });
+    return map;
+  } catch {
+    return cached?.map || {};
+  }
+}
+
 // GET /api/public/qrmenu/:tenant?table=<number-or-id>
 app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   const db = requireDb();
@@ -80,36 +121,15 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   }
   const canonicalTenant = account.id;
 
-  const [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers, ordersData] = await Promise.all([
+  const [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers, itemSalesMap] = await Promise.all([
     db.from('menu').select('*').eq('account_id', canonicalTenant),
     db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', GUEST_SETTINGS_SECTIONS),
     getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
     getFlex(db, canonicalTenant, 'pos_tables', []),
     getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
     getFlex(db, canonicalTenant, 'modifiers', []),
-    (async () => {
-      try {
-        const res = await db.from('orders').select('items').eq('account_id', canonicalTenant).order('created_at', { ascending: false }).limit(2000);
-        return res?.data || [];
-      } catch {
-        return [];
-      }
-    })(),
+    getItemSalesMap(db, canonicalTenant),
   ]);
-
-  // Aggregate item sales counts so QR menu can sort by sales without leaking customer bills
-  const itemSalesMap = {};
-  (ordersData || []).forEach(o => {
-    const items = Array.isArray(o?.items) ? o.items : [];
-    items.forEach(it => {
-      if (!it) return;
-      const qty = Number(it.qty) || 1;
-      const id = it.id || it.itemId;
-      const name = it.name;
-      if (id) itemSalesMap[id] = (itemSalesMap[id] || 0) + qty;
-      if (name) itemSalesMap[name] = (itemSalesMap[name] || 0) + qty;
-    });
-  });
 
   const enrichedMenu = (menuRows || []).map(item => {
     const count = itemSalesMap[item.id] ?? (item.name ? itemSalesMap[item.name] : undefined) ?? 0;
@@ -581,6 +601,7 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
     broadcastServerOrderCreated(account.name, tableId || table?.id || null, null).catch(() => {});
   }
 
+  invalidateItemSalesCache(canonicalTenant);
   res.json({ success: true });
 }));
 
@@ -626,6 +647,7 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
     broadcastServerOrderCreated(account.name, withId.tableId || null, withId.id).catch(() => {});
   }
 
+  invalidateItemSalesCache(canonicalTenant);
   res.json({ success: true, ticket: withId });
 }));
 

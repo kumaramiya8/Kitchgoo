@@ -526,6 +526,18 @@ export function AppProvider({ children }) {
     ].filter(Boolean);
 
     const channelNames = Array.from(new Set(rawAliases)).map(t => `kitchgoo_changes_${t}`);
+    let reconnectTimeout = null;
+    let initialSubDone = false;
+    let wasConnected = false;
+
+    const handleReconnect = () => {
+      if (!initialSubDone || !wasConnected) return;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      reconnectTimeout = setTimeout(() => {
+        reload(true);
+      }, 1000);
+    };
+
     const channels = channelNames.map(cName => {
       return supabase
         .channel(cName)
@@ -534,8 +546,8 @@ export function AppProvider({ children }) {
         .subscribe((status, err) => {
           if (status === 'SUBSCRIBED') {
             realtimeConnectedRef.current = true;
-            if (subscribedOnceRef.current) reload(true);
-            subscribedOnceRef.current = true;
+            handleReconnect();
+            wasConnected = true;
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             realtimeConnectedRef.current = false;
             console.warn(`[Realtime] ${status} for channel: ${cName}`, err || '');
@@ -543,26 +555,38 @@ export function AppProvider({ children }) {
         });
     });
 
+    const initTimer = setTimeout(() => {
+      initialSubDone = true;
+    }, 3000);
+
     channelRef.current = channels[0];
 
     return () => {
+      clearTimeout(initTimer);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
       realtimeConnectedRef.current = false;
       channels.forEach(ch => supabase.removeChannel(ch));
     };
   }, [authLoading, hasLoadedFromDb, activeTenant, user]);
 
-  // Self-healing safety net. Realtime broadcasts are instant, but network
-  // hitches or firewalls can drop sockets. Reconcile live collections every 3.5s
-  // so QR menu orders are guaranteed to appear immediately.
+  // Self-healing safety net. Realtime broadcasts are near-instant (0ms delay),
+  // but network hitches or firewalls can drop sockets. Reconcile live collections
+  // every 50s when connected, and every 10s if the socket connection is down.
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb || !activeTenant) return;
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
-    if (isDemoMode) return;
+    if (isDemoMode || isGuestMode()) return;
 
+    const recentlyMutated = () => Date.now() - Math.max(lastMutationAt.current, lastDbMutationAt) < 2000;
     const LIVE = ['pos_tables', 'pos_saved_orders', 'kds_tickets'];
 
     const tick = async () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible' || isGuestMode() || recentlyMutated()) return;
+      const connected = realtimeConnectedRef.current;
+      const since = Date.now() - lastReconcileAt.current;
+      // When realtime socket is healthy, broadcasts handle instant order delivery.
+      // Poll only as a slow safety net (every 50s); if socket drops, poll every 10s.
+      if (connected && since < 50000) return;
       lastReconcileAt.current = Date.now();
       const before = LIVE.map(n => stableStringify(getAll(n)));
       for (const n of LIVE) { await syncOneCollection(n); }
@@ -571,17 +595,20 @@ export function AppProvider({ children }) {
     };
 
     const onVisible = async () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible' || isGuestMode() || recentlyMutated()) return;
       await Promise.allSettled([
         syncOneCollection('pos_tables'),
         syncOneCollection('pos_saved_orders'),
         syncOneCollection('kds_tickets'),
       ]);
       hydrateFromCache();
-      reload(true);
+      // Only do a full database reload if realtime is disconnected or tab was away for > 5 min
+      if (!realtimeConnectedRef.current || Date.now() - lastReconcileAt.current > 300000) {
+        reload(true);
+      }
     };
 
-    const interval = setInterval(tick, 3500);
+    const interval = setInterval(tick, 10000);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);
@@ -1326,7 +1353,7 @@ export function AppProvider({ children }) {
     // Realtime Broadcasts
     broadcastOrderCreated,
     // Utility
-    reload, loadOlderOrders,
+    reload, loadOlderOrders, hydrateFromCache,
   };
 
   if (!ready) return null;

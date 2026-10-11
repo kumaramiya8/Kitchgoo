@@ -362,7 +362,7 @@ const RecallPanel = ({ tickets, onRecall, onClose, getTicketGuestName, isMobile 
 
 /* ── Main KDS Component ────────────────────────────────── */
 export default function KDS() {
-  const { kdsTickets, orders, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, posTables, posSavedOrders, reload } = useApp();
+  const { kdsTickets, orders, menu, settings, recipes, bumpKDSItemAction, bumpKDSTicketAction, recallKDSTicketAction, posTables, posSavedOrders, reload, hydrateFromCache } = useApp();
 
   const [station, setStation] = useState('All');
   const [viewMode, setViewMode] = useState('tickets');
@@ -381,12 +381,12 @@ export default function KDS() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Reload on new order — sound + toast handled globally by Layout
+  // Refresh on new order — sound + toast handled globally by Layout
   useEffect(() => {
-    const handler = () => reload(true);
+    const handler = () => hydrateFromCache();
     window.addEventListener('kitchgoo_order_created', handler);
     return () => window.removeEventListener('kitchgoo_order_created', handler);
-  }, [reload]);
+  }, [hydrateFromCache]);
 
   // Auto-refresh every second
   useEffect(() => {

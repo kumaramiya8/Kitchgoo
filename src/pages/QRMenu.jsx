@@ -163,7 +163,7 @@ const QRMenu = () => {
   const [searchParams] = useSearchParams();
   const tableParam = (searchParams.get('table') || '').replace(/\D/g, '');
 
-  const { menu, settings, orders, reload, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
+  const { menu, settings, orders, reload, hydrateFromCache, posTables, setPosTables, posSavedOrders, setPosSavedOrders, fireToKDS, broadcastOrderCreated } = useApp();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [guestMenu, setGuestMenu] = useState(null);
@@ -250,7 +250,7 @@ const QRMenu = () => {
           if (payload.menu) setGuestMenu(payload.menu);
           if (payload.settings) setGuestSettings(payload.settings);
           if (payload.itemSales) setGuestItemSales(payload.itemSales);
-          await reload(true);
+          hydrateFromCache();
         }
       } catch (err) {
         console.error('[QRMenu] Error loading tenant database:', err);

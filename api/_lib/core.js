@@ -358,7 +358,7 @@ export async function loadTenantPayload(tenant) {
       .order('created_at', { ascending: false })
       .limit(ORDERS_WINDOW_LIMIT),
     db.from('settings').select('*').eq('account_id', tenant),
-    db.from('tenant_data').select('*').eq('account_id', tenant),
+    db.from('tenant_data').select('*').eq('account_id', tenant).in('collection_name', FLEX_COLLECTIONS),
     db.from('users').select('id, account_id, name, email, role, avatar, phone, created_at').eq('account_id', tenant),
   ]);
 

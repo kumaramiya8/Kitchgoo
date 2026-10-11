@@ -309,4 +309,18 @@ describe('QR Menu Settings & AI Ordering Strategies', () => {
       expect(qrConfig.aiButtonColor).toBe("#7c3aed");
     });
   });
+
+  describe('Supabase Egress Optimizations', () => {
+    it('ensures FLEX_COLLECTIONS excludes kds_tickets_archive to prevent historical bloat on sync', async () => {
+      const { FLEX_COLLECTIONS } = await import('../shared/seeds.js');
+      expect(FLEX_COLLECTIONS).not.toContain('kds_tickets_archive');
+    });
+
+    it('exports invalidateItemSalesCache for cache eviction on order submission', async () => {
+      const { invalidateItemSalesCache } = await import('../api/public.js');
+      expect(typeof invalidateItemSalesCache).toBe('function');
+      expect(() => invalidateItemSalesCache('Kiko Cafe')).not.toThrow();
+      expect(() => invalidateItemSalesCache(null)).not.toThrow();
+    });
+  });
 });
