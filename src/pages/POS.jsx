@@ -3094,7 +3094,21 @@ const PaymentModal = ({
   const effectiveWalletApplied = Math.min(walletCreditApplied, rawBaseTotal);
   // Net final payable total
   const finalTotal = Math.max(0, applyRounding(rawBaseTotal - effectiveWalletApplied));
-  const cashChange = paymentMethod === 'Cash' ? Math.max(0, (parseFloat(cashTendered) || 0) - finalTotal) : 0;
+  const isPayableMethod = paymentMethod !== 'Wallet' && paymentMethod !== 'Pay Later';
+  const tenderVal = parseFloat(cashTendered) || 0;
+  const excessPaid = (isPayableMethod && tenderVal > finalTotal)
+    ? Math.max(0, Math.round((tenderVal - finalTotal) * 100) / 100)
+    : 0;
+  const cashChange = excessPaid;
+
+  // Auto-switch change action based on payment method
+  useEffect(() => {
+    if (paymentMethod !== 'Cash') {
+      setChangeAction(prev => (prev === 'cash' ? 'wallet' : prev));
+    } else {
+      setChangeAction(prev => (prev === 'wallet' ? 'cash' : prev));
+    }
+  }, [paymentMethod]);
 
   const shouldAutoPrint = (
     settings?.printer?.autoPrintBill !== false &&
@@ -3252,13 +3266,24 @@ const PaymentModal = ({
     }
   };
 
+  const splitExcessPaid = useMemo(() => {
+    if (!isSplit) return 0;
+    return splitRows.reduce((sum, r) => {
+      const amt = parseFloat(r.amount) || 0;
+      const tend = parseFloat(r.cashTendered) || 0;
+      return sum + (tend > amt ? Math.round((tend - amt) * 100) / 100 : 0);
+    }, 0);
+  }, [isSplit, splitRows]);
+
+  const effectiveExcessPaid = isSplit ? splitExcessPaid : excessPaid;
+
   const handleSettle = async () => {
     if (paymentMethod === 'Pay Later') {
       return handleSettleLater();
     }
     if (isSubmittingRef.current || isSubmitting) return;
     if (isSplit && !isSplitValid) return;
-    if (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim()) {
+    if (changeAction === 'wallet' && effectiveExcessPaid > 0 && !guestPhone.trim()) {
       return;
     }
 
@@ -3266,14 +3291,31 @@ const PaymentModal = ({
     setIsSubmitting(true);
 
     try {
+      let totalExcess = 0;
+      let effectiveTenderedMethod = paymentMethod;
+      let effectiveTenderedVal = 0;
+
+      if (!isSplit) {
+        totalExcess = excessPaid;
+        effectiveTenderedMethod = paymentMethod;
+        effectiveTenderedVal = parseFloat(cashTendered) || finalTotal;
+      } else {
+        totalExcess = splitExcessPaid;
+        const excessRow = splitRows.find(r => (parseFloat(r.cashTendered) || 0) > (parseFloat(r.amount) || 0));
+        effectiveTenderedMethod = excessRow?.method || paymentMethod;
+        effectiveTenderedVal = splitRows.reduce((sum, r) => sum + (parseFloat(r.cashTendered) || parseFloat(r.amount) || 0), 0);
+      }
+
       const settlementMeta = {
         guestName: guestName.trim() || matchedGuest?.name || 'Guest',
         guestPhone: guestPhone.trim() || matchedGuest?.phone || '',
         guestId: matchedGuest?.id || null,
         walletCreditApplied: effectiveWalletApplied,
-        changeAction: cashChange > 0 ? changeAction : 'cash',
-        changeAmount: cashChange,
-        cashTendered: parseFloat(cashTendered) || 0,
+        changeAction: totalExcess > 0 ? changeAction : (paymentMethod === 'Cash' ? 'cash' : 'wallet'),
+        changeAmount: totalExcess,
+        cashTendered: (effectiveTenderedMethod === 'Cash') ? (effectiveTenderedVal || finalTotal) : 0,
+        amountTendered: effectiveTenderedVal,
+        tenderedMethod: effectiveTenderedMethod,
       };
 
       if (!isSplit) {
@@ -3296,7 +3338,8 @@ const PaymentModal = ({
         const validSplits = splitRows.map(r => ({
           method: r.method,
           amount: Math.round((parseFloat(r.amount) || 0) * 100) / 100,
-          cashTendered: r.method === 'Cash' && r.cashTendered ? parseFloat(r.cashTendered) : undefined
+          cashTendered: r.cashTendered ? parseFloat(r.cashTendered) : undefined,
+          amountTendered: r.cashTendered ? parseFloat(r.cashTendered) : undefined,
         }));
         if (effectiveWalletApplied > 0) {
           validSplits.unshift({
@@ -3566,13 +3609,39 @@ const PaymentModal = ({
                   })}
                 </div>
 
-                {paymentMethod === 'Cash' && (
+                {isPayableMethod && (
                   <div className="input-group" style={{ marginBottom: 12 }}>
-                    <label className="input-label">Cash Tendered</label>
-                    <input className="input-field" type="number" value={cashTendered} onChange={e => setCashTendered(e.target.value)}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label className="input-label" style={{ margin: 0 }}>
+                        {paymentMethod === 'Cash' ? 'Cash Tendered' : paymentMethod === 'Card' ? 'Card Amount Charged' : `${paymentMethod} Amount Received`}
+                      </label>
+                      {finalTotal > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setCashTendered(finalTotal.toFixed(2))}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--primary)',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            padding: 0
+                          }}
+                        >
+                          Exact (₹{finalTotal.toFixed(2)})
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      className="input-field"
+                      type="number"
+                      step="0.01"
+                      value={cashTendered}
+                      onChange={e => setCashTendered(e.target.value)}
                       placeholder={finalTotal.toFixed(2)}
                     />
-                    {cashChange > 0 && (
+                    {excessPaid > 0 && (
                       <div style={{
                         marginTop: 8,
                         padding: '10px 12px',
@@ -3582,39 +3651,41 @@ const PaymentModal = ({
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                           <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                            Extra Cash Received:
+                            {paymentMethod === 'Cash' ? 'Extra Cash Received:' : `Extra ${paymentMethod} Paid:`}
                           </span>
                           <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#15803d' }}>
-                            ₹{cashChange.toFixed(2)}
+                            ₹{excessPaid.toFixed(2)}
                           </span>
                         </div>
 
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 6 }}>
-                          How would you like to handle the extra ₹{cashChange.toFixed(2)}?
+                          How would you like to handle the extra ₹{excessPaid.toFixed(2)}?
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-                          <button
-                            type="button"
-                            onClick={() => setChangeAction('cash')}
-                            style={{
-                              padding: '6px 4px',
-                              borderRadius: 'var(--r-sm)',
-                              border: `1.5px solid ${changeAction === 'cash' ? '#22c55e' : 'var(--border-subtle)'}`,
-                              background: changeAction === 'cash' ? 'rgba(34,197,94,0.1)' : 'var(--card-bg)',
-                              color: changeAction === 'cash' ? '#15803d' : 'var(--text-secondary)',
-                              fontSize: '0.72rem',
-                              fontWeight: changeAction === 'cash' ? 700 : 500,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              gap: 2
-                            }}
-                          >
-                            <Banknote size={14} />
-                            <span>Return Cash</span>
-                          </button>
+                        <div style={{ display: 'grid', gridTemplateColumns: paymentMethod === 'Cash' ? '1fr 1fr 1fr' : '1.2fr 1fr', gap: 6 }}>
+                          {paymentMethod === 'Cash' && (
+                            <button
+                              type="button"
+                              onClick={() => setChangeAction('cash')}
+                              style={{
+                                padding: '6px 4px',
+                                borderRadius: 'var(--r-sm)',
+                                border: `1.5px solid ${changeAction === 'cash' ? '#22c55e' : 'var(--border-subtle)'}`,
+                                background: changeAction === 'cash' ? 'rgba(34,197,94,0.1)' : 'var(--card-bg)',
+                                color: changeAction === 'cash' ? '#15803d' : 'var(--text-secondary)',
+                                fontSize: '0.72rem',
+                                fontWeight: changeAction === 'cash' ? 700 : 500,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 2
+                              }}
+                            >
+                              <Banknote size={14} />
+                              <span>Return Cash</span>
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -3635,7 +3706,7 @@ const PaymentModal = ({
                             }}
                           >
                             <Gift size={14} />
-                            <span>Store Credit</span>
+                            <span>Store Credit (Wallet)</span>
                           </button>
 
                           <button
@@ -3663,7 +3734,7 @@ const PaymentModal = ({
 
                         {changeAction === 'wallet' && !guestPhone.trim() && (
                           <div style={{ marginTop: 6, fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>
-                            ⚠️ Enter guest mobile number above to link ₹{cashChange.toFixed(2)} to their digital wallet
+                            ⚠️ Enter guest mobile number above to link ₹{excessPaid.toFixed(2)} to their digital wallet
                           </div>
                         )}
                       </div>
@@ -3798,10 +3869,10 @@ const PaymentModal = ({
                           )}
                         </div>
 
-                        {/* Cash Tendered & Change on Cash split */}
-                        {isRowCash && parseFloat(row.amount) > 0 && (
+                        {/* Amount Tendered & Change on split rows */}
+                        {parseFloat(row.amount) > 0 && row.method !== 'Wallet' && (
                           <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px dashed var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem' }}>
-                            <span style={{ color: 'var(--text-muted)' }}>Cash Paid:</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{row.method === 'Cash' ? 'Cash Paid:' : `${row.method} Paid:`}</span>
                             <input
                               type="number"
                               className="input-field"
@@ -3810,9 +3881,9 @@ const PaymentModal = ({
                               value={row.cashTendered}
                               onChange={e => updateRowCashTendered(row.id, e.target.value)}
                             />
-                            {rowCashChange > 0 && (
+                            {((parseFloat(row.cashTendered) || 0) > (parseFloat(row.amount) || 0)) && (
                               <span style={{ fontWeight: 700, color: '#15803d' }}>
-                                Change: ₹{rowCashChange.toFixed(2)}
+                                +₹{((parseFloat(row.cashTendered) || 0) - (parseFloat(row.amount) || 0)).toFixed(2)} ({changeAction === 'wallet' ? 'Wallet' : 'Change'})
                               </span>
                             )}
                           </div>
@@ -3911,7 +3982,7 @@ const PaymentModal = ({
 
           <button
             className="btn btn-success"
-            disabled={isSubmitting || (isSplit && !isSplitValid) || (changeAction === 'wallet' && cashChange > 0 && !guestPhone.trim())}
+            disabled={isSubmitting || (isSplit && !isSplitValid) || (changeAction === 'wallet' && effectiveExcessPaid > 0 && !guestPhone.trim())}
             onClick={paymentMethod === 'Pay Later' ? handleSettleLater : handleSettle}
             style={{
               minWidth: isMobile ? 0 : 200,
@@ -7346,6 +7417,8 @@ const POS = () => {
       const changeAction = settlementMeta?.changeAction || 'cash';
       const changeAmount = isSettleLater ? 0 : parseFloat(settlementMeta?.changeAmount || 0);
       const cashTenderedVal = isSettleLater ? 0 : parseFloat(settlementMeta?.cashTendered || 0);
+      const amountTenderedVal = isSettleLater ? 0 : parseFloat(settlementMeta?.amountTendered || cashTenderedVal || 0);
+      const tenderedMethod = settlementMeta?.tenderedMethod || paymentMethod || 'Cash';
       const walletCredited = (!isSettleLater && changeAction === 'wallet' && changeAmount > 0) ? changeAmount : 0;
 
       let effectiveSplits = isSettleLater ? null : paymentSplits;
@@ -7404,8 +7477,10 @@ const POS = () => {
           action: 'wallet_credit_issued',
           timestamp: new Date().toISOString(),
           by: user?.name || 'Cashier',
-          description: `Converted ₹${walletCredited.toFixed(2)} extra cash change to digital wallet credit (linked to ${effectiveGuestPhone})`,
+          description: `Converted ₹${walletCredited.toFixed(2)} extra ${tenderedMethod} payment to digital wallet credit (linked to ${effectiveGuestPhone})`,
           amount: walletCredited,
+          paymentMethod: tenderedMethod,
+          tenderedMethod: tenderedMethod,
         });
       }
 
@@ -7426,7 +7501,7 @@ const POS = () => {
         driverInstructions: orderType === 'delivery' ? driverInstructions : undefined,
         deliveryChannel: orderType === 'delivery' ? deliveryChannel : undefined,
         deliveryStatus: orderType === 'delivery' ? 'preparing' : undefined,
-        tip: tipValue,
+        tip: tipValue + (!isSettleLater && changeAction === 'tip' ? changeAmount : 0),
         autoGratuity,
         discount: discountAmount,
         discountReason: discountReason || '',
@@ -7437,8 +7512,10 @@ const POS = () => {
         paymentSplits: effectiveSplits,
         walletCredited,
         walletRedeemed: walletCreditApplied,
-        cashTendered: cashTenderedVal,
-        changeReturned: changeAction === 'cash' ? changeAmount : 0,
+        cashTendered: (tenderedMethod === 'Cash') ? (amountTenderedVal || cashTenderedVal) : 0,
+        amountTendered: amountTenderedVal,
+        tenderedMethod: tenderedMethod,
+        changeReturned: (!isSettleLater && changeAction === 'cash' && tenderedMethod === 'Cash') ? changeAmount : 0,
         orderPlacedAt: orderPlacedTime,
         ticketPrintedAt: firstTicketPrinted,
         foodBumpedAt: latestFoodBumped,
@@ -7618,11 +7695,13 @@ const POS = () => {
             orderId: order?.id,
             billNo: order?.billNo,
             staffName: user?.name || 'Cashier',
-            cashTendered: cashTenderedVal,
+            cashTendered: (tenderedMethod === 'Cash') ? (amountTenderedVal || cashTenderedVal) : 0,
+            amountTendered: amountTenderedVal,
+            paymentMethod: tenderedMethod,
             billTotal: finalTotal,
-            notes: `Extra cash change from bill ${order?.billNo || ''}`
+            notes: `Extra ${tenderedMethod} payment from bill ${order?.billNo || ''}`
           });
-          addAuditEntry('WALLET_CREDIT', 'cashier', user?.name || 'Cashier', `Credited ₹${walletCredited.toFixed(2)} extra cash to digital wallet for ${effectiveGuestPhone} on ${order?.billNo}`);
+          addAuditEntry('WALLET_CREDIT', 'cashier', user?.name || 'Cashier', `Credited ₹${walletCredited.toFixed(2)} extra ${tenderedMethod} to digital wallet for ${effectiveGuestPhone} on ${order?.billNo}`);
         } catch (err) {
           console.error('[POS] Failed to issue wallet credit:', err);
         }
@@ -7649,18 +7728,18 @@ const POS = () => {
           cashPortion = effectiveSplits
             .filter(p => (p.method || '').toLowerCase() === 'cash')
             .reduce((sum, p) => {
-              const tendered = parseFloat(p.cashTendered);
+              const tendered = parseFloat(p.cashTendered || p.amountTendered);
               const amt = parseFloat(p.amount) || 0;
               // If extra cash was kept for wallet credit, tender enters drawer
-              if (walletCredited > 0 && tendered > amt) return sum + tendered;
-              if (walletCredited > 0 && cashTenderedVal > amt) return sum + cashTenderedVal;
+              if (walletCredited > 0 && tenderedMethod === 'Cash' && tendered > amt) return sum + tendered;
+              if (walletCredited > 0 && tenderedMethod === 'Cash' && cashTenderedVal > amt) return sum + cashTenderedVal;
               return sum + amt;
             }, 0);
           hasCardPayment = effectiveSplits.some(p => (p.method || '').toLowerCase() === 'card');
         } else if (effectiveMethod === 'Cash') {
-          if (walletCredited > 0 && cashTenderedVal > 0) {
+          if (walletCredited > 0 && (amountTenderedVal > 0 || cashTenderedVal > 0)) {
             // Tendered amount physically enters the drawer
-            cashPortion = cashTenderedVal;
+            cashPortion = amountTenderedVal || cashTenderedVal;
           } else {
             cashPortion = finalTotal;
           }
@@ -7697,7 +7776,9 @@ const POS = () => {
             guestPhone: effectiveGuestPhone,
             walletCredited,
             walletRedeemed: walletCreditApplied,
-            cashTendered: cashTenderedVal,
+            cashTendered: (tenderedMethod === 'Cash') ? (amountTenderedVal || cashTenderedVal) : 0,
+            amountTendered: amountTenderedVal,
+            tenderedMethod,
           },
           settings,
           tableId,

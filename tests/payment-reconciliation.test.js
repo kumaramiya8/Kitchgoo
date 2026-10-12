@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getOrderPaymentSplits, getWalletAmountFromOrder, getWalletCreditedFromOrder } from '../src/pages/Reports.jsx';
+import { getOrderPaymentSplits, getWalletAmountFromOrder, getWalletCreditedFromOrder, getOrderWalletCreditDetails } from '../src/pages/Reports.jsx';
 
 describe('Payment Reconciliation Report Calculations', () => {
   it('correctly aggregates direct UPI orders for bank statement matching', () => {
@@ -163,5 +163,73 @@ describe('Payment Reconciliation Report Calculations', () => {
     const billCash = orderFromDatabase.total;
     const totalCashCollected = billCash + extraCash;
     expect(totalCashCollected).toBe(500);
+  });
+
+  it('correctly attributes extra UPI payment to wallet as expected bank UPI collections', () => {
+    // User scenario: bill is ₹10 and customer paid ₹510 via UPI, remaining ₹500 added to wallet
+    const upiOrderWithWalletCredit = {
+      id: 'ord_upi_510',
+      billNo: 'INV-UPI-10',
+      total: 10,
+      paymentMethod: 'UPI',
+      amountTendered: 510,
+      tenderedMethod: 'UPI',
+      walletCredited: 500,
+      status: 'Closed'
+    };
+
+    const regularUpiOrder = {
+      id: 'ord_upi_200',
+      billNo: 'INV-UPI-20',
+      total: 200,
+      paymentMethod: 'UPI',
+      amountTendered: 200,
+      tenderedMethod: 'UPI',
+      walletCredited: 0,
+      status: 'Closed'
+    };
+
+    const orders = [upiOrderWithWalletCredit, regularUpiOrder];
+
+    const walletDetails1 = getOrderWalletCreditDetails(upiOrderWithWalletCredit);
+    expect(walletDetails1.amount).toBe(500);
+    expect(walletDetails1.method).toBe('UPI');
+
+    // Expected UPI in bank must be (₹10 + ₹500) + ₹200 = ₹710
+    const billUpi = orders.reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
+    const extraWalletUpi = orders.reduce((sum, o) => {
+      const d = getOrderWalletCreditDetails(o);
+      return sum + (d.method.toLowerCase().includes('upi') ? d.amount : 0);
+    }, 0);
+    const totalUpiExpectedInBank = billUpi + extraWalletUpi;
+
+    expect(billUpi).toBe(210);
+    expect(extraWalletUpi).toBe(500);
+    expect(totalUpiExpectedInBank).toBe(710);
+
+    // Bank statement shows ₹710 actual received:
+    const actualBankStatement = 710;
+    const bankVariance = Math.round((actualBankStatement - totalUpiExpectedInBank) * 100) / 100;
+    expect(bankVariance).toBe(0); // Perfect zero variance match!
+  });
+
+  it('correctly attributes extra Card payment to wallet as expected EDC card collections', () => {
+    const cardOrder = {
+      id: 'ord_card_1',
+      billNo: 'INV-CRD-1',
+      total: 50,
+      paymentMethod: 'Card',
+      amountTendered: 200,
+      tenderedMethod: 'Card',
+      walletCredited: 150,
+      status: 'Closed'
+    };
+
+    const walletDetails = getOrderWalletCreditDetails(cardOrder);
+    expect(walletDetails.amount).toBe(150);
+    expect(walletDetails.method).toBe('Card');
+
+    const totalCardSettled = cardOrder.total + walletDetails.amount;
+    expect(totalCardSettled).toBe(200);
   });
 });

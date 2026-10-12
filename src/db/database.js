@@ -1655,8 +1655,10 @@ export async function issueGiftCardCredit({
   billNo = '',
   staffName = 'Staff',
   cashTendered = 0,
+  amountTendered = 0,
+  paymentMethod = 'Cash',
   billTotal = 0,
-  notes = 'Extra cash change converted to digital wallet'
+  notes = 'Store credit deposited to digital wallet'
 }) {
   const numAmount = parseFloat(amount) || 0;
   if (numAmount <= 0) return null;
@@ -1699,7 +1701,6 @@ export async function issueGiftCardCredit({
       walletBalance: newBalance,
       totalCreditIssued: numAmount,
       totalCreditRedeemed: 0,
-      loyaltyPoints: 0,
       loyaltyTier: 'Bronze',
       visitCount: 1,
       totalSpend: parseFloat(billTotal) || 0,
@@ -1708,6 +1709,9 @@ export async function issueGiftCardCredit({
     };
     await insert('guests', guest);
   }
+
+  const effectiveTendered = parseFloat(amountTendered || cashTendered) || 0;
+  const resolvedPaymentMethod = paymentMethod || 'Cash';
 
   const tx = {
     id: genId(),
@@ -1720,7 +1724,10 @@ export async function issueGiftCardCredit({
     balanceAfter: newBalance,
     orderId,
     billNo,
-    cashTendered: parseFloat(cashTendered) || 0,
+    paymentMethod: resolvedPaymentMethod,
+    tenderedMethod: resolvedPaymentMethod,
+    cashTendered: (resolvedPaymentMethod.toLowerCase() === 'cash') ? effectiveTendered : 0,
+    amountTendered: effectiveTendered,
     billTotal: parseFloat(billTotal) || 0,
     staffName,
     notes,

@@ -169,40 +169,63 @@ export function getWalletAmountFromOrder(order) {
   return 0;
 }
 
-export function getWalletCreditedFromOrder(order, giftCards = []) {
-  if (!order) return 0;
+export function getOrderWalletCreditDetails(order, giftCards = []) {
+  if (!order) return { amount: 0, method: 'Cash' };
+
   // 1. Direct field on order object or timestamps
   const direct = parseFloat(order.walletCredited || order.timestamps?.walletCredited || 0);
-  if (direct > 0) return direct;
+  let method = order.tenderedMethod || order.paymentMethodTendered || order.timestamps?.tenderedMethod || null;
 
   // 2. Check history in order or order.timestamps.history (e.g. action === 'wallet_credit_issued')
   const hist = Array.isArray(order.history) ? order.history : (order.timestamps?.history || []);
   const entry = hist.find(h => h && (h.action === 'wallet_credit_issued' || h.action === 'wallet_credited'));
+  let histVal = 0;
   if (entry) {
-    const val = parseFloat(entry.amount || (typeof entry.description === 'string' && entry.description.match(/₹([0-9.]+)/)?.[1]) || 0);
-    if (val > 0) return val;
+    histVal = parseFloat(entry.amount || (typeof entry.description === 'string' && entry.description.match(/₹([0-9.]+)/)?.[1]) || 0);
+    if (!method && entry.paymentMethod) method = entry.paymentMethod;
+    if (!method && entry.tenderedMethod) method = entry.tenderedMethod;
   }
 
   // 3. Check matching giftCards / store credit records by orderId or billNo
+  let gcVal = 0;
   if (Array.isArray(giftCards) && giftCards.length > 0) {
     const gc = giftCards.find(g => g && g.type === 'issue' && (
       (g.orderId && order.id && String(g.orderId) === String(order.id)) ||
       (g.billNo && order.billNo && String(g.billNo).trim().toUpperCase() === String(order.billNo).trim().toUpperCase())
     ));
     if (gc) {
-      const val = parseFloat(gc.amount || 0);
-      if (val > 0) return val;
+      gcVal = parseFloat(gc.amount || 0);
+      if (!method && gc.paymentMethod) method = gc.paymentMethod;
+      if (!method && gc.tenderedMethod) method = gc.tenderedMethod;
     }
   }
 
-  // 4. Check if cashTendered > total
-  const tendered = parseFloat(order.cashTendered || order.timestamps?.cashTendered || 0);
+  // 4. Check if amountTendered/cashTendered > total
+  const tendered = parseFloat(order.amountTendered || order.cashTendered || order.timestamps?.amountTendered || order.timestamps?.cashTendered || 0);
   const total = parseFloat(order.total || 0);
-  if (tendered > total) {
-    return Math.round((tendered - total) * 100) / 100;
+  const diffVal = tendered > total ? Math.round((tendered - total) * 100) / 100 : 0;
+
+  const finalAmount = direct || histVal || gcVal || diffVal || 0;
+
+  if (!method) {
+    const pm = (order.paymentMethod || '').toLowerCase();
+    if (pm.includes('upi') || pm.includes('qr') || pm.includes('online')) {
+      method = 'UPI';
+    } else if (pm.includes('card')) {
+      method = 'Card';
+    } else {
+      method = 'Cash';
+    }
   }
 
-  return 0;
+  return {
+    amount: finalAmount,
+    method: method || 'Cash'
+  };
+}
+
+export function getWalletCreditedFromOrder(order, giftCards = []) {
+  return getOrderWalletCreditDetails(order, giftCards).amount;
 }
 
 export function getOrderPaymentSplits(order) {
@@ -886,10 +909,19 @@ const DailySalesSummaryReport = ({ orders, settings, giftCards = [] }) => {
         else if (pMethod) day.other = (day.other || 0) + totalAmount;
       }
 
-      // Cash calculation includes any extra cash change deposited to wallet
-      const extraWalletCash = getWalletCreditedFromOrder(o, giftCards);
-      if (extraWalletCash > 0) {
-        day.cash += extraWalletCash;
+      // Payment breakdown includes any extra payment deposited to wallet
+      const extraDetails = getOrderWalletCreditDetails(o, giftCards);
+      if (extraDetails.amount > 0) {
+        const m = (extraDetails.method || '').toLowerCase();
+        if (m.includes('cash')) {
+          day.cash += extraDetails.amount;
+        } else if (m.includes('upi') || m.includes('qr') || m.includes('online')) {
+          day.upi += extraDetails.amount;
+        } else if (m.includes('card')) {
+          day.card += extraDetails.amount;
+        } else {
+          day.other = (day.other || 0) + extraDetails.amount;
+        }
       }
     });
 
@@ -1094,7 +1126,9 @@ const DetailedInvoiceRegisterReport = ({ orders, settings, giftCards = [] }) => 
       } else if ((o.paymentMethod || '').toLowerCase().includes('cash')) {
         c = Math.max(0, (parseFloat(o.total) || 0) - getWalletAmountFromOrder(o));
       }
-      return sum + c + getWalletCreditedFromOrder(o, giftCards);
+      const extra = getOrderWalletCreditDetails(o, giftCards);
+      const extraCash = (extra.amount > 0 && (extra.method || '').toLowerCase().includes('cash')) ? extra.amount : 0;
+      return sum + c + extraCash;
     }, 0);
     const upiTotal = validOrders.reduce((sum, o) => {
       const splits = getOrderPaymentSplits(o);
@@ -1104,7 +1138,9 @@ const DetailedInvoiceRegisterReport = ({ orders, settings, giftCards = [] }) => 
       } else if ((o.paymentMethod || '').toLowerCase().includes('upi')) {
         u = Math.max(0, (parseFloat(o.total) || 0) - getWalletAmountFromOrder(o));
       }
-      return sum + u;
+      const extra = getOrderWalletCreditDetails(o, giftCards);
+      const extraUpi = (extra.amount > 0 && ((extra.method || '').toLowerCase().includes('upi') || (extra.method || '').toLowerCase().includes('qr') || (extra.method || '').toLowerCase().includes('online'))) ? extra.amount : 0;
+      return sum + u + extraUpi;
     }, 0);
     const count = validOrders.length;
     const voidedCount = isExplicitVoided ? 0 : sortedInvoices.length - count;
@@ -1325,9 +1361,13 @@ const DetailedInvoiceRegisterReport = ({ orders, settings, giftCards = [] }) => 
                             </>
                           );
                         })()}
-                        {getWalletCreditedFromOrder(o, giftCards) > 0 && (
-                          <Badge label={`Credited ₹${getWalletCreditedFromOrder(o, giftCards).toFixed(0)}`} color="#f59e0b" />
-                        )}
+                        {(() => {
+                          const ex = getOrderWalletCreditDetails(o, giftCards);
+                          if (ex.amount > 0) {
+                            return <Badge label={`Credited ₹${ex.amount.toFixed(0)} (${ex.method})`} color="#f59e0b" />;
+                          }
+                          return null;
+                        })()}
                       </div>
                     </Td>
                     <Td><Badge label={status} color={statusColor} /></Td>
@@ -6440,7 +6480,9 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
     let billCash = 0;
     let extraWalletCash = 0;
     let billUpi = 0;
+    let extraWalletUpi = 0;
     let cardTotal = 0;
+    let extraWalletCard = 0;
     let walletRedeemedTotal = 0;
     let otherTotal = 0;
     let grossTotal = 0;
@@ -6453,7 +6495,21 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
 
       const splits = getOrderPaymentSplits(o);
       const wRedeemed = getWalletAmountFromOrder(o);
-      const extraCash = getWalletCreditedFromOrder(o, giftCards);
+      const walletCreditDetails = getOrderWalletCreditDetails(o, giftCards);
+      const extraAmt = walletCreditDetails.amount;
+      const extraM = (walletCreditDetails.method || '').toLowerCase();
+
+      let extraCash = 0;
+      let extraUpi = 0;
+      let extraCard = 0;
+      let extraOther = 0;
+
+      if (extraAmt > 0) {
+        if (extraM.includes('cash')) extraCash = extraAmt;
+        else if (extraM.includes('upi') || extraM.includes('qr') || extraM.includes('online')) extraUpi = extraAmt;
+        else if (extraM.includes('card')) extraCard = extraAmt;
+        else extraOther = extraAmt;
+      }
 
       let cPart = 0;
       let uPart = 0;
@@ -6494,20 +6550,24 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
       billCash += cPart;
       extraWalletCash += extraCash;
       billUpi += uPart;
+      extraWalletUpi += extraUpi;
       cardTotal += crdPart;
+      extraWalletCard += extraCard;
       walletRedeemedTotal += wPart;
       otherTotal += othPart;
 
       const cashCollected = cPart + extraCash;
+      const upiCollected = uPart + extraUpi;
+      const cardCollected = crdPart + extraCard;
 
       // Payment Method filter check
       let matchesPayment = true;
       if (paymentMethodFilter !== 'All') {
         const pf = paymentMethodFilter.toLowerCase();
         if (pf === 'cash') matchesPayment = cashCollected > 0;
-        else if (pf === 'upi') matchesPayment = uPart > 0;
-        else if (pf === 'card') matchesPayment = crdPart > 0;
-        else if (pf === 'wallet') matchesPayment = wPart > 0 || extraCash > 0;
+        else if (pf === 'upi') matchesPayment = upiCollected > 0;
+        else if (pf === 'card') matchesPayment = cardCollected > 0;
+        else if (pf === 'wallet') matchesPayment = wPart > 0 || extraAmt > 0;
         else if (pf === 'split') matchesPayment = (Array.isArray(splits) && splits.length > 1) || (o.paymentMethod || '').toLowerCase().startsWith('split');
       }
 
@@ -6522,13 +6582,17 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
           cashBill: cPart,
           extraWalletCash: extraCash,
           cashCollected,
-          upiPart: uPart,
-          cardPart: crdPart,
+          upiBill: uPart,
+          extraWalletUpi: extraUpi,
+          upiPart: upiCollected,
+          cardBill: crdPart,
+          extraWalletCard: extraCard,
+          cardPart: cardCollected,
           walletRedeemed: wPart,
           otherPart: othPart,
           paymentMethod: o.paymentMethod || '—',
           status: o.status || 'Paid',
-          notes: extraCash > 0 ? `₹${extraCash.toFixed(0)} change saved to wallet` : '',
+          notes: extraAmt > 0 ? `₹${extraAmt.toFixed(0)} (${walletCreditDetails.method}) saved to wallet` : '',
           rawOrder: o,
           isStandaloneWallet: false
         });
@@ -6538,6 +6602,7 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
     // 2. Standalone wallet top-ups (counter deposits) from giftCards
     let standaloneCash = 0;
     let standaloneUpi = 0;
+    let standaloneCard = 0;
 
     (rangedGiftCards || []).forEach(g => {
       if (g.type !== 'issue') return;
@@ -6554,10 +6619,12 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
 
       const pMethod = (g.paymentMethod || 'Cash').toLowerCase();
       const isUpi = pMethod.includes('upi') || pMethod.includes('online');
-      const isCash = !isUpi;
+      const isCard = pMethod.includes('card');
+      const isCash = !isUpi && !isCard;
 
       if (isCash) standaloneCash += amt;
       else if (isUpi) standaloneUpi += amt;
+      else if (isCard) standaloneCard += amt;
 
       if (orderTypeFilter !== 'All' && orderTypeFilter !== 'Wallet Top-up') return;
       if (cashierFilter !== 'All' && g.staffName !== cashierFilter) return;
@@ -6567,7 +6634,8 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
         const pf = paymentMethodFilter.toLowerCase();
         if (pf === 'cash' && !isCash) matchesPayment = false;
         if (pf === 'upi' && !isUpi) matchesPayment = false;
-        if (pf === 'card' || pf === 'split') matchesPayment = false;
+        if (pf === 'card' && !isCard) matchesPayment = false;
+        if (pf === 'split') matchesPayment = false;
       }
 
       if (searchQuery.trim()) {
@@ -6589,11 +6657,15 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
           cashBill: 0,
           extraWalletCash: 0,
           cashCollected: isCash ? amt : 0,
+          upiBill: 0,
+          extraWalletUpi: 0,
           upiPart: isUpi ? amt : 0,
-          cardPart: 0,
+          cardBill: 0,
+          extraWalletCard: 0,
+          cardPart: isCard ? amt : 0,
           walletRedeemed: 0,
           otherPart: 0,
-          paymentMethod: isCash ? 'Cash (Wallet Deposit)' : 'UPI (Wallet Deposit)',
+          paymentMethod: isCash ? 'Cash (Wallet Deposit)' : isUpi ? 'UPI (Wallet Deposit)' : 'Card (Wallet Deposit)',
           status: 'Completed',
           notes: `Direct counter wallet credit for ${g.guestName || g.guestPhone || 'Guest'}`,
           rawOrder: null,
@@ -6603,7 +6675,8 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
     });
 
     const totalCash = billCash + extraWalletCash + standaloneCash;
-    const totalUpi = billUpi + standaloneUpi;
+    const totalUpi = billUpi + extraWalletUpi + standaloneUpi;
+    const totalCard = cardTotal + extraWalletCard + standaloneCard;
 
     return {
       reconciledItems: items,
@@ -6613,9 +6686,13 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
         standaloneCash,
         cash: totalCash,
         billUpi,
+        extraWalletUpi,
         standaloneUpi,
         upi: totalUpi,
-        card: cardTotal,
+        billCard: cardTotal,
+        extraWalletCard,
+        standaloneCard,
+        card: totalCard,
         walletRedeemed: walletRedeemedTotal,
         other: otherTotal,
         gross: grossTotal,
@@ -6704,7 +6781,8 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
   
   <div class="section-title">1. BANK / UPI RECONCILIATION</div>
   <div class="row"><span>Bill UPI Collections:</span><span>₹${totals.billUpi.toFixed(2)}</span></div>
-  ${totals.standaloneUpi > 0 ? `<div class="row"><span>UPI Wallet Deposits:</span><span>₹${totals.standaloneUpi.toFixed(2)}</span></div>` : ''}
+  ${totals.extraWalletUpi > 0 ? `<div class="row"><span>+ Change Kept in Wallet (UPI):</span><span>₹${totals.extraWalletUpi.toFixed(2)}</span></div>` : ''}
+  ${totals.standaloneUpi > 0 ? `<div class="row"><span>+ UPI Wallet Deposits:</span><span>₹${totals.standaloneUpi.toFixed(2)}</span></div>` : ''}
   <div class="row large"><span>TOTAL UPI EXPECTED IN BANK:</span><span>₹${totals.upi.toFixed(2)}</span></div>
   ${actualBankUpi !== '' ? `
     <div class="row"><span>Bank Statement Actual:</span><span>₹${parseFloat(actualBankUpi || 0).toFixed(2)}</span></div>
@@ -6718,7 +6796,7 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
 
   <div class="section-title">2. CASH DRAWER RECONCILIATION</div>
   <div class="row"><span>Bill Cash Collected:</span><span>₹${totals.billCash.toFixed(2)}</span></div>
-  <div class="row"><span>+ Change Kept in Wallet:</span><span>₹${totals.extraWalletCash.toFixed(2)}</span></div>
+  ${totals.extraWalletCash > 0 ? `<div class="row"><span>+ Change Kept in Wallet:</span><span>₹${totals.extraWalletCash.toFixed(2)}</span></div>` : ''}
   ${totals.standaloneCash > 0 ? `<div class="row"><span>+ Counter Cash Top-ups:</span><span>₹${totals.standaloneCash.toFixed(2)}</span></div>` : ''}
   <div class="row large"><span>TOTAL CASH COLLECTED:</span><span>₹${totals.cash.toFixed(2)}</span></div>
   ${openingFloat > 0 ? `<div class="row"><span>+ Opening Drawer Float:</span><span>₹${parseFloat(openingFloat || 0).toFixed(2)}</span></div>` : ''}
@@ -6735,6 +6813,7 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
 
   <div class="section-title">3. OTHER PAYMENT MODES</div>
   <div class="row"><span>Card / EDC Swipes:</span><span>₹${totals.card.toFixed(2)}</span></div>
+  ${totals.extraWalletCard > 0 ? `<div class="row muted" style="padding-left: 10px;"><span>(includes ₹${totals.extraWalletCard.toFixed(2)} added to wallet)</span></div>` : ''}
   <div class="row"><span>Wallet Credit Redeemed:</span><span>₹${totals.walletRedeemed.toFixed(2)}</span></div>
   ${totals.other > 0 ? `<div class="row"><span>Other Payments:</span><span>₹${totals.other.toFixed(2)}</span></div>` : ''}
 
@@ -6755,7 +6834,7 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
 
   const handleExportCSV = () => {
     const rows = [
-      'Ref / Bill No,Date & Time,Order Type,Cashier,Invoice Total,Cash Collected (incl Wallet Change),UPI Received,Card Amount,Wallet Redeemed,Other,Payment Mode,Status,Notes',
+      'Ref / Bill No,Date & Time,Order Type,Cashier,Invoice Total,Cash Collected (incl Wallet),UPI Received (incl Wallet),Card Amount (incl Wallet),Wallet Redeemed,Other,Payment Mode,Status,Notes',
       ...sortedItems.map(item => {
         return `"${item.billNo}","${fmtDateTime(item.createdAt)}","${item.orderType}","${item.serverName || ''}",${item.total.toFixed(2)},${item.cashCollected.toFixed(2)},${item.upiPart.toFixed(2)},${item.cardPart.toFixed(2)},${item.walletRedeemed.toFixed(2)},${item.otherPart.toFixed(2)},"${item.paymentMethod || ''}","${item.status || 'Paid'}","${(item.notes || '').replace(/"/g, '""')}"`;
       }),
@@ -6865,21 +6944,21 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
           value={fmt(totals.cash)}
           color="#16a34a"
           icon={Banknote}
-          sub={`Bills ₹${totals.billCash.toFixed(0)} + Wallet ₹${totals.extraWalletCash.toFixed(0)}`}
+          sub={`Bills ₹${totals.billCash.toFixed(0)} + Wallet ₹${(totals.extraWalletCash + totals.standaloneCash).toFixed(0)}`}
         />
         <StatCard
           label="Total UPI Received"
           value={fmt(totals.upi)}
           color="#0284c7"
           icon={Smartphone}
-          sub="Bank QR & Netbanking"
+          sub={`Bills ₹${totals.billUpi.toFixed(0)} + Wallet ₹${(totals.extraWalletUpi + totals.standaloneUpi).toFixed(0)}`}
         />
         <StatCard
           label="Card / POS Swipes"
           value={fmt(totals.card)}
           color="#8b5cf6"
           icon={CreditCard}
-          sub="EDC Terminal settlements"
+          sub={totals.extraWalletCard > 0 ? `Bills ₹${totals.billCard.toFixed(0)} + Wallet ₹${totals.extraWalletCard.toFixed(0)}` : "EDC Terminal settlements"}
         />
         <StatCard
           label="Wallet Credit Spent"
@@ -6918,7 +6997,14 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10, padding: '8px 12px', background: 'var(--bg-subtle, rgba(0,0,0,0.02))', borderRadius: 8 }}>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Expected UPI In Bank:</span>
-            <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0284c7' }}>₹{totals.upi.toFixed(2)}</span>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0284c7' }}>₹{totals.upi.toFixed(2)}</span>
+              {(totals.extraWalletUpi > 0 || totals.standaloneUpi > 0) && (
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                  (₹{totals.billUpi.toFixed(2)} bills + ₹{(totals.extraWalletUpi + totals.standaloneUpi).toFixed(2)} wallet)
+                </div>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -7144,9 +7230,29 @@ const PaymentReconciliationTab = ({ orders = [], settings = {}, giftCards = [] }
                       ) : '—'}
                     </Td>
                     <Td right bold style={{ color: item.upiPart > 0 ? '#0284c7' : 'inherit' }}>
-                      {item.upiPart > 0 ? `₹${item.upiPart.toFixed(2)}` : '—'}
+                      {item.upiPart > 0 ? (
+                        <div>
+                          <div>₹{item.upiPart.toFixed(2)}</div>
+                          {item.extraWalletUpi > 0 && (
+                            <div style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 600 }}>
+                              (₹{item.upiBill.toFixed(0)} bill + ₹{item.extraWalletUpi.toFixed(0)} wallet)
+                            </div>
+                          )}
+                        </div>
+                      ) : '—'}
                     </Td>
-                    <Td right>{item.cardPart > 0 ? `₹${item.cardPart.toFixed(2)}` : '—'}</Td>
+                    <Td right style={{ color: item.cardPart > 0 ? '#8b5cf6' : 'inherit' }}>
+                      {item.cardPart > 0 ? (
+                        <div>
+                          <div>₹{item.cardPart.toFixed(2)}</div>
+                          {item.extraWalletCard > 0 && (
+                            <div style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 600 }}>
+                              (₹{item.cardBill.toFixed(0)} bill + ₹{item.extraWalletCard.toFixed(0)} wallet)
+                            </div>
+                          )}
+                        </div>
+                      ) : '—'}
+                    </Td>
                     <Td right style={{ color: item.walletRedeemed > 0 ? '#d97706' : 'inherit' }}>
                       {item.walletRedeemed > 0 ? `₹${item.walletRedeemed.toFixed(2)}` : '—'}
                     </Td>

@@ -52,6 +52,31 @@ describe('Phone-Linked Digital Wallet & Gift Card System', () => {
       expect(savedTx.guestPhone).toBe('9876543210');
     });
 
+    it('creates a digital wallet store credit when extra payment is made via UPI', async () => {
+      // Bill is ₹10, customer pays ₹510 via UPI, ₹500 credited to wallet
+      const res = await issueGiftCardCredit({
+        guestPhone: '9555604867',
+        guestName: 'Kiko Regular',
+        amount: 500,
+        orderId: 'ord_upi_1',
+        billNo: 'INV-UPI-10',
+        staffName: 'Cashier',
+        amountTendered: 510,
+        paymentMethod: 'UPI',
+        billTotal: 10,
+        notes: 'Extra UPI payment from bill INV-UPI-10'
+      });
+
+      expect(res).not.toBeNull();
+      expect(res.guest.phone).toBe('9555604867');
+      expect(res.guest.walletBalance).toBe(500);
+      expect(res.transaction.paymentMethod).toBe('UPI');
+      expect(res.transaction.tenderedMethod).toBe('UPI');
+      expect(res.transaction.amount).toBe(500);
+      expect(res.transaction.amountTendered).toBe(510);
+      expect(res.transaction.cashTendered).toBe(0); // non-cash does not enter cash drawer
+    });
+
     it('accumulates wallet balance on subsequent deposits', async () => {
       // First deposit: ₹20
       await issueGiftCardCredit({
