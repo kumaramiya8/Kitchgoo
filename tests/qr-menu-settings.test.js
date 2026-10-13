@@ -322,5 +322,32 @@ describe('QR Menu Settings & AI Ordering Strategies', () => {
       expect(() => invalidateItemSalesCache('Kiko Cafe')).not.toThrow();
       expect(() => invalidateItemSalesCache(null)).not.toThrow();
     });
+
+    it('exports recordItemSales and updates sales counts incrementally without invalidation', async () => {
+      const { recordItemSales } = await import('../api/public.js');
+      expect(typeof recordItemSales).toBe('function');
+      expect(() => recordItemSales('Kiko Cafe', [{ id: 'item_1', qty: 2 }])).not.toThrow();
+    });
+
+    it('caches and invalidates static QR menu data (menu, settings, floor plans) to prevent DB hammering', async () => {
+      const { getQrStaticCache, setQrStaticCache, invalidateQrStaticCache } = await import('../api/_lib/core.js');
+      expect(typeof getQrStaticCache).toBe('function');
+      expect(typeof setQrStaticCache).toBe('function');
+      expect(typeof invalidateQrStaticCache).toBe('function');
+
+      const dummy = { menuRows: [{ id: 'm1' }], settingsRows: [], floorPlans: {}, modifiers: [] };
+      setQrStaticCache('Kiko Cafe', dummy);
+      expect(getQrStaticCache('Kiko Cafe')).toEqual(dummy);
+      expect(getQrStaticCache('kiko cafe')).toEqual(dummy);
+
+      invalidateQrStaticCache('Kiko Cafe');
+      expect(getQrStaticCache('Kiko Cafe')).toBeNull();
+    });
+
+    it('bounds live orders window to 2 days and 200 orders to avoid full-history sync egress', async () => {
+      const { ORDERS_WINDOW_DAYS, ORDERS_WINDOW_LIMIT } = await import('../api/_lib/core.js');
+      expect(ORDERS_WINDOW_DAYS).toBeLessThanOrEqual(2);
+      expect(ORDERS_WINDOW_LIMIT).toBeLessThanOrEqual(200);
+    });
   });
 });

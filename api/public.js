@@ -11,7 +11,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { getAdminClient, broadcastChange, broadcastServerOrderCreated, resolveAccount } from './_lib/core.js';
+import { getAdminClient, broadcastChange, broadcastServerOrderCreated, resolveAccount, getQrStaticCache, setQrStaticCache } from './_lib/core.js';
 import { SEEDS } from '../shared/seeds.js';
 
 const app = express();
@@ -68,9 +68,9 @@ async function getFlex(db, tenant, name, fallback) {
   return data ? data.value : fallback;
 }
 
-// In-memory cache for aggregated item sales counts to prevent pulling 2000 orders on every QR menu load
+// In-memory cache for aggregated item sales counts to prevent pulling large order batches on every QR menu load
 const itemSalesCache = new Map(); // tenant -> { timestamp: number, map: Record<string, number> }
-const ITEM_SALES_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+const ITEM_SALES_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 export function invalidateItemSalesCache(tenant) {
   if (tenant) {
@@ -79,17 +79,35 @@ export function invalidateItemSalesCache(tenant) {
   }
 }
 
+export function recordItemSales(tenant, items) {
+  if (!tenant || !Array.isArray(items)) return;
+  const cached = itemSalesCache.get(tenant) || itemSalesCache.get(String(tenant).toLowerCase());
+  if (cached && cached.map) {
+    items.forEach(it => {
+      if (!it) return;
+      const qty = Number(it.qty) || 1;
+      const id = it.id || it.itemId;
+      const name = it.name;
+      if (id) cached.map[id] = (cached.map[id] || 0) + qty;
+      if (name) cached.map[name] = (cached.map[name] || 0) + qty;
+    });
+  }
+}
+
+export { invalidateQrStaticCache } from './_lib/core.js';
+
 async function getItemSalesMap(db, tenant) {
   const cached = itemSalesCache.get(tenant) || itemSalesCache.get(String(tenant).toLowerCase());
   if (cached && (Date.now() - cached.timestamp < ITEM_SALES_CACHE_TTL)) {
     return cached.map;
   }
   try {
+    // Only pull recent 100 orders instead of 1000 orders — ample for trending dishes and popular items
     const { data: ordersData } = await db.from('orders')
       .select('items')
       .eq('account_id', tenant)
       .order('created_at', { ascending: false })
-      .limit(1000);
+      .limit(100);
     const map = {};
     (ordersData || []).forEach(o => {
       const items = Array.isArray(o?.items) ? o.items : [];
@@ -121,15 +139,31 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   }
   const canonicalTenant = account.id;
 
-  const [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers, itemSalesMap] = await Promise.all([
-    db.from('menu').select('*').eq('account_id', canonicalTenant),
-    db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', GUEST_SETTINGS_SECTIONS),
-    getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
-    getFlex(db, canonicalTenant, 'pos_tables', []),
-    getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
-    getFlex(db, canonicalTenant, 'modifiers', []),
-    getItemSalesMap(db, canonicalTenant),
-  ]);
+  // Use short-lived memory cache for static components (menu, settings, floor_plans, modifiers)
+  const staticCached = getQrStaticCache(canonicalTenant);
+
+  let menuRows, settingsRows, floorPlans, modifiers;
+  let posTables, savedOrders, itemSalesMap;
+
+  if (staticCached) {
+    ({ menuRows, settingsRows, floorPlans, modifiers } = staticCached);
+    [posTables, savedOrders, itemSalesMap] = await Promise.all([
+      getFlex(db, canonicalTenant, 'pos_tables', []),
+      getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
+      getItemSalesMap(db, canonicalTenant),
+    ]);
+  } else {
+    [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers, itemSalesMap] = await Promise.all([
+      db.from('menu').select('*').eq('account_id', canonicalTenant),
+      db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', GUEST_SETTINGS_SECTIONS),
+      getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
+      getFlex(db, canonicalTenant, 'pos_tables', []),
+      getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
+      getFlex(db, canonicalTenant, 'modifiers', []),
+      getItemSalesMap(db, canonicalTenant),
+    ]);
+    setQrStaticCache(canonicalTenant, { menuRows, settingsRows, floorPlans, modifiers });
+  }
 
   const enrichedMenu = (menuRows || []).map(item => {
     const count = itemSalesMap[item.id] ?? (item.name ? itemSalesMap[item.name] : undefined) ?? 0;
@@ -601,7 +635,7 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
     broadcastServerOrderCreated(account.name, tableId || table?.id || null, null).catch(() => {});
   }
 
-  invalidateItemSalesCache(canonicalTenant);
+  recordItemSales(canonicalTenant, (table && table.orders) || req.body?.items || []);
   res.json({ success: true });
 }));
 
@@ -647,7 +681,7 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
     broadcastServerOrderCreated(account.name, withId.tableId || null, withId.id).catch(() => {});
   }
 
-  invalidateItemSalesCache(canonicalTenant);
+  recordItemSales(canonicalTenant, withId?.items || []);
   res.json({ success: true, ticket: withId });
 }));
 

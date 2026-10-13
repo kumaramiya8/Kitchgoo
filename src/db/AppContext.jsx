@@ -512,20 +512,17 @@ export function AppProvider({ children }) {
       hydrateFromCache();
     };
 
-    // Listen across all tenant alias variations so no broadcast is missed
-    const rawAliases = [
+    // Normalize tenant to valid slugs for Supabase Realtime channel (spaces trigger CHANNEL_ERROR in Phoenix)
+    const candidateSlugs = [
       activeTenant,
       user?.restaurantName,
       user?.accountId,
-      activeTenant ? String(activeTenant).toLowerCase().replace(/[^a-z0-9]/g, '_') : null,
-      activeTenant ? String(activeTenant).toLowerCase().replace(/[^a-z0-9]/g, '-') : null,
-      user?.restaurantName ? String(user.restaurantName).toLowerCase().replace(/[^a-z0-9]/g, '_') : null,
-      user?.restaurantName ? String(user.restaurantName).toLowerCase().replace(/[^a-z0-9]/g, '-') : null,
-      user?.accountId ? String(user.accountId).toLowerCase().replace(/[^a-z0-9]/g, '_') : null,
-      user?.accountId ? String(user.accountId).toLowerCase().replace(/[^a-z0-9]/g, '-') : null,
-    ].filter(Boolean);
+    ]
+      .filter(Boolean)
+      .map(t => String(t).trim().toLowerCase().replace(/[^a-z0-9]/g, '_'))
+      .filter(s => s && s.length > 0);
 
-    const channelNames = Array.from(new Set(rawAliases)).map(t => `kitchgoo_changes_${t}`);
+    const channelNames = Array.from(new Set(candidateSlugs)).map(t => `kitchgoo_changes_${t}`);
     let reconnectTimeout = null;
     let initialSubDone = false;
     let wasConnected = false;
@@ -533,8 +530,14 @@ export function AppProvider({ children }) {
     const handleReconnect = () => {
       if (!initialSubDone || !wasConnected) return;
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      reconnectTimeout = setTimeout(() => {
-        reload(true);
+      reconnectTimeout = setTimeout(async () => {
+        // Targeted sync of live collections instead of full reload of all historical orders
+        await Promise.allSettled([
+          syncOneCollection('pos_tables'),
+          syncOneCollection('pos_saved_orders'),
+          syncOneCollection('kds_tickets'),
+        ]);
+        hydrateFromCache();
       }, 1000);
     };
 
@@ -549,8 +552,10 @@ export function AppProvider({ children }) {
             handleReconnect();
             wasConnected = true;
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-            realtimeConnectedRef.current = false;
             console.warn(`[Realtime] ${status} for channel: ${cName}`, err || '');
+            if (channels.every(c => c.state !== 'joined')) {
+              realtimeConnectedRef.current = false;
+            }
           }
         });
     });
@@ -571,7 +576,7 @@ export function AppProvider({ children }) {
 
   // Self-healing safety net. Realtime broadcasts are near-instant (0ms delay),
   // but network hitches or firewalls can drop sockets. Reconcile live collections
-  // every 50s when connected, and every 10s if the socket connection is down.
+  // every 90s when connected, and every 15s if the socket connection is down.
   useEffect(() => {
     if (authLoading || !hasLoadedFromDb || !activeTenant) return;
     const isDemoMode = window.localStorage.getItem('kitchgoo_demo_mode') === 'true';
@@ -585,8 +590,9 @@ export function AppProvider({ children }) {
       const connected = realtimeConnectedRef.current;
       const since = Date.now() - lastReconcileAt.current;
       // When realtime socket is healthy, broadcasts handle instant order delivery.
-      // Poll only as a slow safety net (every 50s); if socket drops, poll every 10s.
-      if (connected && since < 50000) return;
+      // Poll only as a slow safety net (every 90s); if socket drops, poll every 15s.
+      if (connected && since < 90000) return;
+      if (!connected && since < 15000) return;
       lastReconcileAt.current = Date.now();
       const before = LIVE.map(n => stableStringify(getAll(n)));
       for (const n of LIVE) { await syncOneCollection(n); }
@@ -602,13 +608,13 @@ export function AppProvider({ children }) {
         syncOneCollection('kds_tickets'),
       ]);
       hydrateFromCache();
-      // Only do a full database reload if realtime is disconnected or tab was away for > 5 min
-      if (!realtimeConnectedRef.current || Date.now() - lastReconcileAt.current > 300000) {
+      // Only do a full database reload if realtime is disconnected and tab was away for > 15 min
+      if (!realtimeConnectedRef.current && Date.now() - lastReconcileAt.current > 900000) {
         reload(true);
       }
     };
 
-    const interval = setInterval(tick, 10000);
+    const interval = setInterval(tick, 15000);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);

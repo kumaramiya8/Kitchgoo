@@ -204,11 +204,9 @@ async function _serverBroadcast(tenant, event, payload) {
   try {
     const rawTenant = String(tenant).trim();
     const underscoreSlug = rawTenant.toLowerCase().replace(/[^a-z0-9]/g, '_');
-    const hyphenSlug = rawTenant.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    // Standardize to the canonical slug topic (valid in Supabase Realtime without spaces)
     const topics = Array.from(new Set([
-      `kitchgoo_changes_${rawTenant}`,
       `kitchgoo_changes_${underscoreSlug}`,
-      `kitchgoo_changes_${hyphenSlug}`,
     ]));
 
     const res = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
@@ -236,7 +234,37 @@ async function _serverBroadcast(tenant, event, payload) {
   }
 }
 
+// In-memory cache for static QR menu components (menu, settings, floor_plans, modifiers)
+const qrStaticCache = new Map(); // tenant -> { timestamp: number, data: { menuRows, settingsRows, floorPlans, modifiers } }
+const QR_STATIC_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+
+export function getQrStaticCache(tenant) {
+  if (!tenant) return null;
+  const key = String(tenant).toLowerCase().trim();
+  const entry = qrStaticCache.get(key);
+  if (entry && (Date.now() - entry.timestamp < QR_STATIC_CACHE_TTL)) {
+    return entry.data;
+  }
+  return null;
+}
+
+export function setQrStaticCache(tenant, data) {
+  if (!tenant || !data) return;
+  const key = String(tenant).toLowerCase().trim();
+  qrStaticCache.set(key, { timestamp: Date.now(), data });
+}
+
+export function invalidateQrStaticCache(tenant) {
+  if (tenant) {
+    const key = String(tenant).toLowerCase().trim();
+    qrStaticCache.delete(key);
+  }
+}
+
 export async function broadcastChange(tenant, table) {
+  if (['menu', 'settings', 'floor_plans', 'modifiers'].includes(table)) {
+    invalidateQrStaticCache(tenant);
+  }
   return _serverBroadcast(tenant, 'db_changed', { table });
 }
 
@@ -247,43 +275,68 @@ export async function broadcastServerOrderCreated(tenant, tableId, kdsOrderId) {
   return _serverBroadcast(tenant, 'order_created', { tableId, kdsOrderId });
 }
 
+// In-memory cache for resolved accounts to avoid running 4-8 SQL queries on every single request
+const accountCache = new Map(); // lowercaseIdentifier -> { account, timestamp }
+const ACCOUNT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+export function invalidateAccountCache(tenant) {
+  if (tenant) {
+    accountCache.delete(String(tenant).toLowerCase().trim());
+  }
+}
+
 // ── Tenant bootstrap helpers ────────────────────────────────
 export async function resolveAccount(db, tenantIdentifier) {
   if (!tenantIdentifier) return null;
   const raw = String(tenantIdentifier).trim();
   if (!raw) return null;
 
+  const cacheKey = raw.toLowerCase();
+  const cached = accountCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp < ACCOUNT_CACHE_TTL)) {
+    return cached.account;
+  }
+
+  const cacheAndReturn = (acc) => {
+    if (acc) {
+      accountCache.set(cacheKey, { account: acc, timestamp: Date.now() });
+      if (acc.id) accountCache.set(String(acc.id).toLowerCase(), { account: acc, timestamp: Date.now() });
+      if (acc.name) accountCache.set(String(acc.name).toLowerCase(), { account: acc, timestamp: Date.now() });
+    }
+    return acc;
+  };
+
   // 1. Exact match by id
   let { data: account } = await db.from('accounts').select('id, name').eq('id', raw).maybeSingle();
-  if (account) return account;
+  if (account) return cacheAndReturn(account);
 
   // 2. Exact match by name
   ({ data: account } = await db.from('accounts').select('id, name').eq('name', raw).maybeSingle());
-  if (account) return account;
+  if (account) return cacheAndReturn(account);
 
   // 3. Case-insensitive ilike match by id or name
   ({ data: account } = await db.from('accounts').select('id, name').ilike('id', raw).maybeSingle());
-  if (account) return account;
+  if (account) return cacheAndReturn(account);
 
   ({ data: account } = await db.from('accounts').select('id, name').ilike('name', raw).maybeSingle());
-  if (account) return account;
+  if (account) return cacheAndReturn(account);
 
   // 4. Try unslugged (hyphens/underscores to spaces)
   const unslugged = raw.replace(/[-_]+/g, ' ');
   if (unslugged !== raw) {
     ({ data: account } = await db.from('accounts').select('id, name').ilike('name', unslugged).maybeSingle());
-    if (account) return account;
+    if (account) return cacheAndReturn(account);
     ({ data: account } = await db.from('accounts').select('id, name').ilike('id', unslugged).maybeSingle());
-    if (account) return account;
+    if (account) return cacheAndReturn(account);
   }
 
   // 5. Try slugged (spaces to hyphens)
   const slugged = raw.toLowerCase().replace(/\s+/g, '-');
   if (slugged !== raw) {
     ({ data: account } = await db.from('accounts').select('id, name').ilike('id', slugged).maybeSingle());
-    if (account) return account;
+    if (account) return cacheAndReturn(account);
     ({ data: account } = await db.from('accounts').select('id, name').ilike('name', slugged).maybeSingle());
-    if (account) return account;
+    if (account) return cacheAndReturn(account);
   }
 
   return null;
@@ -294,6 +347,7 @@ export async function ensureAccount(tenant) {
   const { data } = await db.from('accounts').select('id').eq('id', tenant);
   if (!data || data.length === 0) {
     await db.from('accounts').insert({ id: tenant, name: tenant, status: 'active', plan: 'pro' });
+    invalidateAccountCache(tenant);
     return false; // did not exist
   }
   return true;
@@ -335,9 +389,9 @@ export async function seedTenantIfNew(tenant) {
 // on every sync is the app's memory ceiling. Older ranges are fetched on
 // demand via GET /api/data/orders.
 // The live payload only needs enough order history for the dashboard's
-// recent view; Reports fetch wider ranges on demand (GET /api/data/orders).
-export const ORDERS_WINDOW_DAYS = 7;
-export const ORDERS_WINDOW_LIMIT = 1000;
+// recent view (today + yesterday); Reports fetch wider ranges on demand (GET /api/data/orders).
+export const ORDERS_WINDOW_DAYS = 2;
+export const ORDERS_WINDOW_LIMIT = 200;
 
 export function ordersWindowStart() {
   const d = new Date(Date.now() - ORDERS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
