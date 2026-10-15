@@ -169,4 +169,42 @@ describe('Roles and Permissions System', () => {
     const visible2 = navItems.filter(item => !item.perm || canWithDash(item.perm));
     expect(visible2.map(i => i.name)).toEqual(['Dashboard', 'POS']);
   });
+
+  it('strips lingering settings.view when settings is disabled for Manager', () => {
+    mockUser = { role: 'Manager' };
+    // Simulate legacy database state where seeds had settings.view, but user unchecked settings
+    mockSettings = {
+      roles: [
+        {
+          id: 'manager',
+          name: 'Manager',
+          permissions: ['dashboard', 'pos', 'inventory', 'reports', 'settings.view'], // 'settings' is absent
+        },
+      ],
+    };
+
+    const can = usePermissions();
+    expect(can('pos')).toBe(true);
+    expect(can('settings')).toBe(false);
+    expect(can('settings.view')).toBe(false);
+    expect(can('settings.edit')).toBe(false);
+  });
+
+  it('filters out settings from search results and dropdown when settings.view is false', () => {
+    const canMock = (perm) => perm === 'pos' || perm === 'dashboard'; // no settings.view
+
+    const searchItems = [
+      { name: 'Dashboard', type: 'page', path: '/' },
+      { name: 'POS & Billing', type: 'page', path: '/pos' },
+      { name: 'Settings: Restaurant Profile', type: 'setting', path: '/settings?tab=restaurant' },
+      { name: 'Settings: Operations', type: 'setting', path: '/settings?tab=operations' },
+    ];
+
+    const filtered = searchItems.filter(item => {
+      if (item.type === 'setting' && !canMock('settings.view')) return false;
+      return true;
+    });
+
+    expect(filtered.map(i => i.name)).toEqual(['Dashboard', 'POS & Billing']);
+  });
 });

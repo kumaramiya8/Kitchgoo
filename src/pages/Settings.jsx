@@ -1762,12 +1762,42 @@ const RolesSection = ({ data, onChange, isMobile }) => {
     settings: 'Settings',
   };
 
+  const hasRolePerm = (role, perm) => {
+    const perms = role.permissions || [];
+    if (perms.includes('all')) return true;
+    if (perms.includes(perm)) return true;
+    if (perm === 'settings' && (perms.includes('settings') || perms.includes('settings.view') || perms.includes('settings.edit'))) return true;
+    if (perm === 'reports' && (perms.includes('reports') || perms.includes('reports.export'))) return true;
+    if (perm === 'kds' && (perms.includes('kds') || perms.includes('kds.view'))) return true;
+    if (perm === 'guests' && (perms.includes('guests') || perms.includes('guests.view'))) return true;
+    return false;
+  };
+
   const togglePerm = (roleId, perm) => {
     const updated = (data || []).map(r => {
       if (r.id !== roleId) return r;
       if (r.permissions.includes('all')) return r;
-      const has = r.permissions.includes(perm);
-      return { ...r, permissions: has ? r.permissions.filter(p => p !== perm) : [...r.permissions, perm] };
+      const has = hasRolePerm(r, perm);
+      let nextPerms = [];
+      if (has) {
+        if (perm === 'settings') {
+          nextPerms = r.permissions.filter(p => p !== 'settings' && !p.startsWith('settings.'));
+        } else if (perm === 'reports') {
+          nextPerms = r.permissions.filter(p => p !== 'reports' && !p.startsWith('reports.'));
+        } else if (perm === 'kds') {
+          nextPerms = r.permissions.filter(p => p !== 'kds' && !p.startsWith('kds.'));
+        } else if (perm === 'guests') {
+          nextPerms = r.permissions.filter(p => p !== 'guests' && !p.startsWith('guests.'));
+        } else {
+          nextPerms = r.permissions.filter(p => p !== perm);
+        }
+      } else {
+        nextPerms = [...r.permissions, perm];
+        if (perm === 'settings' && !nextPerms.includes('settings.view')) {
+          nextPerms.push('settings.view');
+        }
+      }
+      return { ...r, permissions: nextPerms };
     });
     onChange(updated);
   };
@@ -1817,7 +1847,7 @@ const RolesSection = ({ data, onChange, isMobile }) => {
               <tr key={role.id}>
                 <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--text-primary)' }}>{role.name}</td>
                 {allPerms.map(perm => {
-                  const has = role.permissions.includes('all') || role.permissions.includes(perm);
+                  const has = hasRolePerm(role, perm);
                   return (
                     <td key={perm} style={{ padding: '10px 8px', textAlign: 'center' }}>
                       <button
@@ -3065,9 +3095,15 @@ const Settings = () => {
     try {
       await updateSettingsSection('roles', updatedRoles);
       const rolePerms = { ...(settings?.rolePermissions || {}) };
-      const allPossiblePerms = ['dashboard', 'pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings'];
+      const allPossiblePerms = ['dashboard', 'pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings', 'settings.view', 'settings.edit', 'reports.export'];
       updatedRoles.forEach(r => {
-        rolePerms[r.name] = r.permissions.includes('all') ? allPossiblePerms : r.permissions;
+        let pList = r.permissions.includes('all') ? allPossiblePerms : [...r.permissions];
+        if (pList.includes('settings') && !pList.includes('settings.view')) {
+          pList.push('settings.view');
+        } else if (!pList.includes('settings')) {
+          pList = pList.filter(p => p !== 'settings' && !p.startsWith('settings.'));
+        }
+        rolePerms[r.name] = pList;
       });
       await updateSettingsSection('rolePermissions', rolePerms);
     } catch (err) {

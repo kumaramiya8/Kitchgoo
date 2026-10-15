@@ -49,7 +49,12 @@ export function usePermissions() {
          (r.id && r.id.toLowerCase() === role.toLowerCase().replace(/\s+/g, '_')),
   );
   if (legacyRole && Array.isArray(legacyRole.permissions)) {
-    return checkPermList(legacyRole.permissions);
+    let perms = legacyRole.permissions;
+    // If role does not have 'settings' (and not 'all'), strip any legacy 'settings.view' from seeds
+    if (!perms.includes('all') && !perms.includes('settings')) {
+      perms = perms.filter(p => !p.startsWith('settings.'));
+    }
+    return checkPermList(perms);
   }
 
   // 2. Staff -> Permissions tab: { RoleName: ['perm1', 'perm2'] }

@@ -8,6 +8,7 @@ import HelpDrawer from '../ui/HelpDrawer';
 import Tooltip from '../ui/Tooltip';
 import { toggleThemeWithReveal } from '../../lib/theme';
 import { isModuleEnabled } from '../../../shared/seeds';
+import { usePermissions } from '../../db/usePermissions';
 
 const SEARCHABLE_ITEMS = [
   // Pages
@@ -43,6 +44,7 @@ const SEARCHABLE_ITEMS = [
 const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const { user, logout } = useAuth();
   const { settings, updateSettingsSection } = useApp();
+  const can = usePermissions();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -91,6 +93,8 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
       if (!nameMatches) return false;
 
       // 2. Match role permission
+      if (item.type === 'setting' && !can('settings.view')) return false;
+      if (item.perm && !can(item.perm)) return false;
       if (!item.allowedRoles.some(r => r.toLowerCase() === userRole)) return false;
 
       // 3. Match module toggle
@@ -100,7 +104,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
     });
 
     setSearchResults(filtered);
-  }, [searchQuery, user, settings]);
+  }, [searchQuery, user, settings, can]);
 
   // Position dropdown relative to button
   const openDropdown = () => {
@@ -167,8 +171,12 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
         </div>
       </div>
 
-      <DropItem icon={<Settings size={15} />} label="Settings" onClick={() => { navigate('/settings'); setDropdownOpen(false); }} />
-      <DropItem icon={<Users size={15} />} label="Team Members" onClick={() => { navigate('/settings?tab=team'); setDropdownOpen(false); }} />
+      {can('settings.view') && (
+        <DropItem icon={<Settings size={15} />} label="Settings" onClick={() => { navigate('/settings'); setDropdownOpen(false); }} />
+      )}
+      {can('staff') && (
+        <DropItem icon={<Users size={15} />} label="Team Members" onClick={() => { navigate('/settings?tab=team'); setDropdownOpen(false); }} />
+      )}
       <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: '4px', paddingTop: '4px' }} />
       <DropItem icon={<LogOut size={15} />} label="Sign Out" onClick={handleLogout} danger />
     </div>,
