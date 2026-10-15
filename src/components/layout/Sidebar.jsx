@@ -32,7 +32,7 @@ const Sidebar = ({ isOpen, onClose }) => {
   const restName = settings?.restaurant?.name || 'Kitchgoo';
   const restLogo = settings?.restaurant?.logo;
 
-  const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
+  const isPlatformAdmin = (user?.role === 'SuperAdmin' || user?.role === 'PlatformAdmin') && !user.isImpersonated;
 
   const operationsNav = [
     { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: 'dashboard' },

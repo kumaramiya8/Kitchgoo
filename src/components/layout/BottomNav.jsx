@@ -21,7 +21,7 @@ const BottomNav = ({ onMoreClick }) => {
   const { settings } = useApp();
   const { user } = useAuth();
   const can = usePermissions();
-  const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
+  const isPlatformAdmin = (user?.role === 'SuperAdmin' || user?.role === 'PlatformAdmin') && !user.isImpersonated;
 
   const allItems = [
     { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: 'dashboard' },

@@ -75,13 +75,10 @@ const BootSplash = () => (
 );
 
 // Route guard — checks authentication only
-const Protected = ({ children, allowAdmin = false }) => {
+const Protected = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <BootSplash />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated && !allowAdmin) {
-    return <Navigate to="/" replace />;
-  }
   return children;
 };
 
@@ -109,12 +106,9 @@ const PermissionGuard = ({ perm, children }) => {
 };
 
 // Module guard — redirects to first authorized page when an account-level module is disabled
-const ModuleGuard = ({ module: modKey, allowAdmin = false, children }) => {
+const ModuleGuard = ({ module: modKey, children }) => {
   const { settings } = useApp();
-  const { user } = useAuth();
   const can = usePermissions();
-  const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
-  if (allowAdmin && isPlatformAdmin) return children;
   if (modKey && !isModuleEnabled(settings, modKey)) {
     return <Navigate to={getFirstAllowedRoute(can)} replace />;
   }
@@ -124,7 +118,7 @@ const ModuleGuard = ({ module: modKey, allowAdmin = false, children }) => {
 const RootElement = () => {
   const { user } = useAuth();
   const can = usePermissions();
-  if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated) {
+  if ((user?.role === 'SuperAdmin' || user?.role === 'PlatformAdmin') && !user.isImpersonated) {
     return <Layout title="Platform Admin"><PlatformAdmin /></Layout>;
   }
   if (!can('dashboard')) {
