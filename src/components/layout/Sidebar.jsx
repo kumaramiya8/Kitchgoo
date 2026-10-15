@@ -63,6 +63,12 @@ const Sidebar = ({ isOpen, onClose }) => {
     return true;
   };
 
+  const handleNavClick = () => {
+    if (isOpen && typeof onClose === 'function') {
+      onClose();
+    }
+  };
+
   const renderNavItems = (items) =>
     items
       .filter(isItemVisible)
@@ -72,7 +78,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           to={item.path}
           end={item.path === '/'}
           className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-          onClick={onClose}
+          onClick={handleNavClick}
         >
           <span className="nav-item-icon">
             <item.icon size={18} />
@@ -138,7 +144,7 @@ const Sidebar = ({ isOpen, onClose }) => {
 
       {can('settings.view') && (
         <div className="sidebar-footer">
-          <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={onClose}>
+          <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={handleNavClick}>
             <span className="nav-item-icon">
               <Settings size={18} />
             </span>

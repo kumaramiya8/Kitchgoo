@@ -26,6 +26,13 @@ if ('serviceWorker' in navigator) {
   }
 }
 
+// ── Automatic recovery from stale deployment chunks ───────────
+window.addEventListener('vite:preloadError', (event) => {
+  console.warn('[Vite] Stale chunk detected after deployment, reloading page...', event);
+  event.preventDefault();
+  window.location.reload();
+});
+
 // ── Setup screen shown when .env credentials are missing ──────
 const SetupScreen = () => (
   <div style={{

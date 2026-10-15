@@ -7,24 +7,40 @@ import { isModuleEnabled } from '../shared/seeds';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 
-// Pages load as separate chunks — the old single bundle was 1.25 MB, which
-// is a slow first paint on the cheap tablets restaurants actually run.
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const POS = lazy(() => import('./pages/POS'));
-const Inventory = lazy(() => import('./pages/Inventory'));
-const MenuScreen = lazy(() => import('./pages/MenuScreen'));
-const Delivery = lazy(() => import('./pages/Delivery'));
-const Staff = lazy(() => import('./pages/Staff'));
-const Reports = lazy(() => import('./pages/Reports'));
-const Settings = lazy(() => import('./pages/Settings'));
-const Guests = lazy(() => import('./pages/Guests'));
-const KDS = lazy(() => import('./pages/KDS'));
-const Reservations = lazy(() => import('./pages/Reservations'));
-const MultiLocation = lazy(() => import('./pages/MultiLocation'));
-const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
-const QRMenu = lazy(() => import('./pages/QRMenu'));
-const Attendance = lazy(() => import('./pages/Attendance'));
-const Expenses = lazy(() => import('./pages/Expenses'));
+// Pages load as separate chunks — automatically recovers if a new deploy changes chunk hashes
+const lazyWithRetry = (importFn) =>
+  lazy(async () => {
+    const isRetried = sessionStorage.getItem('kitchgoo_chunk_reload');
+    try {
+      const module = await importFn();
+      sessionStorage.removeItem('kitchgoo_chunk_reload');
+      return module;
+    } catch (err) {
+      if (!isRetried) {
+        sessionStorage.setItem('kitchgoo_chunk_reload', 'true');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      throw err;
+    }
+  });
+
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const POS = lazyWithRetry(() => import('./pages/POS'));
+const Inventory = lazyWithRetry(() => import('./pages/Inventory'));
+const MenuScreen = lazyWithRetry(() => import('./pages/MenuScreen'));
+const Delivery = lazyWithRetry(() => import('./pages/Delivery'));
+const Staff = lazyWithRetry(() => import('./pages/Staff'));
+const Reports = lazyWithRetry(() => import('./pages/Reports'));
+const Settings = lazyWithRetry(() => import('./pages/Settings'));
+const Guests = lazyWithRetry(() => import('./pages/Guests'));
+const KDS = lazyWithRetry(() => import('./pages/KDS'));
+const Reservations = lazyWithRetry(() => import('./pages/Reservations'));
+const MultiLocation = lazyWithRetry(() => import('./pages/MultiLocation'));
+const PlatformAdmin = lazyWithRetry(() => import('./pages/PlatformAdmin'));
+const QRMenu = lazyWithRetry(() => import('./pages/QRMenu'));
+const Attendance = lazyWithRetry(() => import('./pages/Attendance'));
+const Expenses = lazyWithRetry(() => import('./pages/Expenses'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -117,10 +133,54 @@ const RootElement = () => {
   return <Layout title="Dashboard"><Dashboard /></Layout>;
 };
 
+class RouteErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.warn('[RouteErrorBoundary] Uncaught route transition error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          minHeight: '60vh', padding: '32px', textAlign: 'center'
+        }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>
+            Unable to display screen
+          </h2>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '18px', maxWidth: 400 }}>
+            An update was deployed or a temporary network issue occurred. Reloading will fetch the latest version.
+          </p>
+          <button
+            style={{
+              background: '#1e5e4a', color: 'white', border: 'none', borderRadius: '10px',
+              padding: '10px 20px', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer'
+            }}
+            onClick={() => {
+              sessionStorage.removeItem('kitchgoo_chunk_reload');
+              window.location.reload();
+            }}
+          >
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   const { user, loading } = useAuth();
 
   return (
+    <RouteErrorBoundary>
     <Suspense fallback={<PageLoader />}>
     <Routes>
       {/* Public */}
@@ -155,6 +215,7 @@ function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
     </Suspense>
+    </RouteErrorBoundary>
   );
 }
 

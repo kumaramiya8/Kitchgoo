@@ -5795,16 +5795,15 @@ const POS = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        height: '100vh',
-        width: '100vw',
+        height: '100%',
+        minHeight: 'calc(100vh - 80px)',
+        width: '100%',
         background: 'radial-gradient(circle at 10% 20%, rgb(90, 92, 234) 0%, rgb(32, 45, 78) 90%)',
         fontFamily: "'Outfit', sans-serif",
         color: 'white',
-        overflow: 'hidden',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        zIndex: 9999
+        overflow: 'auto',
+        padding: '32px 16px',
+        boxSizing: 'border-box'
       }}>
         <div style={{
           background: 'rgba(255, 255, 255, 0.08)',
