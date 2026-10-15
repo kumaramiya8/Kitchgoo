@@ -69,30 +69,50 @@ const Protected = ({ children, allowAdmin = false }) => {
   return children;
 };
 
-// Permission guard — redirects to dashboard when the user's role lacks access.
+const getFirstAllowedRoute = (can) => {
+  if (can('dashboard')) return '/';
+  if (can('pos')) return '/pos';
+  if (can('kds')) return '/kds';
+  if (can('menu')) return '/menu';
+  if (can('inventory')) return '/inventory';
+  if (can('delivery')) return '/delivery';
+  if (can('staff')) return '/staff';
+  if (can('reports')) return '/reports';
+  if (can('guests')) return '/guests';
+  if (can('reservations')) return '/reservations';
+  if (can('expenses')) return '/expenses';
+  return '/attendance';
+};
+
+// Permission guard — redirects to first authorized page when the user's role lacks access.
 // Must render inside AppProvider (i.e. inside a Protected route).
 const PermissionGuard = ({ perm, children }) => {
   const can = usePermissions();
-  if (!can(perm)) return <Navigate to="/" replace />;
+  if (!can(perm)) return <Navigate to={getFirstAllowedRoute(can)} replace />;
   return children;
 };
 
-// Module guard — redirects to dashboard when an account-level module is disabled
+// Module guard — redirects to first authorized page when an account-level module is disabled
 const ModuleGuard = ({ module: modKey, allowAdmin = false, children }) => {
   const { settings } = useApp();
   const { user } = useAuth();
+  const can = usePermissions();
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
   if (allowAdmin && isPlatformAdmin) return children;
   if (modKey && !isModuleEnabled(settings, modKey)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={getFirstAllowedRoute(can)} replace />;
   }
   return children;
 };
 
 const RootElement = () => {
   const { user } = useAuth();
+  const can = usePermissions();
   if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated) {
     return <Layout title="Platform Admin"><PlatformAdmin /></Layout>;
+  }
+  if (!can('dashboard')) {
+    return <Navigate to={getFirstAllowedRoute(can)} replace />;
   }
   return <Layout title="Dashboard"><Dashboard /></Layout>;
 };

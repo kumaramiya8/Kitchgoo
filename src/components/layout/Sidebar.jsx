@@ -35,7 +35,7 @@ const Sidebar = ({ isOpen, onClose }) => {
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
 
   const operationsNav = [
-    { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: null },
+    { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: 'dashboard' },
     { name: 'POS & Billing',    path: '/pos',        icon: ShoppingCart,    perm: 'pos' },
     { name: 'Kitchen Display',  path: '/kds',        icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Menu',             path: '/menu',       icon: MenuSquare,      perm: 'menu' },

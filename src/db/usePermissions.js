@@ -1,12 +1,13 @@
 import { useApp } from './AppContext';
 import { useAuth } from './AuthContext';
 
-const FULL_ACCESS_ROLES = new Set(['Owner', 'Manager']);
+const FULL_ACCESS_ROLES = new Set(['Owner']);
 
 // Hard-coded safety net — used only when neither settings store has data for a role
 const DEFAULT_PERMS = {
+  Manager: ['dashboard', 'pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings', 'settings.view'],
   Chef: ['kds', 'inventory', 'menu'],
-  Cashier: ['pos', 'comp.small', 'discount'],
+  Cashier: ['dashboard', 'pos', 'comp.small', 'discount', 'guests'],
   Waiter: ['pos', 'reservations', 'guests', 'comp.small'],
   'Delivery Boy': ['delivery'],
   Host: ['reservations', 'guests'],
@@ -16,12 +17,10 @@ const DEFAULT_PERMS = {
  * Returns a `can(perm)` function for the currently logged-in user.
  *
  * Priority:
- *  1. Owner / Manager → always full access
- *  2. settings.rolePermissions[role]  (Staff → Permissions tab)
- *  3. settings.roles[role].permissions (Settings → Roles & Permissions UI)
+ *  1. Owner → always full access (super-admin safety net)
+ *  2. settings.roles (from Settings → Roles & Permissions UI)
+ *  3. settings.rolePermissions (from Staff → Permissions tab)
  *  4. Hard-coded DEFAULT_PERMS fallback
- *
- * Reading from both stores means either UI actually works.
  */
 export function usePermissions() {
   const { settings } = useApp();
@@ -29,26 +28,37 @@ export function usePermissions() {
 
   const role = user?.role || 'Owner';
 
+  // Owner always has full access
   if (FULL_ACCESS_ROLES.has(role)) return () => true;
 
-  // 1. New format: { RoleName: ['perm1', 'perm2'] }
-  const newStore = settings?.rolePermissions || {};
-  if (newStore[role] !== undefined) {
-    const perms = newStore[role];
-    return (perm) => Array.isArray(perms) && perms.includes(perm);
-  }
+  const checkPermList = (permsList) => (perm) => {
+    if (!perm) return true;
+    if (permsList.includes('all') || permsList.includes(perm)) return true;
+    // Prefix matching so 'settings.view' matches if role has 'settings' or 'settings.view'
+    if (perm.startsWith('settings.') && (permsList.includes('settings') || permsList.includes('settings.view'))) return true;
+    if (perm.startsWith('reports.') && (permsList.includes('reports') || permsList.includes('reports.export'))) return true;
+    if (perm.startsWith('kds.') && permsList.includes('kds')) return true;
+    if (perm.startsWith('guests.') && permsList.includes('guests')) return true;
+    return false;
+  };
 
-  // 2. Legacy format: [{ id, name, permissions[] }]  (Settings → Roles section)
+  // 1. Settings -> Roles & Permissions: [{ id, name, permissions[] }]
   const legacyRoles = settings?.roles || [];
   const legacyRole = legacyRoles.find(
-    r => r.name === role || r.id === role?.toLowerCase().replace(/\s+/g, '_'),
+    r => (r.name && r.name.toLowerCase() === role.toLowerCase()) ||
+         (r.id && r.id.toLowerCase() === role.toLowerCase().replace(/\s+/g, '_')),
   );
-  if (legacyRole) {
-    const perms = legacyRole.permissions || [];
-    return (perm) => perms.includes('all') || perms.includes(perm);
+  if (legacyRole && Array.isArray(legacyRole.permissions)) {
+    return checkPermList(legacyRole.permissions);
+  }
+
+  // 2. Staff -> Permissions tab: { RoleName: ['perm1', 'perm2'] }
+  const newStore = settings?.rolePermissions || {};
+  if (newStore[role] !== undefined && Array.isArray(newStore[role])) {
+    return checkPermList(newStore[role]);
   }
 
   // 3. Hard-coded defaults
   const perms = DEFAULT_PERMS[role] ?? [];
-  return (perm) => perms.includes(perm);
+  return checkPermList(perms);
 }

@@ -5,7 +5,7 @@ import { useAuth } from '../db/AuthContext';
 import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
 import { getAll, update as dbUpdate, remove as dbRemove, getCurrentTenant, getSettings } from '../db/database';
 import { uploadImage } from '../lib/api';
-import { isModuleEnabled } from '../../shared/seeds';
+import { isModuleEnabled, SEEDS } from '../../shared/seeds';
 import {
   Store, CreditCard, Truck, Bell, Printer, Palette, Shield,
   Clock, Save, ToggleLeft, ToggleRight, X, Edit2, ChevronLeft, ChevronRight,
@@ -1746,7 +1746,21 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
 // ─── Roles & Permissions ──────────────────────────────────
 const RolesSection = ({ data, onChange, isMobile }) => {
   const [newRole, setNewRole] = useState('');
-  const allPerms = ['pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings'];
+  const allPerms = ['dashboard', 'pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings'];
+
+  const permLabels = {
+    dashboard: 'Dashboard',
+    pos: 'POS',
+    kds: 'KDS',
+    inventory: 'Inventory',
+    menu: 'Menu',
+    delivery: 'Delivery',
+    staff: 'Staff',
+    guests: 'Guests',
+    reservations: 'Reservations',
+    reports: 'Reports',
+    settings: 'Settings',
+  };
 
   const togglePerm = (roleId, perm) => {
     const updated = (data || []).map(r => {
@@ -1759,8 +1773,22 @@ const RolesSection = ({ data, onChange, isMobile }) => {
   };
 
   const addRole = () => {
-    if (!newRole.trim()) return;
-    onChange([...data, { id: newRole.toLowerCase().replace(/\s+/g, '_'), name: newRole, permissions: [] }]);
+    const trimmed = newRole.trim();
+    if (!trimmed) return;
+    const existing = (data || []).some(
+      r => (r.name && r.name.toLowerCase() === trimmed.toLowerCase()) ||
+           (r.id && r.id.toLowerCase() === trimmed.toLowerCase().replace(/\s+/g, '_'))
+    );
+    if (existing) {
+      alert(`Role "${trimmed}" already exists.`);
+      return;
+    }
+    const newEntry = {
+      id: trimmed.toLowerCase().replace(/\s+/g, '_'),
+      name: trimmed,
+      permissions: ['dashboard'],
+    };
+    onChange([...(data || []), newEntry]);
     setNewRole('');
   };
 
@@ -1779,7 +1807,7 @@ const RolesSection = ({ data, onChange, isMobile }) => {
             <tr>
               <th style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem' }}>Role</th>
               {allPerms.map(p => (
-                <th key={p} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'capitalize', fontSize: '0.7rem', textAlign: 'center' }}>{p}</th>
+                <th key={p} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.7rem', textAlign: 'center' }}>{permLabels[p] || p}</th>
               ))}
               <th style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }} />
             </tr>
@@ -1809,7 +1837,7 @@ const RolesSection = ({ data, onChange, isMobile }) => {
                   );
                 })}
                 <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                  {role.id !== 'owner' && (
+                  {role.id !== 'owner' && role.name?.toLowerCase() !== 'owner' && (
                     <button onClick={() => removeRole(role.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)' }}>
                       <Trash2 size={15} />
                     </button>
@@ -2241,12 +2269,18 @@ const ROLE_OPTIONS = ['Owner', 'Manager', 'Cashier', 'Chef', 'Waiter'];
 
 const TeamSection = ({ isMobile }) => {
   const { register } = useAuth();
+  const { settings } = useApp();
   const [users, setUsers] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'Cashier', phone: '' });
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const availableRoles = useMemo(() => {
+    const customRoleNames = (settings?.roles || []).map(r => r.name).filter(Boolean);
+    return Array.from(new Set([...ROLE_OPTIONS, ...customRoleNames]));
+  }, [settings?.roles]);
 
   const refresh = () => setUsers(getAll('users') || []);
   useEffect(() => { refresh(); }, []);
@@ -2306,7 +2340,7 @@ const TeamSection = ({ isMobile }) => {
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '5px', color: 'var(--text-secondary)' }}>Role</label>
               <select style={{ ...inpStyle }} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-                {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                {availableRoles.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div style={{ gridColumn: '1/-1' }}>
@@ -2353,7 +2387,7 @@ const TeamSection = ({ isMobile }) => {
               onChange={e => handleRoleChange(u.id, e.target.value)}
               style={{ padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'rgba(30, 94, 74,0.05)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
             >
-              {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+              {availableRoles.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
             {u.role !== 'Owner' && (
               <button onClick={() => handleDelete(u.id)} style={{ width: 28, height: 28, borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.04)', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -3026,8 +3060,19 @@ const Settings = () => {
     });
   };
 
-  const handleRolesChange = (updatedRoles) => {
+  const handleRolesChange = async (updatedRoles) => {
     setLocalSettings(prev => ({ ...(prev || {}), roles: updatedRoles }));
+    try {
+      await updateSettingsSection('roles', updatedRoles);
+      const rolePerms = { ...(settings?.rolePermissions || {}) };
+      const allPossiblePerms = ['dashboard', 'pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings'];
+      updatedRoles.forEach(r => {
+        rolePerms[r.name] = r.permissions.includes('all') ? allPossiblePerms : r.permissions;
+      });
+      await updateSettingsSection('rolePermissions', rolePerms);
+    } catch (err) {
+      console.error('[Settings] Failed to save roles:', err);
+    }
   };
 
   const handleSave = async () => {
@@ -3093,7 +3138,13 @@ const Settings = () => {
       case 'naming': return <NamingSection data={localSettings.naming || {}} onChange={(field, value) => handleChange('naming', field, value)} isMobile={isMobile} />;
       case 'workflow': return <WorkflowSection data={localSettings.workflow || {}} onChange={(field, value) => handleChange('workflow', field, value)} isMobile={isMobile} />;
       case 'receipt': return <ReceiptBuilderSection data={localSettings.receipt || {}} onChange={(field, value) => handleChange('receipt', field, value)} isMobile={isMobile} />;
-      case 'roles': return <RolesSection data={localSettings.roles || []} onChange={handleRolesChange} isMobile={isMobile} />;
+      case 'roles': return (
+        <RolesSection
+          data={(localSettings.roles && localSettings.roles.length > 0) ? localSettings.roles : (SEEDS.settings.roles || [])}
+          onChange={handleRolesChange}
+          isMobile={isMobile}
+        />
+      );
       case 'team': return <TeamSection isMobile={isMobile} />;
       case 'attendance': return <AttendanceSection data={localSettings.attendance || {}} onChange={(field, value) => handleChange('attendance', field, value)} isMobile={isMobile} />;
       case 'appearance': return <AppearanceSection data={s} onChange={sectionChange} isMobile={isMobile} />;
