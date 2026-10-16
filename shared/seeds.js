@@ -99,9 +99,10 @@ export const EXPENSE_CATEGORIES = [
 
 export function isPlatformAdminUser(user) {
   if (!user || user.isImpersonated) return false;
-  const tenant = (user.accountId || user.restaurantName || '').toLowerCase().trim();
+  const tenant = (user.accountId || user.account_id || user.restaurantName || '').toLowerCase().trim();
   const role = (user.role || '').toLowerCase().trim();
-  return tenant === 'kitchgoo' || role === 'superadmin' || role === 'platformadmin';
+  const email = (user.email || '').toLowerCase().trim();
+  return tenant === 'kitchgoo' || role === 'superadmin' || role === 'platformadmin' || email === 'admin@kitchgoo.in' || email === 'kumaramiya8@gmail.com';
 }
 
 export function isModuleEnabled(modulesOrSettings, key) {

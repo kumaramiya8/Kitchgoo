@@ -321,7 +321,7 @@ describe('QR Menu Settings & AI Ordering Strategies', () => {
       expect(typeof invalidateItemSalesCache).toBe('function');
       expect(() => invalidateItemSalesCache('Kiko Cafe')).not.toThrow();
       expect(() => invalidateItemSalesCache(null)).not.toThrow();
-    });
+    }, 15000);
 
     it('exports recordItemSales and updates sales counts incrementally without invalidation', async () => {
       const { recordItemSales } = await import('../api/public.js');

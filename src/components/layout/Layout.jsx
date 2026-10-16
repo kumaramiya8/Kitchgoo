@@ -4,7 +4,7 @@ import Header from './Header';
 import BottomNav from './BottomNav';
 import { useAuth } from '../../db/AuthContext';
 import { useApp } from '../../db/AppContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Outlet } from 'react-router-dom';
 import { Eye, LogOut, ChefHat, X } from 'lucide-react';
 
 /* ── Inject keyframes once ──────────────────────────────── */
@@ -153,7 +153,7 @@ const Layout = ({ children, title }) => {
       <main className="main-content">
         <Header title={title} onMenuClick={() => setSidebarOpen(true)} />
         <div className="page-body">
-          {children}
+          {children || <Outlet />}
         </div>
       </main>
       <BottomNav onMoreClick={() => setSidebarOpen(true)} />

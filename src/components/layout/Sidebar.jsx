@@ -97,7 +97,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               <img src={restLogo} alt={restName} style={{ width: '36px', height: '36px', borderRadius: '10px', objectFit: 'contain', background: 'white', padding: '2px', border: '1px solid var(--border-subtle)' }} />
             ) : (
               <div className="sidebar-logo-icon">
-                <ChefHat size={18} />
+                {isPlatformAdmin ? <Shield size={18} /> : <ChefHat size={18} />}
               </div>
             )}
             <span className="sidebar-logo-text" style={{ fontSize: '1.05rem', fontWeight: 800 }}>{restName}</span>
@@ -107,7 +107,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           </button>
         </div>
         <span className="sidebar-logo-text" style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.05em', paddingLeft: '46px', textTransform: 'uppercase', marginTop: '-4px' }}>
-          Powered by Kitchgoo
+          {isPlatformAdmin ? 'Superadmin Console' : 'Powered by Kitchgoo'}
         </span>
       </div>
 
@@ -142,7 +142,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         </>
       )}
 
-      {can('settings.view') && (
+      {!isPlatformAdmin && can('settings.view') && (
         <div className="sidebar-footer">
           <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={handleNavClick}>
             <span className="nav-item-icon">

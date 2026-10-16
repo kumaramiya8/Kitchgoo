@@ -225,8 +225,11 @@ describe('Roles and Permissions System', () => {
 
     // Account Kitchgoo (Platform Admin)
     expect(isPlatformAdminUser({ accountId: 'Kitchgoo', role: 'Owner' })).toBe(true);
+    expect(isPlatformAdminUser({ account_id: 'Kitchgoo', role: 'Owner' })).toBe(true);
     expect(isPlatformAdminUser({ restaurantName: 'kitchgoo', role: 'Owner' })).toBe(true);
     expect(isPlatformAdminUser({ accountId: 'Kitchgoo', role: 'PlatformAdmin' })).toBe(true);
+    expect(isPlatformAdminUser({ email: 'kumaramiya8@gmail.com', role: 'Owner' })).toBe(true);
+    expect(isPlatformAdminUser({ email: 'admin@kitchgoo.in', role: 'Owner' })).toBe(true);
 
     // Impersonating Kiko Cafe -> Must NOT be platform admin
     expect(isPlatformAdminUser({

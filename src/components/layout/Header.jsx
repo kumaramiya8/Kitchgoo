@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import HelpDrawer from '../ui/HelpDrawer';
 import Tooltip from '../ui/Tooltip';
 import { toggleThemeWithReveal } from '../../lib/theme';
-import { isModuleEnabled } from '../../../shared/seeds';
+import { isModuleEnabled, isPlatformAdminUser } from '../../../shared/seeds';
 import { usePermissions } from '../../db/usePermissions';
 
 const SEARCHABLE_ITEMS = [
@@ -46,6 +46,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
   const { settings, updateSettingsSection } = useApp();
   const can = usePermissions();
   const navigate = useNavigate();
+  const isPlatformAdmin = isPlatformAdminUser(user);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -79,7 +80,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
 
   // Update search results when query or user changes
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    if (!searchQuery.trim() || isPlatformAdmin) {
       setSearchResults([]);
       return;
     }
@@ -167,14 +168,14 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
           </div>
         </div>
         <div style={{ marginTop: '8px', display: 'inline-block', padding: '2px 8px', borderRadius: '6px', background: 'rgba(30, 94, 74,0.08)', color: '#1e5e4a', fontSize: '0.7rem', fontWeight: 700 }}>
-          {user?.role || 'Owner'}
+          {isPlatformAdmin ? 'Platform Admin' : (user?.role || 'Owner')}
         </div>
       </div>
 
-      {can('settings.view') && (
+      {!isPlatformAdmin && can('settings.view') && (
         <DropItem icon={<Settings size={15} />} label="Settings" onClick={() => { navigate('/settings'); setDropdownOpen(false); }} />
       )}
-      {can('staff') && (
+      {!isPlatformAdmin && can('staff') && (
         <DropItem icon={<Users size={15} />} label="Team Members" onClick={() => { navigate('/settings?tab=team'); setDropdownOpen(false); }} />
       )}
       <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', marginTop: '4px', paddingTop: '4px' }} />
@@ -197,92 +198,94 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
         </button>
       </Tooltip>
 
-      <div className="header-search-wrapper" ref={searchWrapperRef}>
-        <Search size={15} className="header-search-icon" />
-        <input 
-          type="text" 
-          placeholder="Search pages & settings..." 
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          onFocus={() => setSearchFocused(true)}
-          className="header-search" 
-        />
-        {searchFocused && searchResults.length > 0 && (
-          <div
-            className="animate-menu animate-menu-left"
-            style={{
-              position: 'absolute',
-              top: 'calc(100% + 8px)',
-              left: 0,
-              right: 0,
-              background: 'rgba(255,255,255,0.96)',
-              backdropFilter: 'blur(24px)',
-              border: '1px solid rgba(226, 232, 240, 0.9)',
-              borderRadius: '16px',
-              boxShadow: '0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(30, 94, 74,0.04)',
-              maxHeight: '300px',
-              overflowY: 'auto',
-              padding: '6px',
-              zIndex: 10000
-            }}
-          >
-            {searchResults.map((item, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  navigate(item.path);
-                  setSearchQuery('');
-                  setSearchFocused(false);
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  background: 'none',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'background 0.2s',
-                }}
-                onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 94, 74,0.06)'}
-                onMouseOut={e => e.currentTarget.style.background = 'none'}
-              >
-                <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {item.name}
-                </span>
-                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: '2px', letterSpacing: '0.5px' }}>
-                  {item.type === 'setting' ? 'Settings section' : 'Page'}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-        {searchFocused && searchQuery.trim() && searchResults.length === 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 'calc(100% + 8px)',
-              left: 0,
-              right: 0,
-              background: 'rgba(255,255,255,0.96)',
-              backdropFilter: 'blur(24px)',
-              border: '1px solid rgba(226, 232, 240, 0.9)',
-              borderRadius: '16px',
-              boxShadow: '0 16px 48px rgba(0,0,0,0.12)',
-              padding: '16px',
-              textAlign: 'center',
-              fontSize: '0.8rem',
-              color: 'var(--text-muted)',
-              zIndex: 10000
-            }}
-          >
-            No results found for "{searchQuery}"
-          </div>
-        )}
-      </div>
+      {!isPlatformAdmin && (
+        <div className="header-search-wrapper" ref={searchWrapperRef}>
+          <Search size={15} className="header-search-icon" />
+          <input 
+            type="text" 
+            placeholder="Search pages & settings..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            className="header-search" 
+          />
+          {searchFocused && searchResults.length > 0 && (
+            <div
+              className="animate-menu animate-menu-left"
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 8px)',
+                left: 0,
+                right: 0,
+                background: 'rgba(255,255,255,0.96)',
+                backdropFilter: 'blur(24px)',
+                border: '1px solid rgba(226, 232, 240, 0.9)',
+                borderRadius: '16px',
+                boxShadow: '0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(30, 94, 74,0.04)',
+                maxHeight: '300px',
+                overflowY: 'auto',
+                padding: '6px',
+                zIndex: 10000
+              }}
+            >
+              {searchResults.map((item, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    navigate(item.path);
+                    setSearchQuery('');
+                    setSearchFocused(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 94, 74,0.06)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                >
+                  <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {item.name}
+                  </span>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: '2px', letterSpacing: '0.5px' }}>
+                    {item.type === 'setting' ? 'Settings section' : 'Page'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {searchFocused && searchQuery.trim() && searchResults.length === 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 8px)',
+                left: 0,
+                right: 0,
+                background: 'rgba(255,255,255,0.96)',
+                backdropFilter: 'blur(24px)',
+                border: '1px solid rgba(226, 232, 240, 0.9)',
+                borderRadius: '16px',
+                boxShadow: '0 16px 48px rgba(0,0,0,0.12)',
+                padding: '16px',
+                textAlign: 'center',
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                zIndex: 10000
+              }}
+            >
+              No results found for "{searchQuery}"
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="header-spacer" />
 
@@ -344,7 +347,7 @@ const Header = ({ title = 'Dashboard', onMenuClick }) => {
           <div className="header-user-avatar">{avatarInitial}</div>
           <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
             <span className="header-user-name">{user?.name || 'Admin'}</span>
-            <span className="header-user-role">{user?.role || 'Owner'}</span>
+            <span className="header-user-role">{isPlatformAdmin ? 'Platform Admin' : (user?.role || 'Owner')}</span>
           </div>
         </button>
         </Tooltip>
