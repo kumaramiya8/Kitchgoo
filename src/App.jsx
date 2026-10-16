@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './db/AuthContext';
 import { useApp } from './db/AppContext';
@@ -23,6 +23,12 @@ import PlatformAdmin from './pages/PlatformAdmin';
 import QRMenu from './pages/QRMenu';
 import Attendance from './pages/Attendance';
 import Expenses from './pages/Expenses';
+
+const PageLoader = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+    Loading…
+  </div>
+);
 
 // Shown while the session + tenant payload load — a blank white page makes
 // a 1-second boot feel like five.
