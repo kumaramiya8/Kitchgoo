@@ -23,16 +23,16 @@ import {
 import { useApp } from '../../db/AppContext';
 import { useAuth } from '../../db/AuthContext';
 import { usePermissions } from '../../db/usePermissions';
-import { isModuleEnabled } from '../../../shared/seeds';
+import { isModuleEnabled, isPlatformAdminUser } from '../../../shared/seeds';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { settings } = useApp();
   const { user } = useAuth();
   const can = usePermissions();
-  const restName = settings?.restaurant?.name || 'Kitchgoo';
-  const restLogo = settings?.restaurant?.logo;
 
-  const isPlatformAdmin = (user?.role === 'SuperAdmin' || user?.role === 'PlatformAdmin') && !user.isImpersonated;
+  const isPlatformAdmin = isPlatformAdminUser(user);
+  const restName = isPlatformAdmin ? 'Kitchgoo Admin' : (settings?.restaurant?.name || 'Kitchgoo');
+  const restLogo = isPlatformAdmin ? null : settings?.restaurant?.logo;
 
   const operationsNav = [
     { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: 'dashboard' },

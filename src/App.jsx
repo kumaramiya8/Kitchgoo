@@ -1,52 +1,28 @@
-import React, { Suspense, lazy } from 'react';
+import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './db/AuthContext';
 import { useApp } from './db/AppContext';
 import { usePermissions } from './db/usePermissions';
-import { isModuleEnabled } from '../shared/seeds';
+import { isModuleEnabled, isPlatformAdminUser } from '../shared/seeds';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 
-// Pages load as separate chunks — automatically recovers if a new deploy changes chunk hashes
-const lazyWithRetry = (importFn) =>
-  lazy(async () => {
-    const isRetried = sessionStorage.getItem('kitchgoo_chunk_reload');
-    try {
-      const module = await importFn();
-      sessionStorage.removeItem('kitchgoo_chunk_reload');
-      return module;
-    } catch (err) {
-      if (!isRetried) {
-        sessionStorage.setItem('kitchgoo_chunk_reload', 'true');
-        window.location.reload();
-        return new Promise(() => {});
-      }
-      throw err;
-    }
-  });
-
-const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
-const POS = lazyWithRetry(() => import('./pages/POS'));
-const Inventory = lazyWithRetry(() => import('./pages/Inventory'));
-const MenuScreen = lazyWithRetry(() => import('./pages/MenuScreen'));
-const Delivery = lazyWithRetry(() => import('./pages/Delivery'));
-const Staff = lazyWithRetry(() => import('./pages/Staff'));
-const Reports = lazyWithRetry(() => import('./pages/Reports'));
-const Settings = lazyWithRetry(() => import('./pages/Settings'));
-const Guests = lazyWithRetry(() => import('./pages/Guests'));
-const KDS = lazyWithRetry(() => import('./pages/KDS'));
-const Reservations = lazyWithRetry(() => import('./pages/Reservations'));
-const MultiLocation = lazyWithRetry(() => import('./pages/MultiLocation'));
-const PlatformAdmin = lazyWithRetry(() => import('./pages/PlatformAdmin'));
-const QRMenu = lazyWithRetry(() => import('./pages/QRMenu'));
-const Attendance = lazyWithRetry(() => import('./pages/Attendance'));
-const Expenses = lazyWithRetry(() => import('./pages/Expenses'));
-
-const PageLoader = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-    Loading…
-  </div>
-);
+import Dashboard from './pages/Dashboard';
+import POS from './pages/POS';
+import Inventory from './pages/Inventory';
+import MenuScreen from './pages/MenuScreen';
+import Delivery from './pages/Delivery';
+import Staff from './pages/Staff';
+import Reports from './pages/Reports';
+import Settings from './pages/Settings';
+import Guests from './pages/Guests';
+import KDS from './pages/KDS';
+import Reservations from './pages/Reservations';
+import MultiLocation from './pages/MultiLocation';
+import PlatformAdmin from './pages/PlatformAdmin';
+import QRMenu from './pages/QRMenu';
+import Attendance from './pages/Attendance';
+import Expenses from './pages/Expenses';
 
 // Shown while the session + tenant payload load — a blank white page makes
 // a 1-second boot feel like five.
@@ -74,11 +50,14 @@ const BootSplash = () => (
   </div>
 );
 
-// Route guard — checks authentication only
-const Protected = ({ children }) => {
+// Route guard — checks authentication, and prevents Platform Admin from entering restaurant routes unless allowAdmin is true
+const Protected = ({ children, allowAdmin = false }) => {
   const { user, loading } = useAuth();
   if (loading) return <BootSplash />;
   if (!user) return <Navigate to="/login" replace />;
+  if (isPlatformAdminUser(user) && !allowAdmin) {
+    return <Navigate to="/" replace />;
+  }
   return children;
 };
 
@@ -118,7 +97,7 @@ const ModuleGuard = ({ module: modKey, children }) => {
 const RootElement = () => {
   const { user } = useAuth();
   const can = usePermissions();
-  if ((user?.role === 'SuperAdmin' || user?.role === 'PlatformAdmin') && !user.isImpersonated) {
+  if (isPlatformAdminUser(user)) {
     return <Layout title="Platform Admin"><PlatformAdmin /></Layout>;
   }
   if (!can('dashboard')) {

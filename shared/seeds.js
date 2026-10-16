@@ -97,6 +97,13 @@ export const EXPENSE_CATEGORIES = [
   },
 ];
 
+export function isPlatformAdminUser(user) {
+  if (!user || user.isImpersonated) return false;
+  const tenant = (user.accountId || user.restaurantName || '').toLowerCase().trim();
+  const role = (user.role || '').toLowerCase().trim();
+  return tenant === 'kitchgoo' || role === 'superadmin' || role === 'platformadmin';
+}
+
 export function isModuleEnabled(modulesOrSettings, key) {
   if (!key) return true;
   const modules = (modulesOrSettings && typeof modulesOrSettings === 'object' && 'modules' in modulesOrSettings)

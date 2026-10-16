@@ -27,9 +27,10 @@ export function usePermissions() {
   const { user } = useAuth();
 
   const role = user?.role || 'Owner';
+  const roleLower = String(role).toLowerCase().trim();
 
-  // Owner always has full access
-  if (FULL_ACCESS_ROLES.has(role)) return () => true;
+  // Owner always has full access (case-insensitive)
+  if (roleLower === 'owner') return () => true;
 
   const checkPermList = (permsList) => (perm) => {
     if (!perm) return true;
@@ -45,8 +46,8 @@ export function usePermissions() {
   // 1. Settings -> Roles & Permissions: [{ id, name, permissions[] }]
   const legacyRoles = settings?.roles || [];
   const legacyRole = legacyRoles.find(
-    r => (r.name && r.name.toLowerCase() === role.toLowerCase()) ||
-         (r.id && r.id.toLowerCase() === role.toLowerCase().replace(/\s+/g, '_')),
+    r => (r.name && r.name.toLowerCase() === roleLower) ||
+         (r.id && r.id.toLowerCase() === roleLower.replace(/\s+/g, '_')),
   );
   if (legacyRole && Array.isArray(legacyRole.permissions)) {
     let perms = legacyRole.permissions;
@@ -59,11 +60,13 @@ export function usePermissions() {
 
   // 2. Staff -> Permissions tab: { RoleName: ['perm1', 'perm2'] }
   const newStore = settings?.rolePermissions || {};
-  if (newStore[role] !== undefined && Array.isArray(newStore[role])) {
-    return checkPermList(newStore[role]);
+  const newStoreKey = Object.keys(newStore).find(k => k.toLowerCase().trim() === roleLower);
+  if (newStoreKey && Array.isArray(newStore[newStoreKey])) {
+    return checkPermList(newStore[newStoreKey]);
   }
 
-  // 3. Hard-coded defaults
-  const perms = DEFAULT_PERMS[role] ?? [];
+  // 3. Hard-coded defaults (case-insensitive)
+  const defaultEntry = Object.entries(DEFAULT_PERMS).find(([k]) => k.toLowerCase() === roleLower);
+  const perms = defaultEntry ? defaultEntry[1] : [];
   return checkPermList(perms);
 }

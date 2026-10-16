@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../db/AuthContext';
 import { useApp } from '../../db/AppContext';
 import { usePermissions } from '../../db/usePermissions';
-import { isModuleEnabled } from '../../../shared/seeds';
+import { isModuleEnabled, isPlatformAdminUser } from '../../../shared/seeds';
 
 // Mobile-only tab bar. Items with a perm field are hidden when the user's role
 // lacks that permission. Attendance is always visible — every staff member
@@ -21,7 +21,7 @@ const BottomNav = ({ onMoreClick }) => {
   const { settings } = useApp();
   const { user } = useAuth();
   const can = usePermissions();
-  const isPlatformAdmin = (user?.role === 'SuperAdmin' || user?.role === 'PlatformAdmin') && !user.isImpersonated;
+  const isPlatformAdmin = isPlatformAdminUser(user);
 
   const allItems = [
     { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: 'dashboard' },

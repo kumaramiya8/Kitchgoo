@@ -207,4 +207,47 @@ describe('Roles and Permissions System', () => {
 
     expect(filtered.map(i => i.name)).toEqual(['Dashboard', 'POS & Billing']);
   });
+
+  it('grants lowercase owner role full access (case-insensitivity)', () => {
+    mockUser = { role: 'owner' };
+    mockSettings = { roles: [] };
+
+    const can = usePermissions();
+    expect(can('dashboard')).toBe(true);
+    expect(can('pos')).toBe(true);
+    expect(can('kds')).toBe(true);
+    expect(can('inventory')).toBe(true);
+    expect(can('settings.view')).toBe(true);
+  });
+
+  it('correctly identifies Platform Admin vs restaurant tenants (like Kiko Cafe)', async () => {
+    const { isPlatformAdminUser } = await import('../shared/seeds');
+
+    // Account Kitchgoo (Platform Admin)
+    expect(isPlatformAdminUser({ accountId: 'Kitchgoo', role: 'Owner' })).toBe(true);
+    expect(isPlatformAdminUser({ restaurantName: 'kitchgoo', role: 'Owner' })).toBe(true);
+    expect(isPlatformAdminUser({ accountId: 'Kitchgoo', role: 'PlatformAdmin' })).toBe(true);
+
+    // Impersonating Kiko Cafe -> Must NOT be platform admin
+    expect(isPlatformAdminUser({
+      accountId: 'Kiko Cafe',
+      restaurantName: 'Kiko Cafe',
+      role: 'Owner',
+      isImpersonated: true,
+    })).toBe(false);
+
+    // Regular restaurant login (Kiko Cafe owner/manager) -> Must NOT be platform admin
+    expect(isPlatformAdminUser({
+      accountId: 'Kiko Cafe',
+      restaurantName: 'Kiko Cafe',
+      role: 'Owner',
+      isImpersonated: false,
+    })).toBe(false);
+
+    expect(isPlatformAdminUser({
+      accountId: 'Kiko Cafe',
+      restaurantName: 'Kiko Cafe',
+      role: 'Manager',
+    })).toBe(false);
+  });
 });
