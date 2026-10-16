@@ -24,7 +24,7 @@ const ROLE_COLORS = {
 };
 
 const ALL_PERMISSIONS = [
-  'dashboard', 'pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds',
+  'pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds',
   'reservations', 'guests', 'settings.view', 'settings.edit',
   'reports.export', 'comp.small', 'comp.large', 'void', 'discount',
 ];
@@ -33,7 +33,7 @@ const DEFAULT_ROLE_PERMS = {
   Owner: ALL_PERMISSIONS,
   Manager: ALL_PERMISSIONS,
   Chef: ['kds', 'inventory', 'menu'],
-  Cashier: ['dashboard', 'pos', 'comp.small', 'discount'],
+  Cashier: ['pos', 'comp.small', 'discount'],
   Waiter: ['pos', 'reservations', 'guests', 'comp.small'],
   'Delivery Boy': ['delivery'],
   Host: ['reservations', 'guests'],
@@ -120,19 +120,14 @@ const ToggleSwitch = ({ on, onToggle }) => (
 const TeamTab = () => {
   const {
     staff, addStaff, editStaff, deleteStaff, toggleStaffStatus,
-    getStaffAttendance, reload, settings,
+    getStaffAttendance, reload,
   } = useApp();
-
-  const allRoles = useMemo(() => {
-    const custom = (settings?.roles || []).map(r => r.name).filter(Boolean);
-    return Array.from(new Set([...ROLES, ...custom]));
-  }, [settings?.roles]);
 
   const [search, setSearch] = useState('');
   const [addModal, setAddModal] = useState(false);
-  const [editModal, setEditModal] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [showPin, setShowPin] = useState({});
+    const [editModal, setEditModal] = useState(null);
+    const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [showPin, setShowPin] = useState({});
 
     const emptyForm = {
       name: '', role: 'Waiter', phone: '', shift: 'Morning', salary: '',
@@ -352,7 +347,7 @@ const TeamTab = () => {
             <div className="input-group">
               <label className="input-label">Role</label>
               <select className="input-field" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-                {allRoles.map(r => <option key={r}>{r}</option>)}
+                {ROLES.map(r => <option key={r}>{r}</option>)}
               </select>
             </div>
             <div className="input-group">
@@ -405,7 +400,7 @@ const TeamTab = () => {
                 <div className="input-group" style={{ gridColumn: '1 / -1' }}>
                   <label className="input-label">Login System Role</label>
                   <select className="input-field" value={form.loginRole} onChange={e => setForm(f => ({ ...f, loginRole: e.target.value }))}>
-                    {allRoles.map(r => <option key={r}>{r}</option>)}
+                    {ROLES.map(r => <option key={r}>{r}</option>)}
                   </select>
                 </div>
               </div>
@@ -506,7 +501,7 @@ const TeamTab = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{
                           width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-                          background: `linear-gradient(135deg, ${ROLE_COLORS[m.role] || '#1e5e4a'}, ${(ROLE_COLORS[m.role] || '#1e5e4a')}88)`,
+                          background: `linear-gradient(135deg, ${ROLE_COLORS[m.role] || 'var(--primary)'}, ${ROLE_COLORS[m.role] || 'var(--primary)'}88)`,
                           color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 14, fontWeight: 700,
                         }}>{m.name?.charAt(0)}</div>
@@ -595,14 +590,9 @@ const TeamTab = () => {
 // ═══ SCHEDULE TAB ═════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════
 const ScheduleTab = () => {
-  const { staff, schedules, addSchedule, deleteSchedule, settings } = useApp();
+  const { staff, schedules, addSchedule, deleteSchedule } = useApp();
   const [addModal, setAddModal] = useState(false);
   const [shiftForm, setShiftForm] = useState({ staffId: '', day: 'Mon', startTime: '09:00', endTime: '17:00', role: '' });
-
-  const allRoles = useMemo(() => {
-    const custom = (settings?.roles || []).map(r => r.name).filter(Boolean);
-    return Array.from(new Set([...ROLES, ...custom]));
-  }, [settings?.roles]);
 
   const activeStaff = staff.filter(s => s.status === 'active');
 
@@ -772,7 +762,7 @@ const ScheduleTab = () => {
               <div className="input-group">
                 <label className="input-label">Role</label>
                 <select className="input-field" value={shiftForm.role} onChange={e => setShiftForm(f => ({ ...f, role: e.target.value }))}>
-                  {allRoles.map(r => <option key={r}>{r}</option>)}
+                  {ROLES.map(r => <option key={r}>{r}</option>)}
                 </select>
               </div>
             </div>
@@ -999,12 +989,7 @@ const AttendanceTab = () => {
 // ═══ TIP MANAGEMENT TAB ═══════════════════════════════════
 // ═══════════════════════════════════════════════════════════
 const TipTab = () => {
-  const { staff, tipPools, orders, updateTipPools, settings } = useApp();
-  const allRoles = useMemo(() => {
-    const custom = (settings?.roles || []).map(r => r.name).filter(Boolean);
-    return Array.from(new Set([...ROLES, ...custom]));
-  }, [settings?.roles]);
-
+  const { staff, tipPools, orders, updateTipPools } = useApp();
   const currentRules = useMemo(() => {
     if (Array.isArray(tipPools) && tipPools.length > 0) {
       const rulesObj = {};
@@ -1057,7 +1042,7 @@ const TipTab = () => {
                 {editingRules ? <><Save size={13} /> Save</> : <><Edit2 size={13} /> Edit</>}
               </button>
             </div>
-            {allRoles.map(role => (
+            {ROLES.map(role => (
               <div key={role} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                 <Badge color={ROLE_COLORS[role] || '#1e5e4a'}>{role}</Badge>
                 <div style={{ flex: 1 }} />
@@ -1128,24 +1113,10 @@ const TipTab = () => {
 // ═══════════════════════════════════════════════════════════
 const PermissionsTab = () => {
   const { settings, updateSettingsSection } = useApp();
-  const allRoles = useMemo(() => {
-    const custom = (settings?.roles || []).map(r => r.name).filter(Boolean);
-    return Array.from(new Set([...ROLES, ...custom]));
-  }, [settings?.roles]);
-
   const [perms, setPerms] = useState(() => {
     const stored = settings?.rolePermissions || {};
     const result = {};
-    const custom = (settings?.roles || []).map(r => r.name).filter(Boolean);
-    const combined = Array.from(new Set([...ROLES, ...custom]));
-    combined.forEach(r => {
-      const legacy = (settings?.roles || []).find(
-        lr => (lr.name && lr.name.toLowerCase() === r.toLowerCase()) ||
-              (lr.id && lr.id.toLowerCase() === r.toLowerCase().replace(/\s+/g, '_'))
-      );
-      const legacyPerms = legacy?.permissions?.includes('all') ? ALL_PERMISSIONS : legacy?.permissions;
-      result[r] = stored[r] || legacyPerms || DEFAULT_ROLE_PERMS[r] || ['dashboard'];
-    });
+    ROLES.forEach(r => { result[r] = stored[r] || DEFAULT_ROLE_PERMS[r] || []; });
     return result;
   });
   const [dirty, setDirty] = useState(false);
@@ -1159,83 +1130,72 @@ const PermissionsTab = () => {
     setDirty(true);
   };
 
-  const handleSave = async () => {
-    await updateSettingsSection('rolePermissions', perms);
-    const currentRoles = settings?.roles || [];
-    const updatedRoles = currentRoles.map(r => {
-      if (perms[r.name] !== undefined) {
-        return { ...r, permissions: perms[r.name] };
-      }
-      return r;
-    });
-    await updateSettingsSection('roles', updatedRoles);
+  const handleSave = () => {
+    updateSettingsSection('rolePermissions', perms);
     setDirty(false);
-  };
+    };
 
-  const permLabels = {
-    dashboard: 'Dashboard',
-    pos: 'POS', inventory: 'Inventory', staff: 'Staff', reports: 'Reports',
-    menu: 'Menu', delivery: 'Delivery', kds: 'KDS', reservations: 'Reservations',
-    guests: 'Guests', 'settings.view': 'Settings (View)', 'settings.edit': 'Settings (Edit)',
-    'reports.export': 'Reports Export', 'comp.small': 'Comp (Small)', 'comp.large': 'Comp (Large)',
-    void: 'Void', discount: 'Discount',
-  };
+    const permLabels = {
+      pos: 'POS', inventory: 'Inventory', staff: 'Staff', reports: 'Reports',
+      menu: 'Menu', delivery: 'Delivery', kds: 'KDS', reservations: 'Reservations',
+      guests: 'Guests', 'settings.view': 'Settings (View)', 'settings.edit': 'Settings (Edit)',
+      'reports.export': 'Reports Export', 'comp.small': 'Comp (Small)', 'comp.large': 'Comp (Large)',
+      void: 'Void', discount: 'Discount',
+    };
 
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Role-Based Access Control</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Toggle permissions for each role across the system</div>
+    return (
+      <>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Role-Based Access Control</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Toggle permissions for each role across the system</div>
+          </div>
+          {dirty && <button className="btn btn-success" onClick={handleSave}><Save size={16} /> Save Changes</button>}
         </div>
-        {dirty && <button className="btn btn-success" onClick={handleSave}><Save size={16} /> Save Changes</button>}
-      </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
-            <thead>
-              <tr style={{ background: 'var(--primary-light)' }}>
-                <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: 'var(--text-secondary)', position: 'sticky', left: 0, background: 'rgba(255,255,255,0.95)', zIndex: 1, minWidth: 120 }}>Role</th>
-                {ALL_PERMISSIONS.map(p => (
-                  <th key={p} style={{ padding: '8px 6px', textAlign: 'center', fontWeight: 500, color: 'var(--text-secondary)', fontSize: 11, minWidth: 60 }}>
-                    <div style={{ writingMode: 'vertical-lr', textOrientation: 'mixed', transform: 'rotate(180deg)', whiteSpace: 'nowrap' }}>
-                      {permLabels[p] || p}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {allRoles.map(role => (
-                <tr key={role} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '10px 14px', fontWeight: 600, position: 'sticky', left: 0, background: 'rgba(255,255,255,0.95)', zIndex: 1 }}>
-                    <Badge color={ROLE_COLORS[role] || '#1e5e4a'}>{role}</Badge>
-                  </td>
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
+              <thead>
+                <tr style={{ background: 'var(--primary-light)' }}>
+                  <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: 'var(--text-secondary)', position: 'sticky', left: 0, background: 'rgba(255,255,255,0.95)', zIndex: 1, minWidth: 120 }}>Role</th>
                   {ALL_PERMISSIONS.map(p => (
-                    <td key={p} style={{ padding: '6px', textAlign: 'center' }}>
-                      <ToggleSwitch on={(perms[role] || []).includes(p)} onToggle={() => togglePerm(role, p)} />
-                    </td>
+                    <th key={p} style={{ padding: '8px 6px', textAlign: 'center', fontWeight: 500, color: 'var(--text-secondary)', fontSize: 11, minWidth: 60 }}>
+                      <div style={{ writingMode: 'vertical-lr', textOrientation: 'mixed', transform: 'rotate(180deg)', whiteSpace: 'nowrap' }}>
+                        {permLabels[p] || p}
+                      </div>
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {ROLES.map(role => (
+                  <tr key={role} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 14px', fontWeight: 600, position: 'sticky', left: 0, background: 'rgba(255,255,255,0.95)', zIndex: 1 }}>
+                      <Badge color={ROLE_COLORS[role] || '#1e5e4a'}>{role}</Badge>
+                    </td>
+                    {ALL_PERMISSIONS.map(p => (
+                      <td key={p} style={{ padding: '6px', textAlign: 'center' }}>
+                        <ToggleSwitch on={(perms[role] || []).includes(p)} onToggle={() => togglePerm(role, p)} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      {/* Current Role Definitions */}
-      <div style={{ marginTop: 20 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Current Role Definitions</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
-          {allRoles.map(role => {
-            const roleColor = ROLE_COLORS[role] || '#1e5e4a';
-            return (
+        {/* Current Role Definitions */}
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Current Role Definitions</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
+            {ROLES.map(role => (
               <div key={role} className="card" style={{ padding: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <div style={{
                     width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: `${roleColor}18`, color: roleColor, fontWeight: 700, fontSize: 14,
+                    background: `${ROLE_COLORS[role]}18`, color: ROLE_COLORS[role], fontWeight: 700, fontSize: 14,
                   }}>{role.charAt(0)}</div>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{role}</div>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>
@@ -1251,12 +1211,11 @@ const PermissionsTab = () => {
                   {(perms[role] || []).length === 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No permissions</span>}
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
-      </div>
-    </>
-  );
+      </>
+    );
 };
 
 // ═══════════════════════════════════════════════════════════

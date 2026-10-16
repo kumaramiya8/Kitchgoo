@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../db/AuthContext';
 import { useApp } from '../../db/AppContext';
 import { usePermissions } from '../../db/usePermissions';
-import { isModuleEnabled, isPlatformAdminUser } from '../../../shared/seeds';
+import { isModuleEnabled } from '../../../shared/seeds';
 
 // Mobile-only tab bar. Items with a perm field are hidden when the user's role
 // lacks that permission. Attendance is always visible — every staff member
@@ -21,10 +21,10 @@ const BottomNav = ({ onMoreClick }) => {
   const { settings } = useApp();
   const { user } = useAuth();
   const can = usePermissions();
-  const isPlatformAdmin = isPlatformAdminUser(user);
+  const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
 
   const allItems = [
-    { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: 'dashboard' },
+    { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: null },
     { name: 'POS',        path: '/pos',         icon: ShoppingCart,    perm: 'pos' },
     { name: 'Kitchen',    path: '/kds',         icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Attendance', path: '/attendance',  icon: Clock,           perm: null },

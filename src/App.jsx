@@ -1,28 +1,30 @@
-import React, { Suspense } from 'react';
-import { Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
+import React, { Suspense, lazy } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './db/AuthContext';
 import { useApp } from './db/AppContext';
 import { usePermissions } from './db/usePermissions';
-import { isModuleEnabled, isPlatformAdminUser } from '../shared/seeds';
+import { isModuleEnabled } from '../shared/seeds';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 
-import Dashboard from './pages/Dashboard';
-import POS from './pages/POS';
-import Inventory from './pages/Inventory';
-import MenuScreen from './pages/MenuScreen';
-import Delivery from './pages/Delivery';
-import Staff from './pages/Staff';
-import Reports from './pages/Reports';
-import Settings from './pages/Settings';
-import Guests from './pages/Guests';
-import KDS from './pages/KDS';
-import Reservations from './pages/Reservations';
-import MultiLocation from './pages/MultiLocation';
-import PlatformAdmin from './pages/PlatformAdmin';
-import QRMenu from './pages/QRMenu';
-import Attendance from './pages/Attendance';
-import Expenses from './pages/Expenses';
+// Pages load as separate chunks — the old single bundle was 1.25 MB, which
+// is a slow first paint on the cheap tablets restaurants actually run.
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const POS = lazy(() => import('./pages/POS'));
+const Inventory = lazy(() => import('./pages/Inventory'));
+const MenuScreen = lazy(() => import('./pages/MenuScreen'));
+const Delivery = lazy(() => import('./pages/Delivery'));
+const Staff = lazy(() => import('./pages/Staff'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Guests = lazy(() => import('./pages/Guests'));
+const KDS = lazy(() => import('./pages/KDS'));
+const Reservations = lazy(() => import('./pages/Reservations'));
+const MultiLocation = lazy(() => import('./pages/MultiLocation'));
+const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
+const QRMenu = lazy(() => import('./pages/QRMenu'));
+const Attendance = lazy(() => import('./pages/Attendance'));
+const Expenses = lazy(() => import('./pages/Expenses'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -57,195 +59,82 @@ const BootSplash = () => (
 );
 
 // Route guard — checks authentication only
-const Protected = ({ children }) => {
+const Protected = ({ children, allowAdmin = false }) => {
   const { user, loading } = useAuth();
   if (loading) return <BootSplash />;
   if (!user) return <Navigate to="/login" replace />;
-  return children;
-};
-
-// Route guard — prevents Platform Admin from entering restaurant routes unless impersonating
-const RestaurantRouteGuard = ({ children }) => {
-  const { user } = useAuth();
-  if (isPlatformAdminUser(user)) {
+  if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated && !allowAdmin) {
     return <Navigate to="/" replace />;
   }
   return children;
 };
 
-// Route guard — ensures only Platform Admin can enter platform admin specific routes
-const PlatformAdminGuard = ({ children }) => {
-  const { user } = useAuth();
-  if (!isPlatformAdminUser(user)) {
-    return <Navigate to="/" replace />;
-  }
-  return children;
-};
-
-const getFirstAllowedRoute = (can) => {
-  if (can('dashboard')) return '/';
-  if (can('pos')) return '/pos';
-  if (can('kds')) return '/kds';
-  if (can('menu')) return '/menu';
-  if (can('inventory')) return '/inventory';
-  if (can('delivery')) return '/delivery';
-  if (can('staff')) return '/staff';
-  if (can('reports')) return '/reports';
-  if (can('guests')) return '/guests';
-  if (can('reservations')) return '/reservations';
-  if (can('expenses')) return '/expenses';
-  return '/attendance';
-};
-
-// Permission guard — redirects to first authorized page when the user's role lacks access.
+// Permission guard — redirects to dashboard when the user's role lacks access.
 // Must render inside AppProvider (i.e. inside a Protected route).
 const PermissionGuard = ({ perm, children }) => {
   const can = usePermissions();
-  if (!can(perm)) return <Navigate to={getFirstAllowedRoute(can)} replace />;
+  if (!can(perm)) return <Navigate to="/" replace />;
   return children;
 };
 
-// Module guard — redirects to first authorized page when an account-level module is disabled
-const ModuleGuard = ({ module: modKey, children }) => {
+// Module guard — redirects to dashboard when an account-level module is disabled
+const ModuleGuard = ({ module: modKey, allowAdmin = false, children }) => {
   const { settings } = useApp();
-  const can = usePermissions();
+  const { user } = useAuth();
+  const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
+  if (allowAdmin && isPlatformAdmin) return children;
   if (modKey && !isModuleEnabled(settings, modKey)) {
-    return <Navigate to={getFirstAllowedRoute(can)} replace />;
+    return <Navigate to="/" replace />;
   }
   return children;
 };
 
 const RootElement = () => {
   const { user } = useAuth();
-  const can = usePermissions();
-  if (isPlatformAdminUser(user)) {
-    return <PlatformAdmin />;
+  if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated) {
+    return <Layout title="Platform Admin"><PlatformAdmin /></Layout>;
   }
-  if (!can('dashboard')) {
-    return <Navigate to={getFirstAllowedRoute(can)} replace />;
-  }
-  return <Dashboard />;
+  return <Layout title="Dashboard"><Dashboard /></Layout>;
 };
-
-const AppLayout = () => {
-  const location = useLocation();
-  const { user } = useAuth();
-  const isPlatformAdmin = isPlatformAdminUser(user);
-
-  const getPageTitle = () => {
-    if (isPlatformAdmin) return 'Platform Admin';
-    const path = location.pathname;
-    if (path === '/') return 'Dashboard';
-    if (path === '/pos') return 'POS & Billing';
-    if (path === '/kds') return 'Kitchen Display System';
-    if (path === '/menu') return 'Menu Management';
-    if (path === '/inventory') return 'Inventory & Supply Chain';
-    if (path === '/delivery') return 'Delivery & Online Ordering';
-    if (path === '/staff') return 'Staff & Workforce';
-    if (path === '/attendance') return 'Attendance';
-    if (path === '/expenses') return 'Expenses & Overheads';
-    if (path === '/guests') return 'Guests & CRM';
-    if (path === '/reservations') return 'Reservations & Waitlist';
-    if (path === '/reports') return 'Reports & Analytics';
-    if (path === '/multi-location') return 'Multi-Location & Franchise';
-    if (path === '/platform-admin') return 'Platform Admin';
-    if (path === '/settings') return 'Settings';
-    return 'Kitchgoo';
-  };
-
-  return (
-    <Layout title={getPageTitle()}>
-      <Outlet />
-    </Layout>
-  );
-};
-
-class RouteErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(error, errorInfo) {
-    console.warn('[RouteErrorBoundary] Uncaught route transition error:', error, errorInfo);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          minHeight: '60vh', padding: '32px', textAlign: 'center'
-        }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>
-            Unable to display screen
-          </h2>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '18px', maxWidth: 400 }}>
-            An update was deployed or a temporary network issue occurred. Reloading will fetch the latest version.
-          </p>
-          <button
-            style={{
-              background: '#1e5e4a', color: 'white', border: 'none', borderRadius: '10px',
-              padding: '10px 20px', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer'
-            }}
-            onClick={() => {
-              sessionStorage.removeItem('kitchgoo_chunk_reload');
-              window.location.reload();
-            }}
-          >
-            Reload Page
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 function App() {
   const { user, loading } = useAuth();
-  const location = useLocation();
 
   return (
-    <RouteErrorBoundary>
-      <Suspense fallback={<PageLoader />}>
-        <Routes location={location}>
-          {/* Public */}
-          <Route path="/login" element={user ? <Navigate to="/" replace /> : (loading ? <BootSplash /> : <Login />)} />
-          <Route path="/qrmenu/:tenantId" element={<QRMenu />} />
+    <Suspense fallback={<PageLoader />}>
+    <Routes>
+      {/* Public */}
+      <Route path="/login" element={user ? <Navigate to="/" replace /> : (loading ? <BootSplash /> : <Login />)} />
+      <Route path="/qrmenu/:tenantId" element={<QRMenu />} />
 
-          {/* Protected persistent layout shell */}
-          <Route element={<Protected><AppLayout /></Protected>}>
-            <Route path="/" element={<RootElement />} />
-            <Route path="/pos" element={<RestaurantRouteGuard><PermissionGuard perm="pos"><POS /></PermissionGuard></RestaurantRouteGuard>} />
-            <Route path="/kds" element={<RestaurantRouteGuard><ModuleGuard module="kds"><PermissionGuard perm="kds"><KDS /></PermissionGuard></ModuleGuard></RestaurantRouteGuard>} />
-            <Route path="/menu" element={<RestaurantRouteGuard><PermissionGuard perm="menu"><MenuScreen /></PermissionGuard></RestaurantRouteGuard>} />
-            <Route path="/inventory" element={<RestaurantRouteGuard><PermissionGuard perm="inventory"><Inventory /></PermissionGuard></RestaurantRouteGuard>} />
-            <Route path="/delivery" element={<RestaurantRouteGuard><ModuleGuard module="delivery"><PermissionGuard perm="delivery"><Delivery /></PermissionGuard></ModuleGuard></RestaurantRouteGuard>} />
+      {/* Protected — Operations */}
+      <Route path="/" element={<Protected allowAdmin={true}><RootElement /></Protected>} />
+      <Route path="/pos" element={<Protected><PermissionGuard perm="pos"><Layout title="POS & Billing"><POS /></Layout></PermissionGuard></Protected>} />
+      <Route path="/kds" element={<Protected><ModuleGuard module="kds"><PermissionGuard perm="kds"><Layout title="Kitchen Display System"><KDS /></Layout></PermissionGuard></ModuleGuard></Protected>} />
+      <Route path="/menu" element={<Protected><PermissionGuard perm="menu"><Layout title="Menu Management"><MenuScreen /></Layout></PermissionGuard></Protected>} />
+      <Route path="/inventory" element={<Protected><PermissionGuard perm="inventory"><Layout title="Inventory & Supply Chain"><Inventory /></Layout></PermissionGuard></Protected>} />
+      <Route path="/delivery" element={<Protected><ModuleGuard module="delivery"><PermissionGuard perm="delivery"><Layout title="Delivery & Online Ordering"><Delivery /></Layout></PermissionGuard></ModuleGuard></Protected>} />
 
-            {/* Management */}
-            <Route path="/staff" element={<RestaurantRouteGuard><PermissionGuard perm="staff"><Staff /></PermissionGuard></RestaurantRouteGuard>} />
-            <Route path="/expenses" element={<RestaurantRouteGuard><ModuleGuard module="expenses"><PermissionGuard perm="expenses"><Expenses /></PermissionGuard></ModuleGuard></RestaurantRouteGuard>} />
-            <Route path="/guests" element={<RestaurantRouteGuard><PermissionGuard perm="guests"><Guests /></PermissionGuard></RestaurantRouteGuard>} />
-            <Route path="/reservations" element={<RestaurantRouteGuard><ModuleGuard module="reservations"><PermissionGuard perm="reservations"><Reservations /></PermissionGuard></ModuleGuard></RestaurantRouteGuard>} />
-            <Route path="/reports" element={<RestaurantRouteGuard><PermissionGuard perm="reports"><Reports /></PermissionGuard></RestaurantRouteGuard>} />
+      {/* Protected — Management */}
+      <Route path="/staff" element={<Protected><PermissionGuard perm="staff"><Layout title="Staff & Workforce"><Staff /></Layout></PermissionGuard></Protected>} />
+      <Route path="/expenses" element={<Protected><ModuleGuard module="expenses"><PermissionGuard perm="expenses"><Layout title="Expenses & Overheads"><Expenses /></Layout></PermissionGuard></ModuleGuard></Protected>} />
+      <Route path="/guests" element={<Protected><PermissionGuard perm="guests"><Layout title="Guests & CRM"><Guests /></Layout></PermissionGuard></Protected>} />
+      <Route path="/reservations" element={<Protected><ModuleGuard module="reservations"><PermissionGuard perm="reservations"><Layout title="Reservations & Waitlist"><Reservations /></Layout></PermissionGuard></ModuleGuard></Protected>} />
+      <Route path="/reports" element={<Protected><PermissionGuard perm="reports"><Layout title="Reports & Analytics"><Reports /></Layout></PermissionGuard></Protected>} />
 
-            {/* Attendance */}
-            <Route path="/attendance" element={<RestaurantRouteGuard><Attendance /></RestaurantRouteGuard>} />
+      {/* Protected — Attendance (no permission guard — all staff need clock in/out) */}
+      <Route path="/attendance" element={<Protected><Layout title="Attendance"><Attendance /></Layout></Protected>} />
 
-            {/* Enterprise & Platform Admin */}
-            <Route path="/multi-location" element={<RestaurantRouteGuard><ModuleGuard module="multiLocation"><MultiLocation /></ModuleGuard></RestaurantRouteGuard>} />
-            <Route path="/platform-admin" element={<PlatformAdminGuard><PlatformAdmin /></PlatformAdminGuard>} />
+      {/* Protected — Enterprise */}
+      <Route path="/multi-location" element={<Protected><ModuleGuard module="multiLocation"><Layout title="Multi-Location & Franchise"><MultiLocation /></Layout></ModuleGuard></Protected>} />
+      <Route path="/platform-admin" element={<Protected allowAdmin={true}><ModuleGuard module="platformAdmin" allowAdmin={true}><Layout title="Platform Admin"><PlatformAdmin /></Layout></ModuleGuard></Protected>} />
 
-            {/* Settings */}
-            <Route path="/settings" element={<RestaurantRouteGuard><PermissionGuard perm="settings.view"><Settings /></PermissionGuard></RestaurantRouteGuard>} />
-          </Route>
+      {/* Protected — Settings */}
+      <Route path="/settings" element={<Protected allowAdmin={true}><PermissionGuard perm="settings.view"><Layout title="Settings"><Settings /></Layout></PermissionGuard></Protected>} />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
-    </RouteErrorBoundary>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+    </Suspense>
   );
 }
 

@@ -130,10 +130,7 @@ export function requireAuth(req, res, next) {
 }
 
 export function isPlatformAdmin(user) {
-  const tenant = (user?.accountId || user?.account_id || user?.restaurantName || '').toLowerCase().trim();
-  const email = (user?.email || '').toLowerCase().trim();
-  const role = (user?.role || '').toLowerCase().trim();
-  return tenant === 'kitchgoo' || email === 'admin@kitchgoo.in' || email === 'kumaramiya8@gmail.com' || role === 'superadmin' || role === 'platformadmin';
+  return (user?.accountId || '').toLowerCase() === 'kitchgoo';
 }
 
 /**

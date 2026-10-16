@@ -1,13 +1,12 @@
 import { useApp } from './AppContext';
 import { useAuth } from './AuthContext';
 
-const FULL_ACCESS_ROLES = new Set(['Owner']);
+const FULL_ACCESS_ROLES = new Set(['Owner', 'Manager']);
 
 // Hard-coded safety net — used only when neither settings store has data for a role
 const DEFAULT_PERMS = {
-  Manager: ['dashboard', 'pos', 'kds', 'inventory', 'menu', 'delivery', 'staff', 'guests', 'reservations', 'reports', 'settings', 'settings.view'],
   Chef: ['kds', 'inventory', 'menu'],
-  Cashier: ['dashboard', 'pos', 'comp.small', 'discount', 'guests'],
+  Cashier: ['pos', 'comp.small', 'discount'],
   Waiter: ['pos', 'reservations', 'guests', 'comp.small'],
   'Delivery Boy': ['delivery'],
   Host: ['reservations', 'guests'],
@@ -17,56 +16,39 @@ const DEFAULT_PERMS = {
  * Returns a `can(perm)` function for the currently logged-in user.
  *
  * Priority:
- *  1. Owner → always full access (super-admin safety net)
- *  2. settings.roles (from Settings → Roles & Permissions UI)
- *  3. settings.rolePermissions (from Staff → Permissions tab)
+ *  1. Owner / Manager → always full access
+ *  2. settings.rolePermissions[role]  (Staff → Permissions tab)
+ *  3. settings.roles[role].permissions (Settings → Roles & Permissions UI)
  *  4. Hard-coded DEFAULT_PERMS fallback
+ *
+ * Reading from both stores means either UI actually works.
  */
 export function usePermissions() {
   const { settings } = useApp();
   const { user } = useAuth();
 
   const role = user?.role || 'Owner';
-  const roleLower = String(role).toLowerCase().trim();
 
-  // Owner always has full access (case-insensitive)
-  if (roleLower === 'owner') return () => true;
+  if (FULL_ACCESS_ROLES.has(role)) return () => true;
 
-  const checkPermList = (permsList) => (perm) => {
-    if (!perm) return true;
-    if (permsList.includes('all') || permsList.includes(perm)) return true;
-    // Prefix matching so 'settings.view' matches if role has 'settings' or 'settings.view'
-    if (perm.startsWith('settings.') && (permsList.includes('settings') || permsList.includes('settings.view'))) return true;
-    if (perm.startsWith('reports.') && (permsList.includes('reports') || permsList.includes('reports.export'))) return true;
-    if (perm.startsWith('kds.') && permsList.includes('kds')) return true;
-    if (perm.startsWith('guests.') && permsList.includes('guests')) return true;
-    return false;
-  };
+  // 1. New format: { RoleName: ['perm1', 'perm2'] }
+  const newStore = settings?.rolePermissions || {};
+  if (newStore[role] !== undefined) {
+    const perms = newStore[role];
+    return (perm) => Array.isArray(perms) && perms.includes(perm);
+  }
 
-  // 1. Settings -> Roles & Permissions: [{ id, name, permissions[] }]
+  // 2. Legacy format: [{ id, name, permissions[] }]  (Settings → Roles section)
   const legacyRoles = settings?.roles || [];
   const legacyRole = legacyRoles.find(
-    r => (r.name && r.name.toLowerCase() === roleLower) ||
-         (r.id && r.id.toLowerCase() === roleLower.replace(/\s+/g, '_')),
+    r => r.name === role || r.id === role?.toLowerCase().replace(/\s+/g, '_'),
   );
-  if (legacyRole && Array.isArray(legacyRole.permissions)) {
-    let perms = legacyRole.permissions;
-    // If role does not have 'settings' (and not 'all'), strip any legacy 'settings.view' from seeds
-    if (!perms.includes('all') && !perms.includes('settings')) {
-      perms = perms.filter(p => !p.startsWith('settings.'));
-    }
-    return checkPermList(perms);
+  if (legacyRole) {
+    const perms = legacyRole.permissions || [];
+    return (perm) => perms.includes('all') || perms.includes(perm);
   }
 
-  // 2. Staff -> Permissions tab: { RoleName: ['perm1', 'perm2'] }
-  const newStore = settings?.rolePermissions || {};
-  const newStoreKey = Object.keys(newStore).find(k => k.toLowerCase().trim() === roleLower);
-  if (newStoreKey && Array.isArray(newStore[newStoreKey])) {
-    return checkPermList(newStore[newStoreKey]);
-  }
-
-  // 3. Hard-coded defaults (case-insensitive)
-  const defaultEntry = Object.entries(DEFAULT_PERMS).find(([k]) => k.toLowerCase() === roleLower);
-  const perms = defaultEntry ? defaultEntry[1] : [];
-  return checkPermList(perms);
+  // 3. Hard-coded defaults
+  const perms = DEFAULT_PERMS[role] ?? [];
+  return (perm) => perms.includes(perm);
 }

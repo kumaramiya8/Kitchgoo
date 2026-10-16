@@ -97,14 +97,6 @@ export const EXPENSE_CATEGORIES = [
   },
 ];
 
-export function isPlatformAdminUser(user) {
-  if (!user || user.isImpersonated) return false;
-  const tenant = (user.accountId || user.account_id || user.restaurantName || '').toLowerCase().trim();
-  const role = (user.role || '').toLowerCase().trim();
-  const email = (user.email || '').toLowerCase().trim();
-  return tenant === 'kitchgoo' || role === 'superadmin' || role === 'platformadmin' || email === 'admin@kitchgoo.in' || email === 'kumaramiya8@gmail.com';
-}
-
 export function isModuleEnabled(modulesOrSettings, key) {
   if (!key) return true;
   const modules = (modulesOrSettings && typeof modulesOrSettings === 'object' && 'modules' in modulesOrSettings)
@@ -220,8 +212,8 @@ export const SEEDS = {
     },
     roles: [
       { id: 'owner',   name: 'Owner',   permissions: ['all'] },
-      { id: 'manager', name: 'Manager', permissions: ['dashboard', 'pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds', 'reservations', 'guests', 'settings'] },
-      { id: 'cashier', name: 'Cashier', permissions: ['dashboard', 'pos', 'delivery', 'guests.view'] },
+      { id: 'manager', name: 'Manager', permissions: ['pos', 'inventory', 'staff', 'reports', 'menu', 'delivery', 'kds', 'reservations', 'guests', 'settings.view'] },
+      { id: 'cashier', name: 'Cashier', permissions: ['pos', 'delivery', 'guests.view'] },
       { id: 'chef',    name: 'Chef',    permissions: ['inventory', 'menu', 'kds'] },
       { id: 'waiter',  name: 'Waiter',  permissions: ['pos', 'kds.view', 'reservations.view'] },
     ],

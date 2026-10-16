@@ -23,19 +23,19 @@ import {
 import { useApp } from '../../db/AppContext';
 import { useAuth } from '../../db/AuthContext';
 import { usePermissions } from '../../db/usePermissions';
-import { isModuleEnabled, isPlatformAdminUser } from '../../../shared/seeds';
+import { isModuleEnabled } from '../../../shared/seeds';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { settings } = useApp();
   const { user } = useAuth();
   const can = usePermissions();
+  const restName = settings?.restaurant?.name || 'Kitchgoo';
+  const restLogo = settings?.restaurant?.logo;
 
-  const isPlatformAdmin = isPlatformAdminUser(user);
-  const restName = isPlatformAdmin ? 'Kitchgoo Admin' : (settings?.restaurant?.name || 'Kitchgoo');
-  const restLogo = isPlatformAdmin ? null : settings?.restaurant?.logo;
+  const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
 
   const operationsNav = [
-    { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: 'dashboard' },
+    { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: null },
     { name: 'POS & Billing',    path: '/pos',        icon: ShoppingCart,    perm: 'pos' },
     { name: 'Kitchen Display',  path: '/kds',        icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Menu',             path: '/menu',       icon: MenuSquare,      perm: 'menu' },
@@ -63,12 +63,6 @@ const Sidebar = ({ isOpen, onClose }) => {
     return true;
   };
 
-  const handleNavClick = () => {
-    if (isOpen && typeof onClose === 'function') {
-      onClose();
-    }
-  };
-
   const renderNavItems = (items) =>
     items
       .filter(isItemVisible)
@@ -78,7 +72,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           to={item.path}
           end={item.path === '/'}
           className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-          onClick={handleNavClick}
+          onClick={onClose}
         >
           <span className="nav-item-icon">
             <item.icon size={18} />
@@ -97,7 +91,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               <img src={restLogo} alt={restName} style={{ width: '36px', height: '36px', borderRadius: '10px', objectFit: 'contain', background: 'white', padding: '2px', border: '1px solid var(--border-subtle)' }} />
             ) : (
               <div className="sidebar-logo-icon">
-                {isPlatformAdmin ? <Shield size={18} /> : <ChefHat size={18} />}
+                <ChefHat size={18} />
               </div>
             )}
             <span className="sidebar-logo-text" style={{ fontSize: '1.05rem', fontWeight: 800 }}>{restName}</span>
@@ -107,7 +101,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           </button>
         </div>
         <span className="sidebar-logo-text" style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.05em', paddingLeft: '46px', textTransform: 'uppercase', marginTop: '-4px' }}>
-          {isPlatformAdmin ? 'Superadmin Console' : 'Powered by Kitchgoo'}
+          Powered by Kitchgoo
         </span>
       </div>
 
@@ -142,9 +136,9 @@ const Sidebar = ({ isOpen, onClose }) => {
         </>
       )}
 
-      {!isPlatformAdmin && can('settings.view') && (
+      {can('settings.view') && (
         <div className="sidebar-footer">
-          <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={handleNavClick}>
+          <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`} onClick={onClose}>
             <span className="nav-item-icon">
               <Settings size={18} />
             </span>

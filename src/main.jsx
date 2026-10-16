@@ -26,13 +26,6 @@ if ('serviceWorker' in navigator) {
   }
 }
 
-// ── Automatic recovery from stale deployment chunks ───────────
-window.addEventListener('vite:preloadError', (event) => {
-  console.warn('[Vite] Stale chunk detected after deployment, reloading page...', event);
-  event.preventDefault();
-  window.location.reload();
-});
-
 // ── Setup screen shown when .env credentials are missing ──────
 const SetupScreen = () => (
   <div style={{
@@ -111,53 +104,6 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here`}</pre>
   </div>
 )
 
-class GlobalErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(error, errorInfo) {
-    console.error('[GlobalErrorBoundary] Fatal boot error:', error, errorInfo);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{
-          minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          background: '#f1f3ef', fontFamily: "'Hanken Grotesk', system-ui, sans-serif", padding: '24px', textAlign: 'center'
-        }}>
-          <div style={{ maxWidth: 440, width: '100%', background: 'white', borderRadius: 20, padding: '32px 24px', boxShadow: '0 12px 40px rgba(0,0,0,0.08)' }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e1b4b', marginBottom: 8 }}>
-              Kitchgoo encountered an issue
-            </h2>
-            <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: 20, lineHeight: 1.5 }}>
-              A new version was deployed. Click below to load the latest release.
-            </p>
-            <button
-              onClick={() => {
-                if ('serviceWorker' in navigator) {
-                  navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-                }
-                window.location.reload();
-              }}
-              style={{
-                background: '#1e5e4a', color: 'white', border: 'none', borderRadius: 10,
-                padding: '12px 24px', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer'
-              }}
-            >
-              Refresh Application
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
 // ── Boot ──────────────────────────────────────────────────────
 if (!isConfigured) {
   // Show setup screen immediately — no DB calls needed
@@ -171,15 +117,13 @@ if (!isConfigured) {
     .finally(() => {
       ReactDOM.createRoot(document.getElementById('root')).render(
         <React.StrictMode>
-          <GlobalErrorBoundary>
-            <BrowserRouter>
-              <AuthProvider>
-                <AppProvider>
-                  <App />
-                </AppProvider>
-              </AuthProvider>
-            </BrowserRouter>
-          </GlobalErrorBoundary>
+          <BrowserRouter>
+            <AuthProvider>
+              <AppProvider>
+                <App />
+              </AppProvider>
+            </AuthProvider>
+          </BrowserRouter>
         </React.StrictMode>,
       )
     })
