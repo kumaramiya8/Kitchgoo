@@ -25,6 +25,7 @@ const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
 const QRMenu = lazy(() => import('./pages/QRMenu'));
 const Attendance = lazy(() => import('./pages/Attendance'));
 const Expenses = lazy(() => import('./pages/Expenses'));
+const WaiterView = lazy(() => import('./pages/WaiterView'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -94,6 +95,9 @@ const RootElement = () => {
   if (user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated) {
     return <Layout title="Platform Admin"><PlatformAdmin /></Layout>;
   }
+  if (user?.role?.toLowerCase() === 'waiter') {
+    return <Layout title="Waiter Hub"><WaiterView /></Layout>;
+  }
   return <Layout title="Dashboard"><Dashboard /></Layout>;
 };
 
@@ -109,6 +113,7 @@ function App() {
 
       {/* Protected — Operations */}
       <Route path="/" element={<Protected allowAdmin={true}><RootElement /></Protected>} />
+      <Route path="/waiter" element={<Protected><PermissionGuard perm="pos"><Layout title="Waiter Hub"><WaiterView /></Layout></PermissionGuard></Protected>} />
       <Route path="/pos" element={<Protected><PermissionGuard perm="pos"><Layout title="POS & Billing"><POS /></Layout></PermissionGuard></Protected>} />
       <Route path="/kds" element={<Protected><ModuleGuard module="kds"><PermissionGuard perm="kds"><Layout title="Kitchen Display System"><KDS /></Layout></PermissionGuard></ModuleGuard></Protected>} />
       <Route path="/menu" element={<Protected><PermissionGuard perm="menu"><Layout title="Menu Management"><MenuScreen /></Layout></PermissionGuard></Protected>} />

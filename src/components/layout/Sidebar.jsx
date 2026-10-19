@@ -18,6 +18,7 @@ import {
   Clock,
   Receipt,
   X,
+  Smartphone,
 } from 'lucide-react';
 
 import { useApp } from '../../db/AppContext';
@@ -33,9 +34,15 @@ const Sidebar = ({ isOpen, onClose }) => {
   const restLogo = settings?.restaurant?.logo;
 
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
+  const isWaiter = user?.role?.toLowerCase() === 'waiter';
 
-  const operationsNav = [
+  const operationsNav = isWaiter ? [
+    { name: 'Waiter Hub',       path: '/',           icon: Smartphone,      perm: null },
+    { name: 'POS & Billing',    path: '/pos',        icon: ShoppingCart,    perm: 'pos' },
+    { name: 'Kitchen Display',  path: '/kds',        icon: Monitor,         perm: 'kds', module: 'kds' },
+  ] : [
     { name: 'Dashboard',        path: '/',          icon: LayoutDashboard, perm: null },
+    { name: 'Waiter App',       path: '/waiter',    icon: Smartphone,      perm: 'pos' },
     { name: 'POS & Billing',    path: '/pos',        icon: ShoppingCart,    perm: 'pos' },
     { name: 'Kitchen Display',  path: '/kds',        icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Menu',             path: '/menu',       icon: MenuSquare,      perm: 'menu' },

@@ -1568,3 +1568,40 @@ tbody tr:hover {
   height: 100% !important;
   display: block;
 }
+
+/* ========== WAITER MOBILE VIEW ========== */
+.waiter-view-container {
+  min-height: 100vh;
+  background: var(--canvas, #f1f3ef);
+  color: var(--text-primary, #1c2420);
+  font-family: 'Hanken Grotesk', system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 120px;
+}
+
+.waiter-cart-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 995;
+  background: var(--header-bg, #ffffff);
+  border-top: 1px solid var(--border, #e2e6e0);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 1100px) {
+  .waiter-view-container {
+    padding-bottom: 160px;
+  }
+  .waiter-cart-bar {
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
