@@ -8,7 +8,6 @@ import {
   Menu,
   Shield,
   Clock,
-  Smartphone,
 } from 'lucide-react';
 import { useAuth } from '../../db/AuthContext';
 import { useApp } from '../../db/AppContext';
@@ -23,10 +22,9 @@ const BottomNav = ({ onMoreClick }) => {
   const { user } = useAuth();
   const can = usePermissions();
   const isPlatformAdmin = user?.restaurantName?.toLowerCase() === 'kitchgoo' && !user.isImpersonated;
-  const isWaiter = user?.role?.toLowerCase() === 'waiter';
 
   const allItems = [
-    { name: isWaiter ? 'Waiter' : 'Dashboard', path: '/', icon: isWaiter ? Smartphone : LayoutDashboard, perm: null },
+    { name: 'Dashboard',  path: '/',           icon: LayoutDashboard, perm: null },
     { name: 'POS',        path: '/pos',         icon: ShoppingCart,    perm: 'pos' },
     { name: 'Kitchen',    path: '/kds',         icon: Monitor,         perm: 'kds', module: 'kds' },
     { name: 'Attendance', path: '/attendance',  icon: Clock,           perm: null },
