@@ -6,7 +6,7 @@ import { initGuestTenantDB, initTenantDB, exitGuestMode, saveTableState, saveTab
 import {
   Search, ShoppingCart, Plus, Minus, Check, ChevronRight, X, ArrowLeft, Utensils, Award,
   Sparkles, Send, Bot, Loader2, Pin, Clock, AlertTriangle, Flame, Leaf, Bell, Droplets,
-  CreditCard, ChevronDown, ChevronUp, Star, MessageSquare
+  CreditCard, ChevronDown, ChevronUp, Star, MessageSquare, Eye
 } from 'lucide-react';
 
 export function isRestaurantOpen(operations = {}, now = new Date()) {
@@ -309,6 +309,8 @@ const QRMenu = () => {
   const effectiveSettings = guestSettings || settings;
 
   const qrMenuSettings = effectiveSettings?.qrMenu || {};
+  const allowOrdering = qrMenuSettings.allowOrdering !== false && qrMenuSettings.enableOrdering !== false;
+  const orderingDisabledMessage = qrMenuSettings.orderingDisabledMessage || 'Digital menu for browsing only • Please place your order with our waitstaff.';
   const syncTimings = qrMenuSettings.syncTimings !== false;
   const closedMessage = qrMenuSettings.closedMessage || 'Our kitchen is currently closed for orders outside operating hours.';
   const headerBgImage = qrMenuSettings.headerBgImage || '';
@@ -452,6 +454,9 @@ const QRMenu = () => {
 
   // Core order placement
   const doPlaceOrder = useCallback(async (guestName, tableNum, cartItems, extra = {}) => {
+    if (!allowOrdering) {
+      return { ok: false, error: orderingDisabledMessage };
+    }
     if (!isStoreOpen) {
       return { ok: false, error: closedMessage };
     }
@@ -581,7 +586,7 @@ const QRMenu = () => {
     window.dispatchEvent(new CustomEvent('kitchgoo_order_created', { detail: { tableId: targetTable.id, kdsOrderId } }));
 
     return { ok: true, tableId: targetTable.id, kdsOrderId };
-  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated, tableParam, notes, phone, isStoreOpen, closedMessage]);
+  }, [posTables, posSavedOrders, setPosTables, setPosSavedOrders, fireToKDS, broadcastOrderCreated, tableParam, notes, phone, isStoreOpen, closedMessage, allowOrdering, orderingDisabledMessage]);
 
   const sendAiMessage = useCallback(async (text) => {
     if (!text.trim() || aiLoading) return;
@@ -695,22 +700,30 @@ const QRMenu = () => {
           topSellers: topSellers.map(i => ({ name: i.name })),
           highMarginItems: computeHighMarginItems(menuItems).map(i => ({ name: i.name })),
           aiPromoteHighMargin,
+          allowOrdering,
         }),
       });
       const data = await res.json();
       setAiMessages(prev => [...prev, {
         role: 'assistant',
         text: data.text || 'Sorry, I had trouble with that. Try asking again.',
-        addToCart: data.add_to_cart?.length ? data.add_to_cart : null,
+        addToCart: allowOrdering && data.add_to_cart?.length ? data.add_to_cart : null,
       }]);
     } catch {
       setAiMessages(prev => [...prev, { role: 'assistant', text: 'Connection issue — please try again.' }]);
     } finally {
       setAiLoading(false);
     }
-  }, [aiLoading, aiMessages, menuItems, restaurantName, topSellers, aiPromoteHighMargin, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder]);
+  }, [aiLoading, aiMessages, menuItems, restaurantName, topSellers, aiPromoteHighMargin, pendingAiOrder, pendingAiStep, tableNumber, customerName, phone, posTables, doPlaceOrder, allowOrdering]);
 
   const handleAiOrder = useCallback(async (aiItems) => {
+    if (!allowOrdering) {
+      setAiMessages(prev => [...prev, {
+        role: 'assistant',
+        text: `${orderingDisabledMessage} You can still ask me about our dishes, ingredients, or recommendations! 😊`
+      }]);
+      return;
+    }
     if (!isStoreOpen) {
       setAiMessages(prev => [...prev, {
         role: 'assistant',
@@ -759,9 +772,13 @@ const QRMenu = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [menuItems, tableNumber, customerName, phone, doPlaceOrder, isStoreOpen, closedMessage]);
+  }, [menuItems, tableNumber, customerName, phone, doPlaceOrder, isStoreOpen, closedMessage, allowOrdering, orderingDisabledMessage]);
 
   const handleAddToCart = (item) => {
+    if (!allowOrdering) {
+      alert(orderingDisabledMessage);
+      return;
+    }
     setCart(prev => {
       const existing = prev[item.id];
       if (existing) {
@@ -807,6 +824,10 @@ const QRMenu = () => {
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
+    if (!allowOrdering) {
+      alert(orderingDisabledMessage);
+      return;
+    }
     if (!isStoreOpen) {
       alert(closedMessage);
       return;
@@ -1017,8 +1038,8 @@ const QRMenu = () => {
               letterSpacing: '0.4px',
               border: '1px solid rgba(255, 255, 255, 0.2)'
             }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isStoreOpen ? '#22c55e' : '#f59e0b', display: 'inline-block' }} />
-              {isStoreOpen ? 'KITCHEN OPEN' : 'ORDERS CLOSED'}
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: !allowOrdering ? '#f59e0b' : (isStoreOpen ? '#22c55e' : '#ef4444'), display: 'inline-block' }} />
+              {!allowOrdering ? 'VIEW ONLY MENU' : (isStoreOpen ? 'KITCHEN OPEN' : 'ORDERS CLOSED')}
             </div>
 
             {tableNumber && (
@@ -1052,13 +1073,36 @@ const QRMenu = () => {
                 <Star size={13} fill="#fbbf24" strokeWidth={0} /> 4.9
               </span>
               <span>•</span>
-              <span>Fast in-seat ordering</span>
+              <span>{allowOrdering ? 'Fast in-seat ordering' : 'View-only digital menu'}</span>
             </div>
           </div>
         </div>
 
+        {/* ── View-Only Menu Banner Notice (Ordering Disabled) ─── */}
+        {!allowOrdering && (
+          <div style={{
+            margin: '14px 16px 0 16px',
+            padding: '12px 14px',
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1.5px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            color: '#92400e',
+          }}>
+            <Eye size={20} style={{ flexShrink: 0, color: '#d97706' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 800 }}>Digital Menu (View-Only)</div>
+              <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: 2, lineHeight: 1.3 }}>
+                {orderingDisabledMessage}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Closed Kitchen Banner Notice ──────────────────────── */}
-        {!isStoreOpen && (
+        {!isStoreOpen && allowOrdering && (
           <div style={{
             margin: '14px 16px 0 16px',
             padding: '12px 14px',
@@ -1227,43 +1271,45 @@ const QRMenu = () => {
                         </div>
                       </div>
 
-                      <div style={{ marginTop: 8 }}>
-                        {cartQty > 0 ? (
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#0f172a', color: '#fff', borderRadius: 9999, padding: '3px 8px' }}>
-                            <button onClick={() => handleRemoveFromCart(item.id)} style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex' }}>
-                              <Minus size={11} strokeWidth={3} />
+                      {allowOrdering && (
+                        <div style={{ marginTop: 8 }}>
+                          {cartQty > 0 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#0f172a', color: '#fff', borderRadius: 9999, padding: '3px 8px' }}>
+                              <button onClick={() => handleRemoveFromCart(item.id)} style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                                <Minus size={11} strokeWidth={3} />
+                              </button>
+                              <span style={{ fontSize: '0.78rem', fontWeight: 800 }}>{cartQty}</span>
+                              <button onClick={() => { if (!isStoreOpen) { alert(closedMessage); return; } handleAddToCart(item); }} style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                                <Plus size={11} strokeWidth={3} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (!isStoreOpen) { alert(closedMessage); return; }
+                                handleAddToCart(item);
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '5px 0',
+                                borderRadius: 9999,
+                                border: '1.5px solid #e2e8f0',
+                                background: '#fff',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                color: '#0f172a',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 4
+                              }}
+                            >
+                              <Plus size={11} strokeWidth={3} /> ADD
                             </button>
-                            <span style={{ fontSize: '0.78rem', fontWeight: 800 }}>{cartQty}</span>
-                            <button onClick={() => { if (!isStoreOpen) { alert(closedMessage); return; } handleAddToCart(item); }} style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex' }}>
-                              <Plus size={11} strokeWidth={3} />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              if (!isStoreOpen) { alert(closedMessage); return; }
-                              handleAddToCart(item);
-                            }}
-                            style={{
-                              width: '100%',
-                              padding: '5px 0',
-                              borderRadius: 9999,
-                              border: '1.5px solid #e2e8f0',
-                              background: '#fff',
-                              fontSize: '0.75rem',
-                              fontWeight: 800,
-                              color: '#0f172a',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 4
-                            }}
-                          >
-                            <Plus size={11} strokeWidth={3} /> ADD
-                          </button>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -1467,51 +1513,53 @@ const QRMenu = () => {
                   </div>
 
                   {/* Morphing Stepper CTA */}
-                  <div style={{ marginTop: -14, zIndex: 2 }}>
-                    {cartQty > 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f172a', color: '#fff', padding: '5px 10px', borderRadius: 9999, boxShadow: '0 4px 12px rgba(15,23,42,0.25)' }}>
-                        <button
-                          onClick={() => handleRemoveFromCart(item.id)}
-                          style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
-                        >
-                          <Minus size={12} strokeWidth={3} />
-                        </button>
-                        <span style={{ fontWeight: 800, fontSize: '0.82rem', minWidth: 14, textAlign: 'center' }}>{cartQty}</span>
+                  {allowOrdering && (
+                    <div style={{ marginTop: -14, zIndex: 2 }}>
+                      {cartQty > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f172a', color: '#fff', padding: '5px 10px', borderRadius: 9999, boxShadow: '0 4px 12px rgba(15,23,42,0.25)' }}>
+                          <button
+                            onClick={() => handleRemoveFromCart(item.id)}
+                            style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
+                          >
+                            <Minus size={12} strokeWidth={3} />
+                          </button>
+                          <span style={{ fontWeight: 800, fontSize: '0.82rem', minWidth: 14, textAlign: 'center' }}>{cartQty}</span>
+                          <button
+                            onClick={() => {
+                              if (!isStoreOpen) { alert(closedMessage); return; }
+                              handleAddToCart(item);
+                            }}
+                            style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
+                          >
+                            <Plus size={12} strokeWidth={3} />
+                          </button>
+                        </div>
+                      ) : (
                         <button
                           onClick={() => {
                             if (!isStoreOpen) { alert(closedMessage); return; }
                             handleAddToCart(item);
                           }}
-                          style={{ border: 'none', background: 'none', color: '#fff', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
+                          style={{
+                            padding: '6px 18px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: 9999,
+                            border: '1.5px solid #e2e8f0',
+                            background: '#ffffff',
+                            color: '#0f172a',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4
+                          }}
                         >
-                          <Plus size={12} strokeWidth={3} />
+                          <Plus size={12} strokeWidth={3} /> ADD
                         </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (!isStoreOpen) { alert(closedMessage); return; }
-                          handleAddToCart(item);
-                        }}
-                        style={{
-                          padding: '6px 18px',
-                          fontSize: '0.78rem',
-                          fontWeight: 800,
-                          borderRadius: 9999,
-                          border: '1.5px solid #e2e8f0',
-                          background: '#ffffff',
-                          color: '#0f172a',
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4
-                        }}
-                      >
-                        <Plus size={12} strokeWidth={3} /> ADD
-                      </button>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1527,7 +1575,7 @@ const QRMenu = () => {
         </div>
 
         {/* ── 5. Floating Glass Bottom Cart Capsule ──────────────── */}
-        {cartItemsCount > 0 && !showCart && (
+        {allowOrdering && cartItemsCount > 0 && !showCart && (
           <div
             style={{
               position: 'fixed',
@@ -1652,7 +1700,7 @@ const QRMenu = () => {
                         }}>
                           {msg.text?.replace(/\*\*(.*?)\*\*/g, '$1')}
                         </div>
-                        {msg.addToCart && msg.addToCart.length > 0 && (
+                        {allowOrdering && msg.addToCart && msg.addToCart.length > 0 && (
                           <button
                             onClick={() => handleAiOrder(msg.addToCart)}
                             style={{
@@ -1741,7 +1789,7 @@ const QRMenu = () => {
         )}
 
         {/* ── 7. Slide-Up Bottom Sheet Cart ────────────────────────── */}
-        {showCart && (
+        {allowOrdering && showCart && (
           <div style={{
             position: 'fixed',
             inset: 0,

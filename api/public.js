@@ -434,6 +434,32 @@ export function upsertGuestIntoList(currentGuests = [], { name = '', phone = '',
   return targetGuest;
 }
 
+// Helper to check whether QR ordering is permitted in restaurant settings
+export async function checkQrOrderingAllowed(db, canonicalTenant) {
+  let qrConfig;
+  const staticCached = getQrStaticCache(canonicalTenant);
+  if (staticCached && staticCached.settingsRows) {
+    qrConfig = staticCached.settingsRows.find(r => r.section_name === 'qrMenu')?.value;
+  }
+  if (!qrConfig) {
+    try {
+      const { data: qrRow } = await db.from('settings')
+        .select('value')
+        .eq('account_id', canonicalTenant)
+        .eq('section_name', 'qrMenu')
+        .maybeSingle();
+      qrConfig = qrRow?.value;
+    } catch {
+      // ignore error
+    }
+  }
+  const allowed = qrConfig?.allowOrdering !== false && qrConfig?.enableOrdering !== false;
+  return {
+    allowed,
+    message: qrConfig?.orderingDisabledMessage || 'Ordering is currently disabled on the digital menu. Please place your order with our waitstaff.',
+  };
+}
+
 // PUT /api/public/qrmenu/:tenant/table/:tableId
 // Body: { table: {...} | undefined, savedOrder: <order|null> }
 // Merges ONLY the given table into pos_tables / pos_saved_orders.
@@ -523,6 +549,13 @@ app.put('/api/public/qrmenu/:tenant/table/:tableId', guestWriteLimiter, wrap(asy
   }
 
   if (savedOrder !== undefined) {
+    if (savedOrder !== null) {
+      const check = await checkQrOrderingAllowed(db, canonicalTenant);
+      if (!check.allowed) {
+        return res.status(403).json({ success: false, error: check.message });
+      }
+    }
+
     const currentOrders = (await getFlex(db, canonicalTenant, 'pos_saved_orders', {})) || {};
     const mergedOrders = { ...currentOrders };
 
@@ -651,6 +684,11 @@ app.post('/api/public/qrmenu/:tenant/kds', guestWriteLimiter, wrap(async (req, r
   const account = await resolveAccount(db, requestedTenant);
   if (!account) return res.status(404).json({ success: false, error: 'Restaurant not found' });
   const canonicalTenant = account.id;
+
+  const check = await checkQrOrderingAllowed(db, canonicalTenant);
+  if (!check.allowed) {
+    return res.status(403).json({ success: false, error: check.message });
+  }
 
   const current = await getFlex(db, canonicalTenant, 'kds_tickets', []);
   const cleanTNum = ticket.tableNumber != null ? cleanId(ticket.tableNumber) : null;

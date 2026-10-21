@@ -254,6 +254,9 @@ export const SEEDS = {
       }
     },
     qrMenu: {
+      allowOrdering: true,
+      enableOrdering: true,
+      orderingDisabledMessage: 'Digital menu for browsing only • Please place your order with our waitstaff.',
       syncTimings: true,
       closedMessage: 'Our kitchen is currently closed for orders outside operating hours.',
       headerBgImage: '',

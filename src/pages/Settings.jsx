@@ -494,7 +494,7 @@ const PrinterSection = ({ data, onChange, isMobile }) => (
 // ─── QR Menu & AI Section ─────────────────────────────────
 const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
   const { menu = [], orders = [] } = useApp();
-  const [activeSubTab, setActiveSubTab] = useState('branding'); // 'branding' | 'timings' | 'sorting' | 'visibility' | 'ai'
+  const [activeSubTab, setActiveSubTab] = useState('ordering'); // 'ordering' | 'branding' | 'tags' | 'service' | 'trending' | 'sorting' | 'timings' | 'visibility' | 'ai'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
@@ -600,6 +600,7 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
   ];
 
   const subTabs = [
+    { id: 'ordering', label: 'Ordering Mode' },
     { id: 'branding', label: 'Cover & Header' },
     { id: 'tags', label: 'Item Tags & Badges' },
     { id: 'service', label: 'Staff Service' },
@@ -610,8 +611,59 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
     { id: 'ai', label: 'AI Ordering & Copilot' },
   ];
 
+  const isOrderingAllowed = data.allowOrdering !== false && data.enableOrdering !== false;
+
   return (
     <div>
+      {/* Quick Ordering Mode Banner */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: isOrderingAllowed ? 'rgba(34, 197, 94, 0.06)' : 'rgba(245, 158, 11, 0.08)',
+        border: `1.5px solid ${isOrderingAllowed ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.3)'}`,
+        borderRadius: 14,
+        padding: '12px 16px',
+        marginBottom: '18px',
+        gap: '12px',
+        flexWrap: isMobile ? 'wrap' : 'nowrap'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: isOrderingAllowed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: isOrderingAllowed ? '#16a34a' : '#d97706',
+            flexShrink: 0
+          }}>
+            <QrCode size={20} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.86rem', fontWeight: 750, color: 'var(--text-primary)' }}>
+              QR Menu Status: {isOrderingAllowed ? 'Ordering Enabled' : 'View-Only (Ordering Disabled)'}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              {isOrderingAllowed
+                ? 'Guests can add items to cart and place orders directly to kitchen.'
+                : 'Cart & ordering buttons are hidden on guest phones. Diners can only browse items.'}
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            const next = !isOrderingAllowed;
+            onChange('allowOrdering', next);
+            onChange('enableOrdering', next);
+          }}
+          className={isOrderingAllowed ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'}
+          style={{ fontSize: '0.76rem', fontWeight: 700, padding: '6px 14px', borderRadius: 10, flexShrink: 0 }}
+        >
+          {isOrderingAllowed ? 'Disable Ordering' : 'Enable Ordering'}
+        </button>
+      </div>
+
       {/* Sub Tabs */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px', flexWrap: 'wrap' }}>
         {subTabs.map(t => (
@@ -626,6 +678,84 @@ const QRMenuSection = ({ data = {}, operations = {}, onChange, isMobile }) => {
           </button>
         ))}
       </div>
+
+      {/* 0. QR Ordering Mode (Enable / Disable Ordering) */}
+      {activeSubTab === 'ordering' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Control whether guests scanning the table QR code can place orders directly to the kitchen, or whether the QR menu should function as a <strong>View-Only digital menu</strong> where waitstaff take orders.
+          </div>
+
+          <Toggle
+            label="Allow Ordering from QR Menu"
+            description="When enabled, seated guests can add dishes to their cart and place orders directly. When disabled, the QR menu switches to view-only mode (cart and order buttons are hidden)."
+            value={isOrderingAllowed}
+            onChange={v => {
+              onChange('allowOrdering', v);
+              onChange('enableOrdering', v);
+            }}
+          />
+
+          {/* Status Display Card */}
+          <div style={{
+            background: isOrderingAllowed ? 'rgba(34, 197, 94, 0.05)' : 'rgba(245, 158, 11, 0.08)',
+            border: `1.5px solid ${isOrderingAllowed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.35)'}`,
+            borderRadius: '14px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '1.1rem' }}>
+                  {isOrderingAllowed ? '🛒' : '📖'}
+                </span>
+                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Current Mode: {isOrderingAllowed ? 'Interactive Ordering Enabled' : 'View-Only Digital Menu'}
+                </span>
+              </div>
+              <span style={{
+                padding: '4px 10px',
+                borderRadius: '12px',
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                background: isOrderingAllowed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.18)',
+                color: isOrderingAllowed ? 'var(--success, #16a34a)' : '#b45309'
+              }}>
+                {isOrderingAllowed ? '● Orders Active' : '○ View-Only Mode'}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              {isOrderingAllowed
+                ? 'Guests can customize items, add them to their cart, and submit live orders to the POS & KDS.'
+                : 'Cart floating bars and "+ Add" buttons are hidden on guest devices. Guests can browse dishes, categories, and prices, and call their server when ready.'}
+            </div>
+          </div>
+
+          {/* Custom Disabled Notice */}
+          {!isOrderingAllowed && (
+            <Field
+              label="Disabled Ordering Notice for Guests"
+              hint="Shown on a banner at the top of the guest menu when ordering is disabled."
+            >
+              <Input
+                value={data.orderingDisabledMessage ?? 'Digital menu for browsing only • Please place your order with our waitstaff.'}
+                onChange={v => onChange('orderingDisabledMessage', v)}
+                placeholder="Digital menu for browsing only • Please place your order with our waitstaff."
+              />
+            </Field>
+          )}
+
+          {/* Helper Tips */}
+          <div style={{ background: 'var(--card-bg, #ffffff)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '14px', fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>💡 Helpful Information:</div>
+            <div>• Even when ordering is disabled, the <strong>Staff Service</strong> buttons ("Call Waiter", "Water", "Bill") remain functional so diners can summon their server.</div>
+            <div>• The <strong>AI Food Copilot</strong> will continue answering menu questions, dietary concerns, and recommendations in advisory mode without ordering buttons.</div>
+            <div>• Changes take effect immediately after saving.</div>
+          </div>
+        </div>
+      )}
 
       {/* 1. Header & Cover Image */}
       {activeSubTab === 'branding' && (

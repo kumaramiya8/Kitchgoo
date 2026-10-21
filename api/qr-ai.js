@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON request body' });
   }
 
-  const { message, chatHistory, menuItems, restaurantName, topSellers, highMarginItems, aiPromoteHighMargin } = body;
+  const { message, chatHistory, menuItems, restaurantName, topSellers, highMarginItems, aiPromoteHighMargin, allowOrdering } = body;
   if (!message) return res.status(400).json({ error: 'Message is required' });
 
   const groqApiKey = process.env.GROQ_API_KEY;
@@ -51,7 +51,11 @@ export default async function handler(req, res) {
     ? `\nChef's featured house specialties: ${highMarginItems.map(i => i.name).join(', ')}`
     : '';
 
-  const systemPrompt = `You are a friendly AI ordering assistant for "${restaurantName || 'our restaurant'}". You help guests discover and order food from the QR menu.
+  const orderingRule = allowOrdering === false
+    ? '4. Direct ordering through the digital menu is currently DISABLED (view-only mode). Diners will order with the waitstaff. Answer dietary questions, describe dishes, and give recommendations warmly, but do NOT provide "add_to_cart" actions (keep it null or []).'
+    : '4. When a guest wants to add item(s) to their cart, include an "add_to_cart" action in your response.';
+
+  const systemPrompt = `You are a friendly AI dining assistant for "${restaurantName || 'our restaurant'}". You help guests discover dishes from our menu.
 
 MENU:
 ${menuContext}
@@ -59,11 +63,11 @@ ${topSellersContext}
 ${highMarginContext}
 
 RULES:
-1. You can ONLY help with menu discovery and ordering — nothing else.
+1. You can ONLY help with menu discovery, food recommendations, and dish questions — nothing else.
 2. Always be warm, concise, and appetising in your descriptions.
 3. When a guest asks what to order or for recommendations, suggest 2-3 items from the menu with brief enticing descriptions. Subtly prioritize top-selling items and chef's featured house specialties naturally.
 CRITICAL: NEVER mention words like "margin", "profit", "cost", "high-margin", "revenue", or "algorithm" to the guest under ANY circumstances. To the customer, these must only be presented enthusiastically as exquisite chef specialties, house signatures, or guest favorites.
-4. When a guest wants to add item(s) to their cart, include an "add_to_cart" action in your response.
+${orderingRule}
 5. Never invent items not on the menu. If asked for something unavailable, apologise and suggest the closest alternative.
 6. Keep responses short — guests are on mobile.
 
@@ -75,7 +79,7 @@ Response MUST be a JSON object:
   ]
 }
 
-"add_to_cart" should only be present when the guest has clearly asked to add specific items. Omit it (or use []) otherwise. Use exact item IDs and names from the menu.`;
+"add_to_cart" should only be present when ordering is enabled and the guest has clearly asked to add specific items. Omit it (or use []) otherwise. Use exact item IDs and names from the menu.`;
 
   const messagesList = [];
   if (chatHistory && Array.isArray(chatHistory)) {
@@ -188,6 +192,9 @@ Response MUST be a JSON object:
       result = JSON.parse(cleaned);
     } catch {
       result = { text: raw, add_to_cart: [] };
+    }
+    if (allowOrdering === false && result.add_to_cart) {
+      result.add_to_cart = null;
     }
     return res.status(200).json(result);
   } catch (err) {

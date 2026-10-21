@@ -307,6 +307,82 @@ describe('QR Menu Settings & AI Ordering Strategies', () => {
       expect(qrConfig.showStaffService).toBe(true);
       expect(qrConfig.aiButtonText).toBe("Ask AI Copilot");
       expect(qrConfig.aiButtonColor).toBe("#7c3aed");
+      expect(qrConfig.allowOrdering).toBe(true);
+      expect(qrConfig.enableOrdering).toBe(true);
+      expect(typeof qrConfig.orderingDisabledMessage).toBe('string');
+      expect(qrConfig.orderingDisabledMessage).toContain('Digital menu for browsing only');
+    });
+  });
+
+  describe('QR Menu Ordering Control & View-Only Mode', () => {
+    it('exports checkQrOrderingAllowed in api/public.js and denies ordering when allowOrdering is false', async () => {
+      const { checkQrOrderingAllowed } = await import('../api/public.js');
+      expect(typeof checkQrOrderingAllowed).toBe('function');
+
+      const mockDbDisabled = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: {
+                    value: {
+                      allowOrdering: false,
+                      orderingDisabledMessage: 'View-only mode active. Please place your order with our waitstaff.',
+                    },
+                  },
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      const resDisabled = await checkQrOrderingAllowed(mockDbDisabled, 'test-tenant-disabled');
+      expect(resDisabled.allowed).toBe(false);
+      expect(resDisabled.message).toBe('View-only mode active. Please place your order with our waitstaff.');
+    });
+
+    it('permits ordering when allowOrdering is true or omitted', async () => {
+      const { checkQrOrderingAllowed } = await import('../api/public.js');
+
+      const mockDbEnabled = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: {
+                    value: {
+                      allowOrdering: true,
+                    },
+                  },
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      const resEnabled = await checkQrOrderingAllowed(mockDbEnabled, 'test-tenant-enabled');
+      expect(resEnabled.allowed).toBe(true);
+
+      const mockDbDefault = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: null,
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      const resDefault = await checkQrOrderingAllowed(mockDbDefault, 'test-tenant-default');
+      expect(resDefault.allowed).toBe(true);
     });
   });
 
