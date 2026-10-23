@@ -49,6 +49,7 @@ import {
   getArchivedKDSTickets,
   issueGiftCardCredit,
   redeemGiftCardCredit,
+  clearCache,
 } from './database';
 
 const AppContext = createContext(null);
@@ -257,7 +258,7 @@ export function AppProvider({ children }) {
   const lastReconcileAt = useRef(0);
 
   useEffect(() => {
-    if (authLoading || !hasLoadedFromDb) return;
+    if (authLoading || !hasLoadedFromDb || !activeTenant || activeTenant !== getCurrentTenant()) return;
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_tables`, JSON.stringify(posTables));
     if (!tenant) return;
@@ -285,10 +286,10 @@ export function AppProvider({ children }) {
     }
     setLocalCollection('pos_tables', posTables);
     changed.forEach(t => { saveTableState(t.id, t); });
-  }, [posTables, authLoading, hasLoadedFromDb]);
+  }, [posTables, authLoading, hasLoadedFromDb, activeTenant]);
 
   useEffect(() => {
-    if (authLoading || !hasLoadedFromDb) return;
+    if (authLoading || !hasLoadedFromDb || !activeTenant || activeTenant !== getCurrentTenant()) return;
     const tenant = getCurrentTenant();
     localStorage.setItem(`${tenant}_pos_saved_orders`, JSON.stringify(posSavedOrders));
     if (!tenant) return;
@@ -313,7 +314,7 @@ export function AppProvider({ children }) {
     }
     setLocalCollection('pos_saved_orders', posSavedOrders);
     changedIds.forEach(id => { saveTableOrder(id, (posSavedOrders || {})[id] ?? null); });
-  }, [posSavedOrders, authLoading, hasLoadedFromDb]);
+  }, [posSavedOrders, authLoading, hasLoadedFromDb, activeTenant]);
 
   // Rebuild the displayed floor whenever the layout changes
   useEffect(() => {
@@ -336,6 +337,11 @@ export function AppProvider({ children }) {
     if (authLoading) return;
     const isQrPage = typeof window !== 'undefined' && window.location?.pathname?.startsWith('/qrmenu/');
     if (isQrPage && isGuestMode()) return;
+    setHasLoadedFromDb(false);
+    setActiveTenant(null);
+    setPosTables([]);
+    setPosSavedOrders({});
+    setKdsTickets([]);
     reload();
   }, [user, authLoading]);
 

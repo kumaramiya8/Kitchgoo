@@ -139,11 +139,23 @@ export function hasPendingWrites() {
   return _pendingWrites > 0;
 }
 
+export function clearCache() {
+  Object.keys(_cache).forEach(k => delete _cache[k]);
+  if (typeof _collectionEtags === 'object') {
+    Object.keys(_collectionEtags).forEach(k => delete _collectionEtags[k]);
+  }
+  _ordersLoadedFrom = {};
+  _lastPayloadAppliedAt = 0;
+}
+
 export function setCurrentTenant(tenant) {
   if (typeof window !== 'undefined' && window.location && window.location.pathname.startsWith('/qrmenu/')) {
     return;
   }
   if (tenant) {
+    if (_currentTenant && _currentTenant !== tenant) {
+      clearCache();
+    }
     _currentTenant = tenant;
   }
 }
@@ -529,6 +541,9 @@ export async function initTenantDB(tenantName) {
     return;
   }
 
+  if (_currentTenant && _currentTenant !== tenantName) {
+    clearCache();
+  }
   _currentTenant = tenantName;
   _guestMode = false;
 
@@ -647,6 +662,9 @@ export function exitGuestMode() {
 export function applyBootstrapPayload(payload) {
   if (!isLive()) return false;
   if (!payload || (!payload.tenant && !payload.collections && !payload.menu && !payload.orders)) return false;
+  if (payload?.tenant && _currentTenant && payload.tenant !== _currentTenant) {
+    clearCache();
+  }
   if (payload?.tenant) _currentTenant = payload.tenant;
   _guestMode = false;
   applyTenantPayload(payload);

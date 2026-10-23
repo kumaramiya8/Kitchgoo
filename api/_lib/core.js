@@ -209,7 +209,9 @@ async function _serverBroadcast(tenant, event, payload) {
     const rawTenant = String(tenant).trim();
     const underscoreSlug = rawTenant.toLowerCase().replace(/[^a-z0-9]/g, '_');
     // Standardize to the canonical slug topic (valid in Supabase Realtime without spaces)
+    // Phoenix channels in Supabase Realtime map client channel('name') to topic 'realtime:name'
     const topics = Array.from(new Set([
+      `realtime:kitchgoo_changes_${underscoreSlug}`,
       `kitchgoo_changes_${underscoreSlug}`,
     ]));
 

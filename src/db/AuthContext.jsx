@@ -3,7 +3,7 @@
  * Uses HttpOnly cookies (via /api endpoints) for sessions instead of localStorage.
  */
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { update as dbUpdate, setCurrentTenant, initTenantDB, applyBootstrapPayload } from './database';
+import { update as dbUpdate, setCurrentTenant, initTenantDB, applyBootstrapPayload, clearCache } from './database';
 import { api, ApiError } from '../lib/api';
 
 const AuthContext = createContext(null);
@@ -30,6 +30,7 @@ export function AuthProvider({ children }) {
         if (data.success && data.user) {
           const isQrPage = typeof window !== 'undefined' && window.location?.pathname?.startsWith('/qrmenu/');
           if (!isQrPage) {
+            clearCache();
             setCurrentTenant(data.user.restaurantName);
             if (!applyBootstrapPayload(data)) {
               // Demo mode ignores server payloads — hydrate from localStorage
@@ -60,6 +61,7 @@ export function AuthProvider({ children }) {
       const data = await res.json();
 
       if (data.success && data.user) {
+        clearCache();
         setCurrentTenant(data.user.restaurantName);
         await initTenantDB(data.user.restaurantName);
         setUser(data.user);
@@ -82,6 +84,7 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.error('[Auth] Error logging out:', err);
     }
+    clearCache();
     setUser(null);
     setCurrentTenant('Kitchgoo');
     setAdminSession(null);
@@ -96,6 +99,7 @@ export function AuthProvider({ children }) {
     setImpersonatedTenant(tenantName);
     
     // Switch tenant
+    clearCache();
     setCurrentTenant(tenantName);
     await initTenantDB(tenantName);
     
@@ -116,6 +120,7 @@ export function AuthProvider({ children }) {
     if (!adminSession) return { success: false, error: 'No admin session found.' };
     
     // Switch tenant back
+    clearCache();
     setCurrentTenant('Kitchgoo');
     setUser(adminSession);
     
