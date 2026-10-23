@@ -19,8 +19,20 @@
 -- 100% operational.
 -- ============================================================
 
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS orders;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS menu;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS inventory;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS settings;
-ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS tenant_data;
+-- Safe script: checks which tables are actually in the publication before dropping,
+-- avoiding any "table is not part of publication" or syntax errors.
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOR t IN 
+        SELECT tablename 
+        FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+          AND tablename IN ('orders', 'menu', 'inventory', 'settings', 'tenant_data')
+    LOOP
+        EXECUTE format('ALTER PUBLICATION supabase_realtime DROP TABLE %I', t);
+        RAISE NOTICE 'Dropped % from supabase_realtime', t;
+    END LOOP;
+END $$;
+
