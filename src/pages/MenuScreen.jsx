@@ -11,7 +11,7 @@ import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import { parseCSV, arrayToCSV, downloadCSV } from '../utils/csv';
 import { getAll, getCurrentTenant } from '../db/database';
-import { uploadImage } from '../lib/api';
+import { uploadImage, compressImage } from '../lib/api';
 
 /* ── Constants ─────────────────────────────────────────────────── */
 const CATEGORIES = ['Starters', 'Main Course', 'Desserts', 'Beverages', 'Breads', 'Salads', 'Sides', 'Specials'];
@@ -892,16 +892,16 @@ const MenuScreen = () => {
               <input className="input-field" value={(form.image && !form.image.trim().startsWith('<svg')) ? form.image : ''} onChange={e => setForm(f => ({ ...f, image: e.target.value }))} placeholder="Paste image URL..." style={{ flex: 1, margin: 0 }} />
               <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', margin: 0, padding: '8px 12px', height: '38px', display: 'flex', alignItems: 'center' }}>
                 Upload Image
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
                   const file = e.target.files[0];
                   if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = async () => {
-                      setForm(f => ({ ...f, image: reader.result }));
-                      const url = await uploadImage(reader.result, 'menu', getCurrentTenant());
-                      if (url) setForm(f => ({ ...f, image: url }));
-                    };
-                    reader.readAsDataURL(file);
+                    const compressed = await compressImage(file, 800, 0.75);
+                    const dataUrl = compressed || await new Promise(r => {
+                      const fr = new FileReader(); fr.onloadend = () => r(fr.result); fr.readAsDataURL(file);
+                    });
+                    setForm(f => ({ ...f, image: dataUrl }));
+                    const url = await uploadImage(dataUrl, 'menu', getCurrentTenant());
+                    if (url) setForm(f => ({ ...f, image: url }));
                   }
                 }} />
               </label>

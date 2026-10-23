@@ -191,7 +191,11 @@ export async function uploadDataUrl(tenant, kind, dataUrl) {
   const safeKind = String(kind || 'misc').replace(/[^a-zA-Z0-9]/g, '_');
   const path = `${safeTenant}/${safeKind}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-  const { error } = await db.storage.from(MEDIA_BUCKET).upload(path, buf, { contentType: mime, upsert: false });
+  const { error } = await db.storage.from(MEDIA_BUCKET).upload(path, buf, {
+    contentType: mime,
+    upsert: false,
+    cacheControl: '31536000', // 1 year immutable browser & CDN caching
+  });
   if (error) throw error;
   return db.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
 }
@@ -234,9 +238,30 @@ async function _serverBroadcast(tenant, event, payload) {
   }
 }
 
+// In-memory collection version tracker to support HTTP 304 conditional polling
+const collectionVersions = new Map(); // tenant -> { [collectionName]: number }
+
+export function getCollectionVersion(tenant, name) {
+  if (!tenant || !name) return 1;
+  const key = String(tenant).toLowerCase().trim();
+  const tMap = collectionVersions.get(key);
+  return (tMap && tMap[name]) || 1;
+}
+
+export function bumpCollectionVersion(tenant, name) {
+  if (!tenant || !name) return;
+  const key = String(tenant).toLowerCase().trim();
+  let tMap = collectionVersions.get(key);
+  if (!tMap) {
+    tMap = {};
+    collectionVersions.set(key, tMap);
+  }
+  tMap[name] = (tMap[name] || 1) + 1;
+}
+
 // In-memory cache for static QR menu components (menu, settings, floor_plans, modifiers)
 const qrStaticCache = new Map(); // tenant -> { timestamp: number, data: { menuRows, settingsRows, floorPlans, modifiers } }
-const QR_STATIC_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+const QR_STATIC_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 export function getQrStaticCache(tenant) {
   if (!tenant) return null;
@@ -265,6 +290,7 @@ export async function broadcastChange(tenant, table) {
   if (['menu', 'settings', 'floor_plans', 'modifiers'].includes(table)) {
     invalidateQrStaticCache(tenant);
   }
+  bumpCollectionVersion(tenant, table);
   return _serverBroadcast(tenant, 'db_changed', { table });
 }
 
@@ -391,7 +417,7 @@ export async function seedTenantIfNew(tenant) {
 // The live payload only needs enough order history for the dashboard's
 // recent view (today + yesterday); Reports fetch wider ranges on demand (GET /api/data/orders).
 export const ORDERS_WINDOW_DAYS = 2;
-export const ORDERS_WINDOW_LIMIT = 200;
+export const ORDERS_WINDOW_LIMIT = 100;
 
 export function ordersWindowStart() {
   const d = new Date(Date.now() - ORDERS_WINDOW_DAYS * 24 * 60 * 60 * 1000);

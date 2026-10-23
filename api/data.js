@@ -23,6 +23,7 @@ import {
   ordersWindowStart,
   ORDERS_WINDOW_LIMIT,
   allocateNextBillCounter,
+  getCollectionVersion,
 } from './_lib/core.js';
 import { sanitizeInsertPayload, sanitizeUpdatePayload } from '../shared/mappers.js';
 import { FLEX_COLLECTIONS, ROW_TABLES, SEEDS } from '../shared/seeds.js';
@@ -107,6 +108,17 @@ app.get('/api/data/collection/:name', wrap(async (req, res) => {
   const db = requireDb();
   const tenant = resolveTenant(req);
   const { name } = req.params;
+
+  // ETag-based 304 Not Modified: if the client's version matches current server revision,
+  // return 304 immediately with 0 bytes and NO Supabase queries!
+  const currentVer = getCollectionVersion(tenant, name);
+  const expectedEtag = `W/"${name}-${currentVer}"`;
+  const clientEtag = req.headers['if-none-match'];
+
+  res.setHeader('ETag', expectedEtag);
+  if (clientEtag && clientEtag === expectedEtag) {
+    return res.status(304).end();
+  }
 
   if (ROW_TABLES.includes(name)) {
     if (name === 'users') {

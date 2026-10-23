@@ -420,6 +420,9 @@ export async function syncTenantDataFromSupabase(tenantName, force = false) {
   }
 }
 
+// In-memory ETag tracker per collection to avoid re-fetching unchanged data
+const _collectionEtags = {};
+
 // ─── Targeted single-collection sync ────────────────────────
 // Refetch only the collection named in a db_changed broadcast, instead of
 // pulling the whole tenant payload. Returns false when it can't (demo,
@@ -427,7 +430,21 @@ export async function syncTenantDataFromSupabase(tenantName, force = false) {
 export async function syncOneCollection(name) {
   if (!isLive() || _guestMode || !name) return false;
   try {
-    const res = await api.get(`/api/data/collection/${encodeURIComponent(name)}`, { tenant: _currentTenant });
+    const headers = {};
+    if (_collectionEtags[name]) {
+      headers['If-None-Match'] = _collectionEtags[name];
+    }
+    const res = await api.get(`/api/data/collection/${encodeURIComponent(name)}`, {
+      tenant: _currentTenant,
+      headers,
+    });
+    if (res?.notModified) {
+      // 304 Not Modified: Cache is already up to date with 0 bytes transferred
+      return true;
+    }
+    if (res?._etag) {
+      _collectionEtags[name] = res._etag;
+    }
     if (ROW_TABLES.includes(name)) {
       if (name === 'users') {
         _cache['users'] = (res.rows || []).map(mapUserRow);

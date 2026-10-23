@@ -141,10 +141,8 @@ CREATE POLICY "inventory_public_access" ON inventory FOR ALL USING (true) WITH C
 CREATE POLICY "orders_public_access" ON orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "tenant_data_public_access" ON tenant_data FOR ALL USING (true) WITH CHECK (true);
 
--- Enable Realtime Replication for tables that require real-time updates
--- (e.g. KDS ticket alerts, POS table/order updates, QR Menu orders)
-ALTER PUBLICATION supabase_realtime ADD TABLE orders;
-ALTER PUBLICATION supabase_realtime ADD TABLE menu;
-ALTER PUBLICATION supabase_realtime ADD TABLE inventory;
-ALTER PUBLICATION supabase_realtime ADD TABLE settings;
-ALTER PUBLICATION supabase_realtime ADD TABLE tenant_data;
+-- Realtime updates across devices use Phoenix Broadcast channels (via the API
+-- and Supabase Realtime broadcast), which do NOT require Postgres WAL replication.
+-- Do NOT add tables to `supabase_realtime` publication, as streaming WAL records
+-- for large JSON columns (like tenant_data) causes massive unnecessary egress.
+

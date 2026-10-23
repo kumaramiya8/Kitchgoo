@@ -590,9 +590,9 @@ export function AppProvider({ children }) {
       const connected = realtimeConnectedRef.current;
       const since = Date.now() - lastReconcileAt.current;
       // When realtime socket is healthy, broadcasts handle instant order delivery.
-      // Poll only as a slow safety net (every 90s); if socket drops, poll every 15s.
-      if (connected && since < 90000) return;
-      if (!connected && since < 15000) return;
+      // Poll only as a slow safety net (every 3 min); if socket drops, poll every 20s.
+      if (connected && since < 180000) return;
+      if (!connected && since < 20000) return;
       lastReconcileAt.current = Date.now();
       const before = LIVE.map(n => stableStringify(getAll(n)));
       for (const n of LIVE) { await syncOneCollection(n); }

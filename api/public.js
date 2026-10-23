@@ -70,7 +70,7 @@ async function getFlex(db, tenant, name, fallback) {
 
 // In-memory cache for aggregated item sales counts to prevent pulling large order batches on every QR menu load
 const itemSalesCache = new Map(); // tenant -> { timestamp: number, map: Record<string, number> }
-const ITEM_SALES_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const ITEM_SALES_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (pre-aggregated & incrementally updated)
 
 export function invalidateItemSalesCache(tenant) {
   if (tenant) {
@@ -96,18 +96,28 @@ export function recordItemSales(tenant, items) {
 
 export { invalidateQrStaticCache } from './_lib/core.js';
 
+// Customer-facing menu columns — avoids shipping heavy backend recipe ingredients or cost_price
+const PUBLIC_MENU_COLUMNS = 'id, account_id, name, price, category, subcategory, type, active, description, preparation_time, station, modifier_groups, calories, allergens, dietary_labels, sold_86, image, price_tiers';
+
 async function getItemSalesMap(db, tenant) {
   const cached = itemSalesCache.get(tenant) || itemSalesCache.get(String(tenant).toLowerCase());
   if (cached && (Date.now() - cached.timestamp < ITEM_SALES_CACHE_TTL)) {
     return cached.map;
   }
   try {
-    // Only pull recent 100 orders instead of 1000 orders — ample for trending dishes and popular items
+    // 1. Check if pre-aggregated item_sales summary is available in tenant_data
+    const savedSummary = await getFlex(db, tenant, 'item_sales', null);
+    if (savedSummary && typeof savedSummary === 'object') {
+      itemSalesCache.set(tenant, { timestamp: Date.now(), map: savedSummary });
+      return savedSummary;
+    }
+
+    // 2. Fallback: lightweight query of last 50 orders (only id/qty/name) once per 24 hours
     const { data: ordersData } = await db.from('orders')
       .select('items')
       .eq('account_id', tenant)
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(50);
     const map = {};
     (ordersData || []).forEach(o => {
       const items = Array.isArray(o?.items) ? o.items : [];
@@ -154,7 +164,7 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
     ]);
   } else {
     [{ data: menuRows }, { data: settingsRows }, floorPlans, posTables, savedOrders, modifiers, itemSalesMap] = await Promise.all([
-      db.from('menu').select('*').eq('account_id', canonicalTenant),
+      db.from('menu').select(PUBLIC_MENU_COLUMNS).eq('account_id', canonicalTenant),
       db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', GUEST_SETTINGS_SECTIONS),
       getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
       getFlex(db, canonicalTenant, 'pos_tables', []),
@@ -285,6 +295,10 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
       }
     }
   }
+
+  // Cache at Vercel CDN edge for 60s, stale-while-revalidate for 5 minutes.
+  // Drastically cuts repeat guest menu queries to Supabase.
+  res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
   res.json({
     success: true,

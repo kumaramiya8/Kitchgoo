@@ -4,7 +4,7 @@ import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
 import TableLayoutDesigner from '../components/settings/TableLayoutDesigner';
 import { getAll, update as dbUpdate, remove as dbRemove, getCurrentTenant, getSettings } from '../db/database';
-import { uploadImage } from '../lib/api';
+import { uploadImage, compressImage } from '../lib/api';
 import { isModuleEnabled } from '../../shared/seeds';
 import {
   Store, CreditCard, Truck, Bell, Printer, Palette, Shield,
@@ -93,17 +93,16 @@ const SaveBanner = ({ saved }) => saved ? (
 // ═══ SECTION COMPONENTS ═══════════════════════════════════
 
 const RestaurantSection = ({ data, onChange, isMobile }) => {
-  const handleLogoChange = (e) => {
+  const handleLogoChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        // Preview immediately, then upload and store the URL (not base64)
-        onChange('logo', reader.result);
-        const url = await uploadImage(reader.result, 'logo', getCurrentTenant());
-        if (url) onChange('logo', url);
-      };
-      reader.readAsDataURL(file);
+      const compressed = await compressImage(file, 400, 0.8);
+      const dataUrl = compressed || await new Promise(r => {
+        const fr = new FileReader(); fr.onloadend = () => r(fr.result); fr.readAsDataURL(file);
+      });
+      onChange('logo', dataUrl);
+      const url = await uploadImage(dataUrl, 'logo', getCurrentTenant());
+      if (url) onChange('logo', url);
     }
   };
 
@@ -1721,16 +1720,16 @@ const ReceiptBuilderSection = ({ data, onChange, isMobile }) => {
     onChange('tipSuggestions', next);
   };
 
-  const handleReceiptLogoChange = (e) => {
+  const handleReceiptLogoChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        onChange('logo', reader.result);
-        const url = await uploadImage(reader.result, 'receipt_logo', getCurrentTenant());
-        if (url) onChange('logo', url);
-      };
-      reader.readAsDataURL(file);
+      const compressed = await compressImage(file, 400, 0.8);
+      const dataUrl = compressed || await new Promise(r => {
+        const fr = new FileReader(); fr.onloadend = () => r(fr.result); fr.readAsDataURL(file);
+      });
+      onChange('logo', dataUrl);
+      const url = await uploadImage(dataUrl, 'receipt_logo', getCurrentTenant());
+      if (url) onChange('logo', url);
     }
   };
 
