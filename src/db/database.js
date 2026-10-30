@@ -674,6 +674,10 @@ export function applyBootstrapPayload(payload) {
 // ─── On-demand historical orders ─────────────────────────────
 // The default payload only carries the recent window. When a report asks
 // for an older period, pull the missing range once and widen the window.
+let _ordersInFlight = null;
+let _ordersInFlightFrom = null;
+let _ordersInFlightTenant = null;
+
 export async function ensureOrdersSince(fromDayStr) {
   if (!isLive() || _guestMode || !fromDayStr) return false;
   // fromDayStr is a LOCAL calendar day — convert local midnight to UTC
@@ -684,20 +688,43 @@ export async function ensureOrdersSince(fromDayStr) {
   const currentFrom = _ordersLoadedFrom[tenantKey];
   if (currentFrom && fromIso >= currentFrom) return false; // already covered
 
-  try {
-    const to = currentFrom || undefined;
-    const q = to ? `?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(to)}` : `?from=${encodeURIComponent(fromIso)}`;
-    const { orders } = await api.get(`/api/data/orders${q}`, { tenant: _currentTenant });
-    const older = (orders || []).map(hydrateOrderRow);
-    const existing = _cache['orders'] || [];
-    const ids = new Set(existing.map(o => o.id));
-    _cache['orders'] = sortByCreatedAt([...existing, ...older.filter(o => !ids.has(o.id))]);
-    _ordersLoadedFrom[tenantKey] = fromIso;
-    return true;
-  } catch (err) {
-    console.error('[DB] ensureOrdersSince error:', err);
-    return false;
+  // Deduplicate concurrent in-flight requests covering this range for the same tenant
+  if (_ordersInFlight && _ordersInFlightTenant === tenantKey && _ordersInFlightFrom && _ordersInFlightFrom <= fromIso) {
+    return _ordersInFlight;
   }
+
+  _ordersInFlightFrom = fromIso;
+  _ordersInFlightTenant = tenantKey;
+  _ordersInFlight = (async () => {
+    try {
+      const to = currentFrom || undefined;
+      const q = to ? `?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(to)}` : `?from=${encodeURIComponent(fromIso)}`;
+      const res = await api.get(`/api/data/orders${q}`, { tenant: _currentTenant });
+      const orders = res?.orders || [];
+      const older = orders.map(hydrateOrderRow);
+      const existing = _cache['orders'] || [];
+      const ids = new Set(existing.map(o => o.id));
+      _cache['orders'] = sortByCreatedAt([...existing, ...older.filter(o => !ids.has(o.id))]);
+
+      // Bookmark boundary accurately: if fully loaded, mark down to fromIso; otherwise mark to oldest fetched order
+      const oldestLoaded = res?.oldestDate || (older.length > 0 ? older[older.length - 1].createdAt : fromIso);
+      const coveredBoundary = res?.fullyLoaded
+        ? fromIso
+        : (oldestLoaded && oldestLoaded < fromIso ? fromIso : (oldestLoaded || fromIso));
+
+      _ordersLoadedFrom[tenantKey] = currentFrom && currentFrom < coveredBoundary ? currentFrom : coveredBoundary;
+      return true;
+    } catch (err) {
+      console.error('[DB] ensureOrdersSince error:', err);
+      return false;
+    } finally {
+      _ordersInFlight = null;
+      _ordersInFlightFrom = null;
+      _ordersInFlightTenant = null;
+    }
+  })();
+
+  return _ordersInFlight;
 }
 
 let _kdsLoadedFrom = {};

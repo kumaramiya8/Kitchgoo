@@ -65,7 +65,7 @@ const formatHour = (h) => {
   return `${h12}${ampm}`;
 };
 
-const RANGES = ['Today', 'Yesterday', 'This Week', 'This Month', 'This Quarter', 'Custom'];
+const RANGES = ['Today', 'Yesterday', 'This Week', 'This Month', 'This Quarter', 'This Year', 'All Time', 'Custom'];
 
 function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
   // All boundaries are LOCAL calendar days — timestamps are stored in UTC,
@@ -100,6 +100,25 @@ function filterByRange(list, range, dateFrom, dateTo, key = 'createdAt') {
         const qm = Math.floor(now.getMonth() / 3) * 3;
         const q = new Date(now.getFullYear(), qm, 1, 0, 0, 0, 0);
         return d >= q;
+      }
+      case 'This Year': {
+        const y = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        return d >= y;
+      }
+      case 'Last 30 Days': {
+        const d30 = new Date(now);
+        d30.setDate(d30.getDate() - 30);
+        d30.setHours(0, 0, 0, 0);
+        return d >= d30;
+      }
+      case 'Last 7 Days': {
+        const d7 = new Date(now);
+        d7.setDate(d7.getDate() - 7);
+        d7.setHours(0, 0, 0, 0);
+        return d >= d7;
+      }
+      case 'All Time': {
+        return true;
       }
       case 'Custom': {
         // Date-input values are local days; span them fully, local midnight to midnight
@@ -6001,6 +6020,8 @@ const GiftCardWalletReport = ({ giftCards = [], guests = [], orders = [] }) => {
   const [typeFilter, setTypeFilter] = useState('All'); // 'All' | 'issue' | 'redeem'
   const [searchQuery, setSearchQuery] = useState('');
   const [invoiceHistoryOrder, setInvoiceHistoryOrder] = useState(null);
+
+  useHistoricalOrders(range, dateFrom);
 
   const { sortField, sortDirection, handleSort } = useSort('createdAt', 'desc');
 

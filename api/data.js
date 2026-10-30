@@ -188,6 +188,8 @@ app.get('/api/data/sync', wrap(async (req, res) => {
 
 // Historical orders by range — the default payload only carries the recent
 // window, so Reports fetch older periods here on demand.
+// Loops over PostgREST's 1,000-row page limit to ensure all orders in the range
+// are retrieved, while stripping heavy image/definition fields to keep egress minimal.
 app.get('/api/data/orders', wrap(async (req, res) => {
   const db = requireDb();
   const tenant = resolveTenant(req);
@@ -196,17 +198,40 @@ app.get('/api/data/orders', wrap(async (req, res) => {
     return res.status(400).json({ success: false, error: 'from date required (YYYY-MM-DD or ISO)' });
   }
 
-  let q = db.from('orders').select('*').eq('account_id', tenant)
-    .gte('created_at', String(from))
-    .order('created_at', { ascending: false })
-    .limit(5000);
-  if (to && /^\d{4}-\d{2}-\d{2}/.test(String(to))) {
-    q = q.lt('created_at', String(to));
-  }
-  const { data, error } = await q;
-  if (error) throw error;
+  const PAGE_SIZE = 1000;
+  const MAX_ROWS = 10000;
+  let allOrders = [];
+  let offset = 0;
 
-  res.json({ success: true, orders: data || [] });
+  while (offset < MAX_ROWS) {
+    let q = db.from('orders').select('*').eq('account_id', tenant)
+      .gte('created_at', String(from))
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (to && /^\d{4}-\d{2}-\d{2}/.test(String(to))) {
+      q = q.lt('created_at', String(to));
+    }
+
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allOrders.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  // Strip heavy fields from item snapshots to keep egress minimal
+  const cleanOrders = allOrders.map(o => (o && Array.isArray(o.items) ? { ...o, items: stripItems(o.items) } : o));
+
+  res.json({
+    success: true,
+    orders: cleanOrders,
+    count: cleanOrders.length,
+    fullyLoaded: offset < MAX_ROWS,
+    oldestDate: cleanOrders.length > 0 ? cleanOrders[cleanOrders.length - 1].created_at : String(from)
+  });
 }));
 
 // Historical KDS tickets by range — queries archived completed tickets
