@@ -356,16 +356,27 @@ function applyTenantPayload(payload) {
     let orders = payload.orders.map(hydrateOrderRow);
     const tenantKey = _currentTenant || 'default';
     if (payload.ordersFrom) {
+      let effectiveFrom = payload.ordersFrom;
+      // Defensive check: if the server returned a large batch,
+      // ensure effectiveFrom is not older than the oldest order actually returned
+      if (orders.length >= 100) {
+        const sortedDesc = [...orders].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        const oldestInBatch = sortedDesc[sortedDesc.length - 1]?.createdAt;
+        if (oldestInBatch && oldestInBatch > effectiveFrom) {
+          effectiveFrom = oldestInBatch;
+        }
+      }
+
       // Bounded window from the server: keep any older rows already fetched
       const existing = (_cache['orders'] || []).filter(o =>
-        o.createdAt && o.createdAt < payload.ordersFrom
+        o.createdAt && o.createdAt < effectiveFrom
       );
       const ids = new Set(orders.map(o => o.id));
       orders = [...orders, ...existing.filter(o => !ids.has(o.id))];
       const currentFrom = _ordersLoadedFrom[tenantKey];
-      _ordersLoadedFrom[tenantKey] = currentFrom && currentFrom < payload.ordersFrom
+      _ordersLoadedFrom[tenantKey] = currentFrom && currentFrom < effectiveFrom
         ? currentFrom
-        : payload.ordersFrom;
+        : effectiveFrom;
     }
     _cache['orders'] = sortByCreatedAt(orders);
   }
@@ -467,6 +478,13 @@ export async function syncOneCollection(name) {
         const older = (_cache['orders'] || []).filter(o => o.createdAt && from && o.createdAt < from);
         const ids = new Set(windowRows.map(o => o.id));
         _cache['orders'] = sortByCreatedAt([...windowRows, ...older.filter(o => !ids.has(o.id))]);
+
+        // Keep _ordersLoadedFrom updated
+        if (from) {
+          const tenantKey = _currentTenant || 'default';
+          const currentFrom = _ordersLoadedFrom[tenantKey];
+          _ordersLoadedFrom[tenantKey] = currentFrom && currentFrom < from ? currentFrom : from;
+        }
 
         // Dynamically re-scan max counter after orders sync
         const nextMax = getNextBillCounter(_currentTenant);
@@ -680,8 +698,8 @@ let _ordersInFlightTenant = null;
 
 export async function ensureOrdersSince(fromDayStr) {
   if (!isLive() || _guestMode || !fromDayStr) return false;
-  // fromDayStr is a LOCAL calendar day — convert local midnight to UTC
-  const fromDate = new Date(`${fromDayStr}T00:00:00`);
+  // fromDayStr can be YYYY-MM-DD (local calendar day) or an ISO timestamp
+  const fromDate = fromDayStr.includes('T') ? new Date(fromDayStr) : new Date(`${fromDayStr}T00:00:00`);
   if (isNaN(fromDate.getTime())) return false;
   const fromIso = fromDate.toISOString();
   const tenantKey = _currentTenant || 'default';

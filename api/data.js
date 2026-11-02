@@ -128,12 +128,15 @@ app.get('/api/data/collection/:name', wrap(async (req, res) => {
       return res.json({ success: true, name, rows: data || [] });
     }
     if (name === 'orders') {
-      const ordersFrom = ordersWindowStart();
+      const windowStart = ordersWindowStart();
       const { data } = await db.from('orders').select('*').eq('account_id', tenant)
-        .gte('created_at', ordersFrom)
+        .gte('created_at', windowStart)
         .order('created_at', { ascending: false })
         .limit(ORDERS_WINDOW_LIMIT);
       const rows = (data || []).map(o => (o && Array.isArray(o.items) ? { ...o, items: stripItems(o.items) } : o));
+      const hitLimit = rows.length >= ORDERS_WINDOW_LIMIT;
+      const oldestLoaded = rows.length > 0 ? rows[rows.length - 1].created_at : windowStart;
+      const ordersFrom = hitLimit ? oldestLoaded : windowStart;
       return res.json({ success: true, name, rows, ordersFrom });
     }
     const { data } = await db.from(name).select('*').eq('account_id', tenant);
@@ -210,7 +213,7 @@ app.get('/api/data/orders', wrap(async (req, res) => {
       .range(offset, offset + PAGE_SIZE - 1);
 
     if (to && /^\d{4}-\d{2}-\d{2}/.test(String(to))) {
-      q = q.lt('created_at', String(to));
+      q = q.lte('created_at', String(to));
     }
 
     const { data, error } = await q;

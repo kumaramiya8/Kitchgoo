@@ -419,7 +419,7 @@ export async function seedTenantIfNew(tenant) {
 // The live payload only needs enough order history for the dashboard's
 // recent view (today + yesterday); Reports fetch wider ranges on demand (GET /api/data/orders).
 export const ORDERS_WINDOW_DAYS = 2;
-export const ORDERS_WINDOW_LIMIT = 100;
+export const ORDERS_WINDOW_LIMIT = 200;
 
 export function ordersWindowStart() {
   const d = new Date(Date.now() - ORDERS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
@@ -431,12 +431,12 @@ export function ordersWindowStart() {
  */
 export async function loadTenantPayload(tenant) {
   const db = getAdminClient();
-  const ordersFrom = ordersWindowStart();
+  const windowStart = ordersWindowStart();
   const [menuRes, inventoryRes, ordersRes, settingsRes, flexRes, usersRes] = await Promise.all([
     db.from('menu').select('*').eq('account_id', tenant),
     db.from('inventory').select('*').eq('account_id', tenant),
     db.from('orders').select('*').eq('account_id', tenant)
-      .gte('created_at', ordersFrom)
+      .gte('created_at', windowStart)
       .order('created_at', { ascending: false })
       .limit(ORDERS_WINDOW_LIMIT),
     db.from('settings').select('*').eq('account_id', tenant),
@@ -506,11 +506,18 @@ export async function loadTenantPayload(tenant) {
     counter: Math.max(existingCounter, serverMaxCounter)
   };
 
+  const rawOrders = ordersRes.data || [];
+  // If the query hit the limit, orders were truncated at the oldest returned order.
+  // The actual loaded boundary is that oldest order's created_at, NOT windowStart.
+  const hitLimit = rawOrders.length >= ORDERS_WINDOW_LIMIT;
+  const oldestLoadedCreatedAt = rawOrders.length > 0 ? rawOrders[rawOrders.length - 1].created_at : windowStart;
+  const ordersFrom = hitLimit ? oldestLoadedCreatedAt : windowStart;
+
   return {
     menu: menuRes.data || [],
     inventory: inventoryRes.data || [],
     // Order snapshots also carried the ordered items' images — strip them
-    orders: (ordersRes.data || []).map(o => (o && Array.isArray(o.items) ? { ...o, items: stripItems(o.items) } : o)),
+    orders: rawOrders.map(o => (o && Array.isArray(o.items) ? { ...o, items: stripItems(o.items) } : o)),
     ordersFrom, // clients fetch older ranges on demand
     settings: settingsObj,
     users: usersRes.data || [],

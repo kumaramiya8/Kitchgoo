@@ -142,6 +142,8 @@ function useHistoricalOrders(range, dateFrom) {
     const now = new Date();
     if (dateFrom) {
       from = dateFrom;
+    } else if (range === 'Today') {
+      from = localDayStr(now);
     } else if (range === 'Yesterday') {
       const y = new Date(now);
       y.setDate(y.getDate() - 1);
@@ -594,7 +596,7 @@ const DashboardTab = ({ orders, inventory, staff, floorPlans, posTables }) => {
   const [range, setRange]       = useState('Today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
-  useHistoricalOrders(range, dateFrom);
+  useHistoricalOrders(range === 'Today' ? 'Yesterday' : range, dateFrom);
 
   const filtered = useMemo(() => filterByRange(orders, range, dateFrom, dateTo), [orders, range, dateFrom, dateTo]);
 
