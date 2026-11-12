@@ -130,10 +130,9 @@
 }
 
 /* ========== BASE ========== */
-html {
-  -webkit-tap-highlight-color: transparent;
-  -webkit-text-size-adjust: 100%;
-  overscroll-behavior: none;
+html, body {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -143,60 +142,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
   background-color: var(--canvas);
-  overscroll-behavior: none;
-}
-
-html, body {
-  height: 100%;
-  overflow: hidden;
 }
 
 #root {
   height: 100%;
-  min-height: 100dvh;
-}
-
-/* Touch manipulation & selection prevention on interactive controls */
-button,
-a,
-[role="button"],
-.tab,
-.chip,
-.btn,
-.bottom-nav-item,
-.nav-item,
-.header-icon-btn,
-.header-back-btn,
-.header-menu-btn {
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-
-/* Prevent iOS Safari 16px input zoom on touch devices */
-input,
-textarea,
-select {
-  font-size: 16px;
-}
-
-@media (pointer: coarse) {
-  input,
-  textarea,
-  select,
-  .input-field,
-  .header-search {
-    font-size: 16px !important;
-  }
-}
-
-/* Scroll containment for internal scrollable areas */
-.page-body,
-.modal-body,
-.sidebar,
-.table-wrapper {
-  overscroll-behavior: contain;
 }
 
 /* Visible keyboard focus, everywhere */
@@ -324,11 +273,9 @@ select {
   transition: opacity var(--t-fast);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .nav-item:hover {
-    background: var(--primary-light);
-    color: var(--text-primary);
-  }
+.nav-item:hover {
+  background: var(--primary-light);
+  color: var(--text-primary);
 }
 
 .nav-item.active {
@@ -407,11 +354,9 @@ select {
   transition: all var(--t-fast);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .header-back-btn:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
+.header-back-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .header-search-wrapper {
@@ -474,11 +419,9 @@ select {
   transition: all var(--t-fast);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .header-icon-btn:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
+.header-icon-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .header-badge {
@@ -504,10 +447,8 @@ select {
   transition: all var(--t-fast);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .header-user:hover {
-    border-color: var(--primary);
-  }
+.header-user:hover {
+  border-color: var(--primary);
 }
 
 .header-user-avatar {
@@ -583,11 +524,9 @@ select {
   transition: border-color var(--t-normal), box-shadow var(--t-normal);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .card:hover {
-    border-color: var(--border);
-    box-shadow: var(--shadow-md);
-  }
+.card:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
 }
 
 .glass-card { /* legacy alias */ }
@@ -619,10 +558,8 @@ select {
   background: var(--brass);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .stat-card:hover {
-    box-shadow: var(--shadow-md);
-  }
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .stat-label {
@@ -707,25 +644,19 @@ select {
   white-space: nowrap;
 }
 
-/* Button feel: grow on hover only on pointer devices, press in on tap */
+/* Animate UI button feel: grow on hover, press in on tap */
+.btn:hover:not(:disabled) { transform: scale(1.05); }
+.btn:active:not(:disabled) { transform: scale(0.95); }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.btn:active:not(:disabled) {
-  transform: scale(0.97);
-  transition: transform 100ms ease-out;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .btn:hover:not(:disabled) { transform: scale(1.03); }
-  .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
-  .btn-secondary:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
-  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
-  .btn-success:hover:not(:disabled) { background: #15803d; }
-}
 
 .btn-primary {
   background: var(--primary);
   color: white;
   box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
 }
 
 .btn-secondary {
@@ -735,16 +666,29 @@ select {
   box-shadow: var(--shadow-sm);
 }
 
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 .btn-danger {
   background: #dc2626;
   color: white;
   box-shadow: var(--shadow-sm);
 }
 
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
 .btn-success {
   background: #16a34a;
   color: white;
   box-shadow: var(--shadow-sm);
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #15803d;
 }
 
 .btn-sm {
@@ -841,10 +785,8 @@ tbody tr {
   transition: background var(--t-fast);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  tbody tr:hover {
-    background: var(--primary-light);
-  }
+tbody tr:hover {
+  background: var(--primary-light);
 }
 
 /* ========== BADGES ========== */
@@ -1151,11 +1093,9 @@ tbody tr {
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .kanban-card:hover {
-    border-color: var(--primary);
-    box-shadow: var(--shadow-md);
-  }
+.kanban-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
 }
 
 /* ========== FLOOR PLAN ========== */
@@ -1170,11 +1110,9 @@ tbody tr {
   position: relative;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .floor-table:hover {
-    border-color: var(--primary);
-    box-shadow: var(--shadow-md);
-  }
+.floor-table:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
 }
 
 .floor-table.square { border-radius: var(--r-md); }
@@ -1209,9 +1147,7 @@ tbody tr {
   transition: opacity var(--t-fast);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .schedule-block:hover { opacity: 0.8; }
-}
+.schedule-block:hover { opacity: 0.8; }
 
 /* ========== RECEIPT PREVIEW ========== */
 .receipt-preview {
@@ -1274,8 +1210,6 @@ tbody tr {
     cursor: pointer;
     color: var(--text-primary);
     padding: 6px;
-    min-width: 44px;
-    min-height: 44px;
     border-radius: var(--r-md);
     align-items: center;
     justify-content: center;
@@ -1284,12 +1218,10 @@ tbody tr {
 
   .header-back-btn {
     margin-right: 4px;
-    min-width: 44px;
-    min-height: 44px;
   }
 
   .page-header {
-    padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+    padding: 10px 14px;
   }
 
   .sidebar {
@@ -1305,8 +1237,6 @@ tbody tr {
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: var(--shadow-lg);
     border-radius: 0;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .sidebar.open {
@@ -1320,8 +1250,6 @@ tbody tr {
     cursor: pointer;
     color: var(--text-secondary);
     padding: 4px;
-    min-width: 44px;
-    min-height: 44px;
     align-items: center;
     justify-content: center;
   }
@@ -1429,7 +1357,7 @@ tbody tr {
     z-index: 900;
     background: var(--header-bg);
     border-top: 1px solid var(--border);
-    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   }
 
   .bottom-nav-item {
@@ -1452,12 +1380,7 @@ tbody tr {
     cursor: pointer;
     position: relative;
     border-radius: var(--r-sm);
-    transition: color var(--t-fast), transform 100ms ease-out, opacity 100ms ease-out;
-  }
-
-  .bottom-nav-item:active {
-    transform: scale(0.96);
-    opacity: 0.8;
+    transition: color var(--t-fast);
   }
 
   .bottom-nav-item::before {
@@ -1616,10 +1539,9 @@ tbody tr {
 }
 
 /* ========== ANIMATE: SIDEBAR NAV MOTION ========== */
+/* Nav items ease in on hover; the active rail marker springs to full height. */
 .nav-item { transition: background var(--t-fast), color var(--t-fast), transform var(--t-fast); }
-@media (hover: hover) and (pointer: fine) {
-  .nav-item:hover { transform: translateX(2px); }
-}
+.nav-item:hover { transform: translateX(2px); }
 .nav-item:active { transform: translateX(1px) scale(0.99); }
 .nav-item::before { transition: opacity var(--t-fast), transform var(--t-normal); transform: scaleY(0.4); }
 .nav-item.active::before { transform: scaleY(1); }

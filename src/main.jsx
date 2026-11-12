@@ -29,7 +29,7 @@ if ('serviceWorker' in navigator) {
 // ── Setup screen shown when .env credentials are missing ──────
 const SetupScreen = () => (
   <div style={{
-    minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: '#f1f3ef',
     fontFamily: "'Hanken Grotesk', system-ui, sans-serif", padding: '24px',
   }}>

@@ -36,7 +36,7 @@ const PageLoader = () => (
 // a 1-second boot feel like five.
 const BootSplash = () => (
   <div style={{
-    height: '100dvh', minHeight: '-webkit-fill-available', display: 'flex', flexDirection: 'column',
+    height: '100vh', display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center', gap: 14,
     background: 'var(--canvas, #f1f3ef)',
   }}>
