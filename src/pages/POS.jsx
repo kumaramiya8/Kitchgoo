@@ -8325,185 +8325,6 @@ const POS = () => {
           })}
         </div>
 
-        {/* Floating Tabs / Orders Waiting for Table */}
-        {orderType === 'dine-in' && floatingTabs.length > 0 && (
-          <div style={{
-            marginBottom: 16,
-            padding: '14px 18px',
-            background: 'linear-gradient(135deg, rgba(254, 243, 199, 0.75), rgba(253, 230, 138, 0.45))',
-            border: '1.5px solid rgba(245, 158, 11, 0.4)',
-            borderRadius: '16px',
-            boxShadow: '0 4px 16px rgba(245, 158, 11, 0.08)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  background: '#f59e0b', color: '#fff',
-                  width: 24, height: 24, borderRadius: '50%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 900, fontSize: '0.75rem',
-                }}>
-                  {floatingTabs.length}
-                </span>
-                <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#92400e' }}>
-                  Orders Waiting for Table
-                </span>
-                <span style={{ fontSize: '0.75rem', color: '#b45309' }}>
-                  (Customers who ordered first and are choosing a table)
-                </span>
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                style={{ padding: '3px 8px', fontSize: '0.72rem', background: 'rgba(255,255,255,0.7)', borderColor: 'rgba(245, 158, 11, 0.3)' }}
-                onClick={handleStartNoTableOrder}
-              >
-                + New No-Table Order
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-              {floatingTabs.map(tab => {
-                const tabItems = (tab.items && tab.items.length > 0)
-                  ? tab.items
-                  : (Array.isArray(savedOrders[`tab_${tab.id}`])
-                      ? savedOrders[`tab_${tab.id}`]
-                      : (savedOrders[`tab_${tab.id}`]?.items || []));
-                const itemCount = tabItems.reduce((s, i) => s + (i.qty || 1), 0);
-                const totalAmt = tabItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
-                const elapsedMin = Math.max(0, Math.floor((Date.now() - new Date(tab.createdAt).getTime()) / 60000));
-
-                return (
-                  <div
-                    key={tab.id}
-                    style={{
-                      background: '#fff',
-                      border: tab.isFoodReady
-                        ? '1.5px solid #22c55e'
-                        : '1.5px solid rgba(245, 158, 11, 0.35)',
-                      borderRadius: '14px',
-                      padding: '14px 16px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      boxShadow: tab.isFoodReady
-                        ? '0 4px 14px rgba(34, 197, 94, 0.16)'
-                        : '0 2px 8px rgba(0,0,0,0.03)',
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{
-                              background: '#f59e0b', color: '#fff',
-                              padding: '2px 8px', borderRadius: '6px',
-                              fontWeight: 900, fontSize: '0.8rem',
-                            }}>
-                              Token #{tab.tokenNumber}
-                            </span>
-                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              {elapsedMin}m ago
-                            </span>
-                            {tab.isFoodReady ? (
-                              <span style={{
-                                background: 'rgba(34, 197, 94, 0.15)', color: '#15803d',
-                                padding: '2px 7px', borderRadius: '6px', fontSize: '0.7rem',
-                                fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4,
-                                border: '1px solid rgba(34, 197, 94, 0.3)',
-                              }}>
-                                <Check size={11} strokeWidth={3} /> Food Ready
-                              </span>
-                            ) : tab.hasActiveTicket ? (
-                              <span style={{
-                                background: 'rgba(245, 158, 11, 0.15)', color: '#b45309',
-                                padding: '2px 7px', borderRadius: '6px', fontSize: '0.7rem',
-                                fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4,
-                                border: '1px solid rgba(245, 158, 11, 0.3)',
-                              }}>
-                                <Flame size={11} /> In Kitchen
-                              </span>
-                            ) : null}
-                          </div>
-                          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', marginTop: 4 }}>
-                            {tab.guestName || 'Walk-in Guest'}
-                            {tab.partySize > 1 && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}> · {tab.partySize}p</span>}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
-                            ₹{totalAmt.toLocaleString('en-IN')}
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            {itemCount} item{itemCount === 1 ? '' : 's'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {tabItems.length > 0 && (
-                        <div style={{
-                          fontSize: '0.73rem', color: 'var(--text-secondary)',
-                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                          background: 'rgba(0,0,0,0.03)', padding: '5px 8px', borderRadius: '6px',
-                          marginTop: 8,
-                        }}>
-                          {tabItems.map(i => `${i.qty}x ${i.name}`).join(', ')}
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        style={{
-                          flex: 1.3, padding: '7px 10px', fontSize: '0.78rem', fontWeight: 800,
-                          background: '#16a34a', borderColor: '#15803d', color: '#fff',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                          boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)',
-                        }}
-                        onClick={() => handleSettleFloatingTab(tab)}
-                        title="Take payment & settle bill directly"
-                      >
-                        <CreditCard size={13} /> Settle Bill
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{
-                          flex: 1.1, padding: '7px 8px', fontSize: '0.76rem', fontWeight: 700,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                        }}
-                        onClick={() => setAssignTableModal(tab)}
-                      >
-                        <UtensilsCrossed size={12} /> Assign Table
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ flex: 0.9, padding: '7px 8px', fontSize: '0.75rem', fontWeight: 600 }}
-                        onClick={() => handleOpenFloatingTab(tab)}
-                      >
-                        Open Cart
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '7px 8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.2)' }}
-                        onClick={() => handleDiscardFloatingTab(tab)}
-                        title="Discard tab"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {/* Dine-in: Floor Plan */}
         {orderType === 'dine-in' && (
           <>
@@ -8821,6 +8642,186 @@ const POS = () => {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Floating Tabs / Orders Waiting for Table (rendered below tables layout) */}
+            {floatingTabs.length > 0 && (
+              <div style={{
+                marginTop: 20,
+                marginBottom: 16,
+                padding: '14px 18px',
+                background: 'linear-gradient(135deg, rgba(254, 243, 199, 0.75), rgba(253, 230, 138, 0.45))',
+                border: '1.5px solid rgba(245, 158, 11, 0.4)',
+                borderRadius: '16px',
+                boxShadow: '0 4px 16px rgba(245, 158, 11, 0.08)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      background: '#f59e0b', color: '#fff',
+                      width: 24, height: 24, borderRadius: '50%',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 900, fontSize: '0.75rem',
+                    }}>
+                      {floatingTabs.length}
+                    </span>
+                    <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#92400e' }}>
+                      Orders Waiting for Table
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                      (Customers who ordered first and are choosing a table)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '3px 8px', fontSize: '0.72rem', background: 'rgba(255,255,255,0.7)', borderColor: 'rgba(245, 158, 11, 0.3)' }}
+                    onClick={handleStartNoTableOrder}
+                  >
+                    + New No-Table Order
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                  {floatingTabs.map(tab => {
+                    const tabItems = (tab.items && tab.items.length > 0)
+                      ? tab.items
+                      : (Array.isArray(savedOrders[`tab_${tab.id}`])
+                          ? savedOrders[`tab_${tab.id}`]
+                          : (savedOrders[`tab_${tab.id}`]?.items || []));
+                    const itemCount = tabItems.reduce((s, i) => s + (i.qty || 1), 0);
+                    const totalAmt = tabItems.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
+                    const elapsedMin = Math.max(0, Math.floor((Date.now() - new Date(tab.createdAt).getTime()) / 60000));
+
+                    return (
+                      <div
+                        key={tab.id}
+                        style={{
+                          background: '#fff',
+                          border: tab.isFoodReady
+                            ? '1.5px solid #22c55e'
+                            : '1.5px solid rgba(245, 158, 11, 0.35)',
+                          borderRadius: '14px',
+                          padding: '14px 16px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          boxShadow: tab.isFoodReady
+                            ? '0 4px 14px rgba(34, 197, 94, 0.16)'
+                            : '0 2px 8px rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{
+                                  background: '#f59e0b', color: '#fff',
+                                  padding: '2px 8px', borderRadius: '6px',
+                                  fontWeight: 900, fontSize: '0.8rem',
+                                }}>
+                                  Token #{tab.tokenNumber}
+                                </span>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                  {elapsedMin}m ago
+                                </span>
+                                {tab.isFoodReady ? (
+                                  <span style={{
+                                    background: 'rgba(34, 197, 94, 0.15)', color: '#15803d',
+                                    padding: '2px 7px', borderRadius: '6px', fontSize: '0.7rem',
+                                    fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                                  }}>
+                                    <Check size={11} strokeWidth={3} /> Food Ready
+                                  </span>
+                                ) : tab.hasActiveTicket ? (
+                                  <span style={{
+                                    background: 'rgba(245, 158, 11, 0.15)', color: '#b45309',
+                                    padding: '2px 7px', borderRadius: '6px', fontSize: '0.7rem',
+                                    fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                                  }}>
+                                    <Flame size={11} /> In Kitchen
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', marginTop: 4 }}>
+                                {tab.guestName || 'Walk-in Guest'}
+                                {tab.partySize > 1 && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}> · {tab.partySize}p</span>}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
+                                ₹{totalAmt.toLocaleString('en-IN')}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                {itemCount} item{itemCount === 1 ? '' : 's'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {tabItems.length > 0 && (
+                            <div style={{
+                              fontSize: '0.73rem', color: 'var(--text-secondary)',
+                              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                              background: 'rgba(0,0,0,0.03)', padding: '5px 8px', borderRadius: '6px',
+                              marginTop: 8,
+                            }}>
+                              {tabItems.map(i => `${i.qty}x ${i.name}`).join(', ')}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            style={{
+                              flex: 1.3, padding: '7px 10px', fontSize: '0.78rem', fontWeight: 800,
+                              background: '#16a34a', borderColor: '#15803d', color: '#fff',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                              boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)',
+                            }}
+                            onClick={() => handleSettleFloatingTab(tab)}
+                            title="Take payment & settle bill directly"
+                          >
+                            <CreditCard size={13} /> Settle Bill
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{
+                              flex: 1.1, padding: '7px 8px', fontSize: '0.76rem', fontWeight: 700,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                            }}
+                            onClick={() => setAssignTableModal(tab)}
+                          >
+                            <UtensilsCrossed size={12} /> Assign Table
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ flex: 0.9, padding: '7px 8px', fontSize: '0.75rem', fontWeight: 600 }}
+                            onClick={() => handleOpenFloatingTab(tab)}
+                          >
+                            Open Cart
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ padding: '7px 8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.2)' }}
+                            onClick={() => handleDiscardFloatingTab(tab)}
+                            title="Discard tab"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </>
