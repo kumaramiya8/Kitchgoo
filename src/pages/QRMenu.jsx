@@ -963,7 +963,7 @@ const QRMenu = () => {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: '100dvh',
       background: '#f1f5f9',
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif",
       color: '#0f172a',
@@ -973,11 +973,11 @@ const QRMenu = () => {
       <div style={{
         maxWidth: 500,
         margin: '0 auto',
-        minHeight: '100vh',
+        minHeight: '100dvh',
         background: '#ffffff',
         boxShadow: '0 0 50px rgba(0,0,0,0.06)',
         position: 'relative',
-        paddingBottom: cartItemsCount > 0 ? 110 : 50,
+        paddingBottom: cartItemsCount > 0 ? 'calc(110px + env(safe-area-inset-bottom, 0px))' : 'calc(50px + env(safe-area-inset-bottom, 0px))',
       }}>
 
         {/* ── Toast Alert Banner ─────────────────────────────────── */}

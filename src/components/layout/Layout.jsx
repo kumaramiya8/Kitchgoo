@@ -139,10 +139,9 @@ const Layout = ({ children, title }) => {
           onClick={() => setSidebarOpen(false)} 
           style={{
             position: 'fixed',
-            top: 0,
-            left: 0,
+            inset: 0,
             width: '100vw',
-            height: '100vh',
+            height: '100dvh',
             background: 'rgba(0, 0, 0, 0.4)',
             backdropFilter: 'blur(4px)',
             zIndex: 998,
@@ -163,7 +162,7 @@ const Layout = ({ children, title }) => {
         <div
           onClick={dismissToast}
           style={{
-            position: 'fixed', bottom: 80, right: 18, zIndex: 99999,
+            position: 'fixed', bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))', right: 18, zIndex: 99999,
             background: '#1e5e4a', color: '#fff',
             borderRadius: 14, padding: '13px 16px 13px 14px',
             display: 'flex', alignItems: 'center', gap: 11,
