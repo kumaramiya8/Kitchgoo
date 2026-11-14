@@ -315,6 +315,121 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   });
 }));
 
+// GET /api/public/orders & /api/public/orders/:tenant — unauthenticated live table orders and bills for waiters
+app.get(['/api/public/orders', '/api/public/orders/:tenant'], wrap(async (req, res) => {
+  const db = requireDb();
+  const tenantParam = req.params.tenant || req.query.restaurant || req.query.tenant || 'Kiko Cafe';
+
+  const account = await resolveAccount(db, tenantParam);
+  if (!account) {
+    return res.status(404).json({ success: false, error: 'Restaurant not found' });
+  }
+  const canonicalTenant = account.id;
+
+  const [posTables, savedOrders, floorPlans, settingsRows, kdsTickets] = await Promise.all([
+    getFlex(db, canonicalTenant, 'pos_tables', []),
+    getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
+    getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
+    db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', ['restaurant', 'billing', 'operations']),
+    getFlex(db, canonicalTenant, 'kds_tickets', []),
+  ]);
+
+  const settings = {};
+  ['restaurant', 'billing', 'operations'].forEach(s => { settings[s] = SEEDS.settings[s] || {}; });
+  (settingsRows || []).forEach(row => { settings[row.section_name] = row.value; });
+
+  if (!settings.restaurant) {
+    settings.restaurant = { name: account.name || canonicalTenant };
+  } else if (!settings.restaurant.name || (settings.restaurant.name === 'Kitchgoo' && canonicalTenant.toLowerCase() !== 'kitchgoo')) {
+    settings.restaurant = { ...settings.restaurant, name: account.name || canonicalTenant };
+  }
+
+  // Merge floor_plans layout with saved pos_tables
+  const baseTables = ((floorPlans && floorPlans.tables) || []).map(t => ({
+    id: t.id || t.number,
+    number: t.number || t.id,
+    label: t.label || t.name || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
+    name: t.label || t.name || (t.number ? `Table ${t.number}` : `Table ${t.id}`),
+    seats: t.seats || t.capacity || 4,
+    shape: t.shape || 'square',
+    section: t.section || t.sectionId || null,
+    status: 'available',
+    guestName: null,
+    guestId: null,
+    seatedAt: null,
+    serverId: t.serverId || null,
+  }));
+  const saved = posTables || [];
+  const tableMap = new Map();
+  baseTables.forEach(t => tableMap.set(String(t.id), t));
+  saved.forEach(t => {
+    let existingKey = null;
+    for (const [k, b] of tableMap.entries()) {
+      if (String(b.id) === String(t.id) ||
+          (b.number && t.number && String(b.number) === String(t.number)) ||
+          String(t.id) === `tbl_${b.number}` ||
+          String(t.id) === `tbl_${b.id}`) {
+        existingKey = k;
+        break;
+      }
+    }
+    if (existingKey) {
+      const existing = tableMap.get(existingKey);
+      tableMap.set(existingKey, {
+        ...t,
+        ...existing,
+        status: t.status || existing.status || 'available',
+        guestName: t.guestName ?? existing.guestName,
+        guestId: t.guestId ?? existing.guestId,
+        seatedAt: t.seatedAt ?? existing.seatedAt,
+        serverId: t.serverId ?? existing.serverId,
+        id: existing.id,
+        number: existing.number || t.number || existing.id,
+        shape: existing.shape || t.shape || 'square',
+        seats: existing.seats || t.seats || 4,
+        section: existing.section !== undefined ? existing.section : t.section,
+      });
+    } else {
+      const hasGuestOrOrder = Boolean(t.guestName || t.guestId || (t.status && t.status !== 'available'));
+      if (!baseTables.length || hasGuestOrOrder) {
+        tableMap.set(String(t.id), { seats: 4, shape: t.shape || 'square', section: null, status: 'available', ...t });
+      }
+    }
+  });
+  const mergedPosTables = Array.from(tableMap.values());
+
+  // Extract floating tabs / unassigned orders
+  const floatingTabs = [];
+  if (savedOrders && typeof savedOrders === 'object') {
+    Object.entries(savedOrders).forEach(([key, val]) => {
+      if (!key.startsWith('tab_') || !val) return;
+      const tabId = key.replace(/^tab_/, '');
+      if (typeof val === 'object' && !Array.isArray(val) && val.tokenNumber) {
+        floatingTabs.push({ ...val, id: val.id || tabId });
+      } else {
+        const items = Array.isArray(val) ? val : (val.items || []);
+        floatingTabs.push({ id: tabId, tokenNumber: tabId, items, createdAt: new Date().toISOString() });
+      }
+    });
+  }
+
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  res.json({
+    success: true,
+    tenant: canonicalTenant,
+    restaurantName: account.name || canonicalTenant,
+    settings,
+    tables: mergedPosTables,
+    savedOrders: savedOrders || {},
+    floatingTabs,
+    kdsTickets: kdsTickets || [],
+    timestamp: new Date().toISOString(),
+  });
+}));
+
 // Helper to broadcast changes across all aliases of the tenant
 async function broadcastToAll(canonicalTenant, requestedTenant, accountName, table) {
   await broadcastChange(canonicalTenant, table);

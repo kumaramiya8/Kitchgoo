@@ -69,3 +69,56 @@ export function calculateTableBill({
     hasOrder: (items || []).length > 0,
   };
 }
+
+export function getTableKeys(tableOrId) {
+  if (tableOrId == null) return [];
+  const clean = (s) => {
+    let str = String(s ?? '').trim().toLowerCase().replace(/^(table|tbl|t|#|\s|-|_)+/i, '');
+    if (str === '1o') str = '10';
+    const stripped = str.replace(/^0+/, '');
+    return stripped || str;
+  };
+  const table = typeof tableOrId === 'object' ? tableOrId : { id: tableOrId, number: tableOrId };
+  const tId = table.id != null ? String(table.id) : '';
+  const tNum = table.number != null ? String(table.number) : '';
+  const cleanId = clean(tId);
+  const cleanNum = clean(tNum);
+
+  return [
+    table.id,
+    table.number,
+    tId,
+    tNum,
+    `tbl_${tId}`,
+    `tbl_${tNum}`,
+    `table_${tId}`,
+    `table_${tNum}`,
+    cleanId,
+    cleanNum,
+    cleanId ? `tbl_${cleanId}` : null,
+    cleanNum ? `tbl_${cleanNum}` : null,
+    cleanId ? `tbl_0${cleanId}` : null,
+    cleanNum ? `tbl_0${cleanNum}` : null,
+    cleanId ? `0${cleanId}` : null,
+    cleanNum ? `0${cleanNum}` : null,
+    cleanId === '10' ? 'tbl_1o' : null,
+    cleanNum === '10' ? 'tbl_1o' : null,
+    cleanId === '10' ? '1o' : null,
+    cleanNum === '10' ? '1o' : null,
+  ].filter(Boolean);
+}
+
+export function resolveTableSavedOrder(savedOrders, table) {
+  if (!savedOrders || !table) return [];
+  const keys = getTableKeys(table);
+  for (const k of keys) {
+    const val = savedOrders[k];
+    if (val !== undefined && val !== null) {
+      if (Array.isArray(val)) return val;
+      if (Array.isArray(val.items)) return val.items;
+      return val;
+    }
+  }
+  return [];
+}
+

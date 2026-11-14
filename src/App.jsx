@@ -25,6 +25,7 @@ const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
 const QRMenu = lazy(() => import('./pages/QRMenu'));
 const Attendance = lazy(() => import('./pages/Attendance'));
 const Expenses = lazy(() => import('./pages/Expenses'));
+const LiveOrders = lazy(() => import('./pages/LiveOrders'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -106,6 +107,8 @@ function App() {
       {/* Public */}
       <Route path="/login" element={user ? <Navigate to="/" replace /> : (loading ? <BootSplash /> : <Login />)} />
       <Route path="/qrmenu/:tenantId" element={<QRMenu />} />
+      <Route path="/orders" element={<LiveOrders defaultTenant="Kiko Cafe" />} />
+      <Route path="/orders/:tenantId" element={<LiveOrders />} />
 
       {/* Protected — Operations */}
       <Route path="/" element={<Protected allowAdmin={true}><RootElement /></Protected>} />
