@@ -30,6 +30,7 @@ export default function LiveOrders({ defaultTenant = 'Kiko Cafe' }) {
   ).trim();
 
   const [data, setData] = useState(null);
+  const restaurantDisplayName = data?.restaurantName || tenantName;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -352,8 +353,6 @@ export default function LiveOrders({ defaultTenant = 'Kiko Cafe' }) {
       handleCopyReceipt(table);
     }
   };
-
-  const restaurantDisplayName = data?.restaurantName || tenantName;
 
   return (
     <div className="live-orders-app" style={{

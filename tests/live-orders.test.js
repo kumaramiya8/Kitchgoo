@@ -298,5 +298,29 @@ describe('Live Orders & Waiter View Helper Functions', () => {
       expect(kikoManifest.display).toBe('standalone');
     });
   });
+
+  describe('Component Render Smoke Test', () => {
+    it('renders LiveOrders component without throwing ReferenceError', async () => {
+      const React = await import('react');
+      const { renderToString } = await import('react-dom/server');
+      const { MemoryRouter } = await import('react-router-dom');
+      const LiveOrders = (await import('../src/pages/LiveOrders')).default;
+
+      let html = '';
+      expect(() => {
+        html = renderToString(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ['/orders/Kiko%20Cafe'] },
+            React.createElement(LiveOrders, { defaultTenant: 'Kiko Cafe' })
+          )
+        );
+      }).not.toThrow();
+
+      expect(html).toContain('Kiko Cafe');
+      expect(html).toContain('LIVE');
+    });
+  });
 });
+
 
