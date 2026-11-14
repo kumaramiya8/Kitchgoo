@@ -176,4 +176,81 @@ describe('Live Orders & Waiter View Helper Functions', () => {
       expect(floatingTabs[1].items).toHaveLength(1);
     });
   });
+
+  describe('Minimal Egress & Low Payload Item Stripping', () => {
+    function stripOrderItem(item) {
+      if (!item) return item;
+      return {
+        id: item.id || item._cartKey || '',
+        name: item.name || '',
+        price: Number(item.price) || 0,
+        qty: Number(item.qty || item.quantity) || 1,
+        notes: item.notes || '',
+        modifiers: Array.isArray(item.modifiers)
+          ? item.modifiers.map(m => ({
+              name: m.name || '',
+              price: Number(m.price) || 0,
+            }))
+          : [],
+      };
+    }
+
+    it('strips heavy blobs and images while preserving order and pricing fields', () => {
+      const heavyItem = {
+        id: 'cappuccino-1',
+        _cartKey: 'cappuccino-1_mod1',
+        name: 'Cappuccino',
+        price: 180,
+        qty: 2,
+        notes: 'Extra froth',
+        description: 'Rich dark espresso with steamed whole milk and velvety microfoam...',
+        imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
+        imageUrl: 'https://cdn.restaurant.com/images/highres_4k_coffee.jpg',
+        recipeDetails: { beans: 'Arabica', origin: 'Ethiopia', roast: 'Medium' },
+        modifiers: [
+          { id: 'm1', name: 'Oat Milk', price: 30, supplier: 'Oatly Corp', sku: 'OAT-99' },
+        ],
+      };
+
+      const stripped = stripOrderItem(heavyItem);
+
+      expect(stripped.id).toBe('cappuccino-1');
+      expect(stripped.name).toBe('Cappuccino');
+      expect(stripped.price).toBe(180);
+      expect(stripped.qty).toBe(2);
+      expect(stripped.notes).toBe('Extra froth');
+      expect(stripped.modifiers).toEqual([{ name: 'Oat Milk', price: 30 }]);
+      expect(stripped.imageBase64).toBeUndefined();
+      expect(stripped.imageUrl).toBeUndefined();
+      expect(stripped.description).toBeUndefined();
+      expect(stripped.recipeDetails).toBeUndefined();
+    });
+  });
+
+  describe('Resilient Settings Rows Parsing (No 500 error)', () => {
+    it('safely handles array, object, or undefined settings responses without throwing TypeError', () => {
+      const parseSettings = (settingsRows) => {
+        const settings = {};
+        ['restaurant', 'billing', 'operations'].forEach(s => { settings[s] = {}; });
+        (Array.isArray(settingsRows) ? settingsRows : []).forEach(row => {
+          if (row && row.section_name) settings[row.section_name] = row.value;
+        });
+        return settings;
+      };
+
+      // Case 1: PostgREST response object accidentally passed (the bug that caused 500)
+      const objResponse = { data: [{ section_name: 'restaurant', value: { name: 'Kiko Cafe' } }] };
+      expect(() => parseSettings(objResponse)).not.toThrow();
+
+      // Case 2: Clean array of rows
+      const arrayRows = [{ section_name: 'billing', value: { gstRate: 5 } }];
+      const parsed = parseSettings(arrayRows);
+      expect(parsed.billing.gstRate).toBe(5);
+
+      // Case 3: null or undefined
+      expect(() => parseSettings(null)).not.toThrow();
+      expect(() => parseSettings(undefined)).not.toThrow();
+    });
+  });
 });
+

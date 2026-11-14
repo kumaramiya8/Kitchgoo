@@ -11,7 +11,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { getAdminClient, broadcastChange, broadcastServerOrderCreated, resolveAccount, getQrStaticCache, setQrStaticCache } from './_lib/core.js';
+import { getAdminClient, broadcastChange, broadcastServerOrderCreated, resolveAccount, getQrStaticCache, setQrStaticCache, getCollectionVersion } from './_lib/core.js';
 import { SEEDS } from '../shared/seeds.js';
 
 const app = express();
@@ -315,6 +315,27 @@ app.get('/api/public/qrmenu/:tenant', wrap(async (req, res) => {
   });
 }));
 
+// In-memory cache for live orders to minimize Supabase queries and database egress
+const liveOrdersCache = new Map(); // lowercaseTenant -> { timestamp, version, etag, data }
+const LIVE_ORDERS_CACHE_TTL = 3000; // 3 seconds in-memory TTL across all waiter devices
+
+function stripOrderItem(item) {
+  if (!item) return item;
+  return {
+    id: item.id || item._cartKey || '',
+    name: item.name || '',
+    price: Number(item.price) || 0,
+    qty: Number(item.qty || item.quantity) || 1,
+    notes: item.notes || '',
+    modifiers: Array.isArray(item.modifiers)
+      ? item.modifiers.map(m => ({
+          name: m.name || '',
+          price: Number(m.price) || 0,
+        }))
+      : [],
+  };
+}
+
 // GET /api/public/orders & /api/public/orders/:tenant — unauthenticated live table orders and bills for waiters
 app.get(['/api/public/orders', '/api/public/orders/:tenant'], wrap(async (req, res) => {
   const db = requireDb();
@@ -326,17 +347,68 @@ app.get(['/api/public/orders', '/api/public/orders/:tenant'], wrap(async (req, r
   }
   const canonicalTenant = account.id;
 
-  const [posTables, savedOrders, floorPlans, settingsRows, kdsTickets] = await Promise.all([
+  // Track composite version based on in-memory collection versions
+  const savedOrdersVer = getCollectionVersion(canonicalTenant, 'pos_saved_orders');
+  const posTablesVer = getCollectionVersion(canonicalTenant, 'pos_tables');
+  const floorPlansVer = getCollectionVersion(canonicalTenant, 'floor_plans');
+  const compositeVer = `${savedOrdersVer}_${posTablesVer}_${floorPlansVer}`;
+  const expectedEtag = `W/"orders-${canonicalTenant}-${compositeVer}"`;
+  const clientEtag = req.headers['if-none-match'];
+
+  res.setHeader('ETag', expectedEtag);
+
+  // 1. If client ETag matches current version: return 304 IMMEDIATELY!
+  // ZERO Supabase queries, ZERO database egress, ZERO network payload!
+  if (clientEtag && clientEtag === expectedEtag) {
+    res.setHeader('Cache-Control', 'private, no-cache');
+    return res.status(304).end();
+  }
+
+  // 2. Check server-side memory cache (debounces across multiple waiter devices)
+  const cached = liveOrdersCache.get(canonicalTenant.toLowerCase());
+  if (cached && cached.version === compositeVer && (Date.now() - cached.timestamp < LIVE_ORDERS_CACHE_TTL)) {
+    res.setHeader('Cache-Control', 'private, no-cache');
+    return res.json(cached.data);
+  }
+
+  // 3. Static cache for floor plans and settings to avoid querying static tables
+  const staticCached = getQrStaticCache(canonicalTenant);
+  let settingsRows = staticCached ? staticCached.settingsRows : null;
+  let floorPlans = staticCached ? staticCached.floorPlans : null;
+
+  const queries = [
     getFlex(db, canonicalTenant, 'pos_tables', []),
     getFlex(db, canonicalTenant, 'pos_saved_orders', {}),
-    getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans),
-    db.from('settings').select('section_name, value').eq('account_id', canonicalTenant).in('section_name', ['restaurant', 'billing', 'operations']),
-    getFlex(db, canonicalTenant, 'kds_tickets', []),
-  ]);
+  ];
+  if (!floorPlans) {
+    queries.push(getFlex(db, canonicalTenant, 'floor_plans', SEEDS.floor_plans));
+  }
+  if (!settingsRows) {
+    queries.push(
+      db.from('settings')
+        .select('section_name, value')
+        .eq('account_id', canonicalTenant)
+        .in('section_name', ['restaurant', 'billing', 'operations'])
+    );
+  }
+
+  const results = await Promise.all(queries);
+  const posTables = results[0];
+  const savedOrders = results[1];
+  let resIdx = 2;
+  if (!floorPlans) {
+    floorPlans = results[resIdx++] || SEEDS.floor_plans;
+  }
+  if (!settingsRows) {
+    const settingsRes = results[resIdx++];
+    settingsRows = (settingsRes && Array.isArray(settingsRes.data)) ? settingsRes.data : [];
+  }
 
   const settings = {};
   ['restaurant', 'billing', 'operations'].forEach(s => { settings[s] = SEEDS.settings[s] || {}; });
-  (settingsRows || []).forEach(row => { settings[row.section_name] = row.value; });
+  (Array.isArray(settingsRows) ? settingsRows : []).forEach(row => {
+    if (row && row.section_name) settings[row.section_name] = row.value;
+  });
 
   if (!settings.restaurant) {
     settings.restaurant = { name: account.name || canonicalTenant };
@@ -398,6 +470,22 @@ app.get(['/api/public/orders', '/api/public/orders/:tenant'], wrap(async (req, r
   });
   const mergedPosTables = Array.from(tableMap.values());
 
+  // Prune saved orders to strip heavy fields and keep egress minimal
+  const slimSavedOrders = {};
+  if (savedOrders && typeof savedOrders === 'object') {
+    Object.entries(savedOrders).forEach(([key, val]) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        slimSavedOrders[key] = val.map(stripOrderItem);
+      } else if (typeof val === 'object') {
+        slimSavedOrders[key] = {
+          ...val,
+          items: Array.isArray(val.items) ? val.items.map(stripOrderItem) : [],
+        };
+      }
+    });
+  }
+
   // Extract floating tabs / unassigned orders
   const floatingTabs = [];
   if (savedOrders && typeof savedOrders === 'object') {
@@ -405,38 +493,59 @@ app.get(['/api/public/orders', '/api/public/orders/:tenant'], wrap(async (req, r
       if (!key.startsWith('tab_') || !val) return;
       const tabId = key.replace(/^tab_/, '');
       if (typeof val === 'object' && !Array.isArray(val) && val.tokenNumber) {
-        floatingTabs.push({ ...val, id: val.id || tabId });
+        floatingTabs.push({
+          ...val,
+          id: val.id || tabId,
+          items: Array.isArray(val.items) ? val.items.map(stripOrderItem) : [],
+        });
       } else {
-        const items = Array.isArray(val) ? val : (val.items || []);
-        floatingTabs.push({ id: tabId, tokenNumber: tabId, items, createdAt: new Date().toISOString() });
+        const rawItems = Array.isArray(val) ? val : (val.items || []);
+        floatingTabs.push({
+          id: tabId,
+          tokenNumber: tabId,
+          items: rawItems.map(stripOrderItem),
+          createdAt: val.createdAt || new Date().toISOString(),
+          guestName: val.guestName || '',
+          partySize: val.partySize || 1,
+        });
       }
     });
   }
 
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
+  res.setHeader('Cache-Control', 'private, no-cache');
 
-  res.json({
+  const payload = {
     success: true,
     tenant: canonicalTenant,
     restaurantName: account.name || canonicalTenant,
     settings,
     tables: mergedPosTables,
-    savedOrders: savedOrders || {},
+    savedOrders: slimSavedOrders,
     floatingTabs,
-    kdsTickets: kdsTickets || [],
     timestamp: new Date().toISOString(),
+  };
+
+  // Cache in server memory for 3 seconds across all devices
+  liveOrdersCache.set(canonicalTenant.toLowerCase(), {
+    timestamp: Date.now(),
+    version: compositeVer,
+    etag: expectedEtag,
+    data: payload,
   });
+
+  res.json(payload);
 }));
 
 // Helper to broadcast changes across all aliases of the tenant
 async function broadcastToAll(canonicalTenant, requestedTenant, accountName, table) {
+  liveOrdersCache.delete(String(canonicalTenant).toLowerCase());
   await broadcastChange(canonicalTenant, table);
   if (requestedTenant && requestedTenant !== canonicalTenant) {
+    liveOrdersCache.delete(String(requestedTenant).toLowerCase());
     await broadcastChange(requestedTenant, table);
   }
   if (accountName && accountName !== canonicalTenant && accountName !== requestedTenant) {
+    liveOrdersCache.delete(String(accountName).toLowerCase());
     await broadcastChange(accountName, table);
   }
 }
