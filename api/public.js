@@ -536,6 +536,39 @@ app.get(['/api/public/orders', '/api/public/orders/:tenant'], wrap(async (req, r
   res.json(payload);
 }));
 
+// GET /api/public/manifest & /api/public/manifest/:tenant — dynamic PWA manifest for floor waiters
+app.get(['/api/public/manifest', '/api/public/manifest/:tenant'], (req, res) => {
+  const tenant = (req.params.tenant || req.query.restaurant || req.query.tenant || 'Kiko Cafe').trim();
+  const startUrl = `/orders/${encodeURIComponent(tenant)}`;
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.json({
+    name: `${tenant} — Live Orders`,
+    short_name: 'Orders',
+    description: `Live table orders and bills for ${tenant}`,
+    start_url: startUrl,
+    scope: '/orders',
+    display: 'standalone',
+    orientation: 'any',
+    background_color: '#ffffff',
+    theme_color: '#1e5e4a',
+    icons: [
+      {
+        src: '/icon-192.png',
+        sizes: '192x192',
+        type: 'image/png',
+        purpose: 'any maskable',
+      },
+      {
+        src: '/icon-512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any maskable',
+      },
+    ],
+  });
+});
+
 // Helper to broadcast changes across all aliases of the tenant
 async function broadcastToAll(canonicalTenant, requestedTenant, accountName, table) {
   liveOrdersCache.delete(String(canonicalTenant).toLowerCase());

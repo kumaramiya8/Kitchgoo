@@ -124,6 +124,26 @@ export default function LiveOrders({ defaultTenant = 'Kiko Cafe' }) {
     };
   }, []);
 
+  // Set dedicated PWA manifest and title so "Add to Home screen" opens /orders without login
+  useEffect(() => {
+    const origTitle = document.title;
+    document.title = `${restaurantDisplayName} — Live Orders`;
+
+    const manifestEl = document.querySelector('link[rel="manifest"]');
+    const origManifestHref = manifestEl ? manifestEl.getAttribute('href') : null;
+
+    if (manifestEl) {
+      manifestEl.setAttribute('href', `/api/public/manifest/${encodeURIComponent(tenantName)}`);
+    }
+
+    return () => {
+      document.title = origTitle;
+      if (manifestEl && origManifestHref) {
+        manifestEl.setAttribute('href', origManifestHref);
+      }
+    };
+  }, [tenantName, restaurantDisplayName]);
+
   // Initial load
   useEffect(() => {
     fetchOrders(false);

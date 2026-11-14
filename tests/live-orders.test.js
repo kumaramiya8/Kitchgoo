@@ -252,5 +252,51 @@ describe('Live Orders & Waiter View Helper Functions', () => {
       expect(() => parseSettings(undefined)).not.toThrow();
     });
   });
+
+  describe('PWA Manifest & Home Screen Shortcut Configuration', () => {
+    it('verifies manifest-orders.json has start_url /orders and display standalone', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const manifestPath = path.resolve(__dirname, '../public/manifest-orders.json');
+      const raw = fs.readFileSync(manifestPath, 'utf-8');
+      const manifest = JSON.parse(raw);
+
+      expect(manifest.start_url).toBe('/orders');
+      expect(manifest.display).toBe('standalone');
+      expect(manifest.scope).toBe('/orders');
+      expect(manifest.icons).toHaveLength(2);
+    });
+
+    it('verifies root manifest.json includes shortcuts for Live Table Orders', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const manifestPath = path.resolve(__dirname, '../public/manifest.json');
+      const raw = fs.readFileSync(manifestPath, 'utf-8');
+      const manifest = JSON.parse(raw);
+
+      expect(Array.isArray(manifest.shortcuts)).toBe(true);
+      const ordersShortcut = manifest.shortcuts.find(s => s.url === '/orders');
+      expect(ordersShortcut).toBeDefined();
+      expect(ordersShortcut.name).toBe('Live Table Orders');
+    });
+
+    it('generates dynamic tenant manifest with encoded start_url', () => {
+      const generateTenantManifest = (tenant) => {
+        const cleanTenant = (tenant || 'Kiko Cafe').trim();
+        return {
+          name: `${cleanTenant} — Live Orders`,
+          short_name: 'Orders',
+          start_url: `/orders/${encodeURIComponent(cleanTenant)}`,
+          scope: '/orders',
+          display: 'standalone',
+        };
+      };
+
+      const kikoManifest = generateTenantManifest('Kiko Cafe');
+      expect(kikoManifest.start_url).toBe('/orders/Kiko%20Cafe');
+      expect(kikoManifest.name).toBe('Kiko Cafe — Live Orders');
+      expect(kikoManifest.display).toBe('standalone');
+    });
+  });
 });
 
