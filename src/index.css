@@ -135,6 +135,22 @@ html, body {
   overflow: hidden;
 }
 
+/* Standalone routes (LiveOrders, QRMenu) that require native vertical page scroll on mobile */
+html:has(.live-orders-app),
+body:has(.live-orders-app) {
+  height: auto !important;
+  min-height: 100% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+body:has(.live-orders-app) #root {
+  height: auto !important;
+  min-height: 100% !important;
+  overflow: visible !important;
+}
+
 body {
   font-family: var(--font-body);
   color: var(--text-primary);

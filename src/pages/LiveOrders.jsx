@@ -92,6 +92,38 @@ export default function LiveOrders({ defaultTenant = 'Kiko Cafe' }) {
     }
   }, [tenantName, data]);
 
+  // Override global scroll lock styles from index.css for the standalone Live Orders page
+  useEffect(() => {
+    const origBodyOverflow = document.body.style.overflow;
+    const origHtmlOverflow = document.documentElement.style.overflow;
+    const origBodyHeight = document.body.style.height;
+    const origHtmlHeight = document.documentElement.style.height;
+
+    const rootEl = document.getElementById('root');
+    const origRootHeight = rootEl ? rootEl.style.height : '';
+    const origRootOverflow = rootEl ? rootEl.style.overflow : '';
+
+    document.body.style.overflow = 'auto';
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.height = 'auto';
+    document.documentElement.style.height = 'auto';
+    if (rootEl) {
+      rootEl.style.height = 'auto';
+      rootEl.style.overflow = 'visible';
+    }
+
+    return () => {
+      document.body.style.overflow = origBodyOverflow;
+      document.documentElement.style.overflow = origHtmlOverflow;
+      document.body.style.height = origBodyHeight;
+      document.documentElement.style.height = origHtmlHeight;
+      if (rootEl) {
+        rootEl.style.height = origRootHeight;
+        rootEl.style.overflow = origRootOverflow;
+      }
+    };
+  }, []);
+
   // Initial load
   useEffect(() => {
     fetchOrders(false);
@@ -314,6 +346,21 @@ export default function LiveOrders({ defaultTenant = 'Kiko Cafe' }) {
     }}>
       {/* ── Global Mobile Touch & Animation CSS ──────────────────── */}
       <style>{`
+        html, body {
+          height: auto !important;
+          min-height: 100% !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          -webkit-overflow-scrolling: touch !important;
+        }
+        #root {
+          height: auto !important;
+          min-height: 100% !important;
+          overflow: visible !important;
+        }
+        .live-orders-app {
+          -webkit-overflow-scrolling: touch !important;
+        }
         .live-orders-app * {
           box-sizing: border-box;
         }
@@ -344,6 +391,7 @@ export default function LiveOrders({ defaultTenant = 'Kiko Cafe' }) {
         position: 'fixed', top: 0, left: 0, right: 0, height: 3,
         background: 'linear-gradient(90deg, #1e5e4a 0%, #10b981 70%, #f59e0b 100%)',
         zIndex: 1100,
+        pointerEvents: 'none',
       }} />
 
       {/* ── Mobile-First Header ─────────────────────────────────── */}
@@ -596,7 +644,7 @@ export default function LiveOrders({ defaultTenant = 'Kiko Cafe' }) {
           {/* Horizontal Scrollable Thumb Filters */}
           <div style={{
             display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2,
-            WebkitOverflowScrolling: 'touch', touchAction: 'pan-x',
+            WebkitOverflowScrolling: 'touch',
           }}>
             <button
               type="button"
