@@ -196,7 +196,42 @@ app.get('/api/data/sync', wrap(async (req, res) => {
 app.get('/api/data/orders', wrap(async (req, res) => {
   const db = requireDb();
   const tenant = resolveTenant(req);
-  const { from, to } = req.query;
+  const { from, to, guestId, phone } = req.query;
+
+  // On-demand lookup of a guest's historical orders (CRM profile view & check-in)
+  if (guestId || phone) {
+    const orConditions = [];
+    if (guestId) {
+      orConditions.push(`guest_id.eq.${String(guestId)}`);
+    }
+    if (phone && String(phone).trim()) {
+      const cleanPhone = String(phone).trim().replace(/\D/g, '');
+      if (cleanPhone.length >= 7) {
+        orConditions.push(`timestamps->>guestPhone.eq.${cleanPhone}`);
+        orConditions.push(`timestamps->>customerPhone.eq.${cleanPhone}`);
+        orConditions.push(`timestamps->>guestPhone.eq.${String(phone).trim()}`);
+        orConditions.push(`timestamps->>customerPhone.eq.${String(phone).trim()}`);
+      }
+    }
+
+    const { data, error } = await db.from('orders').select('*').eq('account_id', tenant)
+      .or(orConditions.join(','))
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    if (error) throw error;
+
+    const cleanOrders = (data || []).map(o => (o && Array.isArray(o.items) ? { ...o, items: stripItems(o.items) } : o));
+
+    return res.json({
+      success: true,
+      orders: cleanOrders,
+      count: cleanOrders.length,
+      fullyLoaded: true,
+      oldestDate: cleanOrders.length > 0 ? cleanOrders[cleanOrders.length - 1].created_at : null
+    });
+  }
+
   if (!from || !/^\d{4}-\d{2}-\d{2}/.test(String(from))) {
     return res.status(400).json({ success: false, error: 'from date required (YYYY-MM-DD or ISO)' });
   }

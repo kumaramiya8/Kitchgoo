@@ -255,6 +255,12 @@ export function hydrateOrderRow(o) {
   if (!camel.kdsTickets && camel.timestamps?.kdsTickets) {
     camel.kdsTickets = camel.timestamps.kdsTickets;
   }
+  if (!camel.guestPhone && (camel.timestamps?.guestPhone || camel.timestamps?.customerPhone)) {
+    camel.guestPhone = camel.timestamps.guestPhone || camel.timestamps.customerPhone;
+  }
+  if (!camel.customerPhone && (camel.timestamps?.customerPhone || camel.timestamps?.guestPhone || camel.guestPhone)) {
+    camel.customerPhone = camel.timestamps.customerPhone || camel.timestamps.guestPhone || camel.guestPhone;
+  }
   return camel;
 }
 
@@ -745,6 +751,39 @@ export async function ensureOrdersSince(fromDayStr) {
   return _ordersInFlight;
 }
 
+let _guestOrdersInFlight = {};
+let _guestOrdersLoaded = new Set();
+
+export async function ensureGuestOrders(guestId, phone = '') {
+  if (!isLive() || _guestMode || !guestId) return false;
+  const tenantKey = _currentTenant || 'default';
+  const cacheKey = `${tenantKey}:${guestId}`;
+
+  if (_guestOrdersLoaded.has(cacheKey)) return true;
+  if (_guestOrdersInFlight[cacheKey]) return _guestOrdersInFlight[cacheKey];
+
+  _guestOrdersInFlight[cacheKey] = (async () => {
+    try {
+      const q = `?guestId=${encodeURIComponent(guestId)}${phone ? `&phone=${encodeURIComponent(phone)}` : ''}`;
+      const res = await api.get(`/api/data/orders${q}`, { tenant: _currentTenant });
+      const orders = res?.orders || [];
+      const hydrated = orders.map(hydrateOrderRow);
+      const existing = _cache['orders'] || [];
+      const ids = new Set(existing.map(o => o.id));
+      _cache['orders'] = sortByCreatedAt([...existing, ...hydrated.filter(o => !ids.has(o.id))]);
+      _guestOrdersLoaded.add(cacheKey);
+      return true;
+    } catch (err) {
+      console.error('[DB] ensureGuestOrders error:', err);
+      return false;
+    } finally {
+      delete _guestOrdersInFlight[cacheKey];
+    }
+  })();
+
+  return _guestOrdersInFlight[cacheKey];
+}
+
 let _kdsLoadedFrom = {};
 
 export async function ensureKDSTicketsSince(fromDayStr) {
@@ -1151,7 +1190,19 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
     paymentMethod: resolvedMethod,
     orderType: extra.orderType || 'dine-in',
     tokenNumber: extra.tokenNumber || null,
-    guestId: extra.guestId || null,
+    guestId: (() => {
+      if (extra.guestId) return extra.guestId;
+      const rawP = extra.customerPhone || extra.guestPhone || '';
+      const cleanP = rawP.replace(/\D/g, '');
+      if (cleanP && cleanP.length >= 7) {
+        const matched = (getAll('guests') || []).find(g => {
+          const gp = (g.phone || '').replace(/\D/g, '');
+          return gp && (gp === cleanP || gp.endsWith(cleanP) || cleanP.endsWith(gp));
+        });
+        if (matched) return matched.id;
+      }
+      return null;
+    })(),
     guestName: extra.guestName || extra.customerName || '',
     guestPhone: extra.customerPhone || extra.guestPhone || '',
     customerName: extra.customerName || extra.guestName || '',
@@ -1192,6 +1243,8 @@ export async function createOrder(tableId, items, paymentMethod, extra = {}) {
       cashTendered: extra.cashTendered || 0,
       history: Array.isArray(extra.history) ? extra.history : [],
       kdsTickets: extra.kdsTickets || extra.timestamps?.kdsTickets || [],
+      guestPhone: extra.customerPhone || extra.guestPhone || undefined,
+      customerPhone: extra.customerPhone || extra.guestPhone || undefined,
       ...(extra.timestamps || {})
     },
     paymentSplits: extra.paymentSplits || null,

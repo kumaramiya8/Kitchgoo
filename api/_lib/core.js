@@ -436,9 +436,9 @@ export async function loadTenantPayload(tenant) {
     db.from('menu').select('*').eq('account_id', tenant),
     db.from('inventory').select('*').eq('account_id', tenant),
     db.from('orders').select('*').eq('account_id', tenant)
-      .gte('created_at', windowStart)
+      .or(`created_at.gte.${windowStart},status.eq.pending_payment`)
       .order('created_at', { ascending: false })
-      .limit(ORDERS_WINDOW_LIMIT),
+      .limit(ORDERS_WINDOW_LIMIT + 100),
     db.from('settings').select('*').eq('account_id', tenant),
     db.from('tenant_data').select('*').eq('account_id', tenant).in('collection_name', FLEX_COLLECTIONS),
     db.from('users').select('id, account_id, name, email, role, avatar, phone, created_at').eq('account_id', tenant),

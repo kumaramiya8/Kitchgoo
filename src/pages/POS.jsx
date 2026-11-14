@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../db/AppContext';
 import { useAuth } from '../db/AuthContext';
-import { getAll, insert, update, getById, saveTableOrder, saveTableState } from '../db/database';
+import { getAll, insert, update, getById, saveTableOrder, saveTableState, ensureGuestOrders } from '../db/database';
 import { printReceipt, printTableTransferNotice, printKOT } from '../utils/printReceipt';
 import { getNoun } from '../utils/naming';
 import { isModuleEnabled } from '../../shared/seeds';
@@ -219,7 +219,22 @@ const GuestModal = ({ tableId, onConfirm, onClose, floatingTabs = [], onSeatToke
     onConfirm({ ...newGuest, isNew: true });
   };
 
-  const history = selected ? getGuestHistory(selected.id) : [];
+  const [guestHistory, setGuestHistory] = useState([]);
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setGuestHistory([]);
+      return;
+    }
+    setGuestHistory(getGuestHistory(selected.id));
+    let active = true;
+    ensureGuestOrders(selected.id, selected.phone).then(() => {
+      if (active) setGuestHistory(getGuestHistory(selected.id));
+    });
+    return () => { active = false; };
+  }, [selected?.id, selected?.phone]);
+
+  const history = guestHistory;
 
   return (
     <Modal title={`Guest Check-in${tableId ? ` - Table ${tableId}` : ''}`} onClose={onClose} wide>
@@ -7484,11 +7499,12 @@ const POS = () => {
         });
       }
 
+      const resolvedGuestId = effectiveGuestId || (effectiveGuestPhone ? (getAll('guests') || []).find(g => (g.phone || '').trim() === effectiveGuestPhone)?.id : null);
       const extra = {
         orderType,
         customerName: effectiveGuestName,
         customerPhone: effectiveGuestPhone,
-        guestId: effectiveGuestId,
+        guestId: resolvedGuestId,
         guestName: effectiveGuestName,
         guestPhone: effectiveGuestPhone,
         status: isSettleLater ? 'pending_payment' : 'paid',

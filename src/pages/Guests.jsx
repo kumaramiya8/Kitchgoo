@@ -969,7 +969,7 @@ const Guests = () => {
     guests, orders, loyalty, campaigns, settings,
     addGuest, editGuest, deleteGuest,
     updateLoyalty, addCampaign, editCampaign, deleteCampaign,
-    reload, updateCashDrawer, redeemWalletCredit,
+    reload, updateCashDrawer, redeemWalletCredit, loadGuestOrders,
   } = useApp();
 
   const allGuests = guests || [];
@@ -982,6 +982,7 @@ const Guests = () => {
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState('All');
   const [selectedGuest, setSelectedGuest] = useState(null);
+  const [loadingGuestOrders, setLoadingGuestOrders] = useState(false);
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [editingGuest, setEditingGuest] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -1089,6 +1090,21 @@ const Guests = () => {
     if (orderHistoryFilter === 'paid') return guestOrders.filter(o => !isPendingOrder(o));
     return guestOrders;
   }, [guestOrders, orderHistoryFilter, isPendingOrder]);
+
+  // On-demand fetch of all historical bills for selected guest
+  useEffect(() => {
+    if (!selectedGuest?.id || typeof loadGuestOrders !== 'function') return;
+    let active = true;
+    (async () => {
+      setLoadingGuestOrders(true);
+      try {
+        await loadGuestOrders(selectedGuest.id, selectedGuest.phone);
+      } finally {
+        if (active) setLoadingGuestOrders(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [selectedGuest?.id, selectedGuest?.phone, loadGuestOrders]);
 
   // Loyalty stats
   const loyaltyStats = useMemo(() => {
@@ -1499,7 +1515,14 @@ const Guests = () => {
         {profileTab === 'orders' && (
           <div className="card" style={{ padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Order History</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Order History</h3>
+                {loadingGuestOrders && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                    (fetching bills...)
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {[
                   { key: 'all', label: `All (${guestOrders.length})` },
@@ -1527,7 +1550,12 @@ const Guests = () => {
                 ))}
               </div>
             </div>
-            {displayedGuestOrders.length === 0 ? (
+            {loadingGuestOrders && displayedGuestOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                <div style={{ width: 22, height: 22, border: '2px solid var(--border-subtle)', borderTopColor: 'var(--primary)', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 0.8s linear infinite' }} />
+                <p style={{ fontSize: '0.85rem' }}>Loading full order history...</p>
+              </div>
+            ) : displayedGuestOrders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                 <ShoppingBag size={36} strokeWidth={1} style={{ marginBottom: 10, opacity: 0.4 }} />
                 <p style={{ fontSize: '0.85rem' }}>No orders found in this view.</p>

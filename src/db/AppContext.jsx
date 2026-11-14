@@ -45,6 +45,7 @@ import {
   saveTableOrder,
   isGuestMode,
   ensureOrdersSince,
+  ensureGuestOrders,
   ensureKDSTicketsSince,
   getArchivedKDSTickets,
   issueGiftCardCredit,
@@ -1293,6 +1294,14 @@ export function AppProvider({ children }) {
     return true;
   }, []);
 
+  const loadGuestOrders = useCallback(async (guestId, phone) => {
+    const ok = await ensureGuestOrders(guestId, phone);
+    if (ok) {
+      setOrders(getAll('orders'));
+    }
+    return ok;
+  }, []);
+
   const broadcastOrderCreated = useCallback(async (tableId, kdsOrderId) => {
     if (channelRef.current) {
       await channelRef.current.send({
@@ -1365,7 +1374,7 @@ export function AppProvider({ children }) {
     // Realtime Broadcasts
     broadcastOrderCreated,
     // Utility
-    reload, loadOlderOrders, hydrateFromCache,
+    reload, loadOlderOrders, loadGuestOrders, hydrateFromCache,
   };
 
   if (!ready) return null;
