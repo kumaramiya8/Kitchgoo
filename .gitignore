@@ -32,3 +32,4 @@ semgrep*.json
 venv-semgrep/
 .agents/
 .claude/
+brag-output/

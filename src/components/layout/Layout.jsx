@@ -42,11 +42,28 @@ function playOrderChime() {
 
 const Layout = ({ children, title }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('kitchgoo_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [orderToast, setOrderToast] = useState(null); // { tableId, orderId, leaving }
   const toastTimerRef = useRef(null);
   const { user, stopImpersonating } = useAuth();
   const { reload } = useApp();
   const navigate = useNavigate();
+
+  const toggleSidebarCollapse = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('kitchgoo_sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const dismissToast = useCallback(() => {
     setOrderToast(t => t ? { ...t, leaving: true } : null);
@@ -132,7 +149,12 @@ const Layout = ({ children, title }) => {
           </button>
         </div>
       )}
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapse}
+      />
       {sidebarOpen && (
         <div 
           className="sidebar-backdrop" 
